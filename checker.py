@@ -269,7 +269,7 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    required_fields = parse_list_arg(args.fields) # or DEFAULT_REQUIRED_FIELDS
+    required_fields = parse_list_arg(args.fields)  # or DEFAULT_REQUIRED_FIELDS
     entry_types = [
         t.lower() for t in parse_list_arg(args.entry_types) or DEFAULT_ENTRY_TYPES
     ]

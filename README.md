@@ -2,8 +2,10 @@
 
 ## File Explain
 
-- **`main.py`**: The core tool. It reads a source `.bib` file, matches entries against predefined templates in `templates.py`, and fills in missing fields (e.g., address, month, publisher) into a new output file.
-  - Usage: `python main.py input.bib output.bib`
+- **`main.py` / `completer.py`**: Core completion tool. Reads a source `.bib`, matches entries against `templates.py`, and fills missing fields. Supports dry-run and logs for conflicts & missing (venue, year).
+  - Dry-run (default if no `--output`): `python completer.py input.bib`
+  - Write output: `python completer.py input.bib --output output.bib`
+  - Logs: `--conflict-log path.txt` and `--missing-log path.txt` (defaults: `input.bib.conflicts.txt`, `input.bib.missing_templates.txt`)
 
 - **`checker.py`**: Unified validation tool. Checks missing fields, Title Case, and smart protection for technical terms.
   - Missing fields: `python checker.py input.bib --fields month,publisher --entry-types inproceedings,article`
@@ -15,11 +17,9 @@
 - **`quoter.py`**: Thin wrapper to run only the smart-protection scan (uses the unified checker logic).
   - Usage: `python quoter.py input.bib --terms Gaussian,Kalman` or `--vocab-file my_terms.txt`
 
-- **`calculator.py`**: A helper tool to analyze a `.bib` file and list all unique (Venue, Year) combinations. It helps identify which venues are missing from your `templates.py`.
-  - Usage: `python calculator.py input.bib`
-
-- **`bib2py.py`**: A utility script to convert raw BibTeX entries into the Python dictionary format required for `templates.py`. Useful for bulk-adding new templates.
-  - Usage: `python bib2py.py input.bib`
+- **`bib2py.py`**: Convert BibTeX entries to `templates.py` format and (optionally) append new templates automatically.
+  - Print snippets only: `python bib2py.py new_confs.bib`
+  - Auto-append missing keys to templates (backup created): `python bib2py.py new_confs.bib --update --templates-path templates.py`
 
 ## TODO
 
