@@ -1,30 +1,30 @@
-# Bib Formatter
+# 📚 BibTex Check & Complete (BibCC)
 
 Small BibTeX utility toolkit to auto-complete missing fields, check formatting quality, and maintain reusable templates.
 
-## Quick start
+## 🚀 Quick start
 
 ```bash
 pip install bibtexparser
 ```
 
-### 1. Complete missing fields — `completer.py`
+### 🧩 Complete missing fields — `completer.py`
 
-- Preview only (no write-back, logs are still generated):
+- Preview only (no write-back, logs generated):
 
   ```bash
   python completer.py input.bib
   ```
 
-- Write completed output (overwrites the given output path) and generate logs:
+- Choose a log directory: `--log-dir logs/` (default current directory, outputs `*.conflicts.txt` and `*.missing_templates.txt`).
+
+- Write completed output (overwrites the given output path):
 
   ```bash
   python completer.py input.bib --output output.bib
   ```
 
-- Choose a log directory: `--log-dir logs/` (default current directory, outputs `*.conflicts.txt` and `*.missing_templates.txt`).
-
-### 2. Quality checks — `checker.py`
+### ✅ Quality checks — `checker.py`
 
 - Missing-field check (default entry types: inproceedings, article, proceedings, conference):
 
@@ -45,7 +45,7 @@ pip install bibtexparser
   # To skip built-in vocab, add --quote-no-default
   ```
 
-### 3. Maintain the template library — `bib2py.py`
+### 🗂️ Maintain the template library — `bib2py.py`
 
 - Generate template snippets from a `.bib` file (print only, do not write):
 
@@ -59,18 +59,33 @@ pip install bibtexparser
   python bib2py.py new_confs.bib --update --templates-path templates.py
   ```
 
-## Suggested workflow
+## 🧭 Suggested workflow
 
-1. Run `completer.py input.bib --output completed.bib` to fill missing fields using existing templates and inspect conflict/missing-template logs.
-2. Run `checker.py` to:
-   - `--fields` find required-field gaps;
-   - `--title-case` get Title Case suggestions;
-   - `--quote` spot technical terms needing braces.
-3. When you encounter new venue/year combos, gather them into a separate `.bib` and run `bib2py.py --update` to refresh `templates.py` for future reuse.
+### 🛠️ Completion
 
-## Templates
+1. Run `completer.py input.bib` without output to check missing fields, conflict fields and missing-template.
+
+2. Resolve conflict fields by updating templates or entry.
+
+3. Gather new venue/year combos into a separate `.bib` (under `templates/`) and run `bib2py.py --update` to refresh `templates.py` for future reuse.
+
+4. Run `completer.py input.bib --output output.bib` to complete the file. (See Additional resources for additional formatting)
+
+### 🔍 Validation
+
+Run `checker.py` to:
+
+- `--fields` find required-field gaps;
+- `--title-case` get Title Case suggestions;
+- `--quote` spot technical terms needing braces.
+
+## 🧾 Templates
 
 - Main templates live in `templates.py`, keyed by `(venue, year)` with a dict of fields to fill.
 - The `templates/` folder holds historical/backup `.bib` files for reference.
+
+## 🔗 Additional resources
+
+The modified `.bib` file is not guaranteed to be well formatted, thanks to [**BibTex Tidy**](https://flamingtempura.github.io/bibtex-tidy/) and VS Code's LaTex Workshop extension for final formatting.
 
 Feel free to extend templates and vocab to match your bibliography!

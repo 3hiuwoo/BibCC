@@ -1,3 +1,4 @@
 *.bib
 !templates/*
-log/*
+*.txt
+*.bak

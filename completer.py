@@ -40,7 +40,8 @@ def main(
     # Create a "Patch List": { "ENTRY_ID": { "field": "value", ... } }
     patches: Dict[str, Dict[str, str]] = {}
     conflicts: Dict[str, List[Tuple[str, str, str]]] = {}
-    missing_templates: List[Tuple[str, str, str]] = []  # (entry_id, venue_raw, year)
+    # Map normalized (venue, year) -> first-seen raw (venue, year) for unique reporting
+    missing_templates: Dict[Tuple[str, str], Tuple[str, str]] = {}
 
     for entry in bib_db.entries:
         entry_id = entry["ID"]
@@ -48,7 +49,8 @@ def main(
         venue_raw = entry.get("booktitle") or entry.get("journal")
 
         if not year or not venue_raw:
-            missing_templates.append((entry_id, venue_raw or "", year or ""))
+            key = (normalize_text(venue_raw or ""), normalize_text(year or ""))
+            missing_templates.setdefault(key, (venue_raw or "", year or ""))
             continue
 
         # Find matching template
@@ -65,7 +67,8 @@ def main(
                 break
 
         if not matched_template:
-            missing_templates.append((entry_id, venue_raw, year))
+            key = (clean_venue, clean_year)
+            missing_templates.setdefault(key, (venue_raw, year))
             continue
 
         fields_to_add = {}
@@ -101,8 +104,8 @@ def main(
             )
 
     missing_rows: List[str] = []
-    for eid, venue_raw, year in missing_templates:
-        missing_rows.append(f"{eid}\t{venue_raw}\t{year}")
+    for venue_raw, year in missing_templates.values():
+        missing_rows.append(f"{venue_raw}\t{year}")
 
     # Dry-run summary
     if dry_run:
@@ -129,9 +132,11 @@ def main(
             print("\n✅ No conflicts detected.")
 
         if missing_templates:
-            print("\nℹ️  Missing (venue, year) combinations not in templates:")
-            for eid, venue_raw, year in missing_templates:
-                print(f"  {eid}: venue='{venue_raw}' year='{year}'")
+            print(
+                "\nℹ️  Missing (venue, year) combinations not in templates (deduplicated):"
+            )
+            for venue_raw, year in missing_templates.values():
+                print(f"  venue='{venue_raw}' year='{year}'")
         else:
             print("\n✅ All entries matched existing templates.")
 
@@ -140,9 +145,7 @@ def main(
             "conflicts: entry_id\tfield\texisting\ttemplate",
             conflict_rows,
         )
-        _write_log(
-            missing_log, "missing templates: entry_id\tvenue\tyear", missing_rows
-        )
+        _write_log(missing_log, "missing templates: venue\tyear", missing_rows)
         print(f"\nLogs saved: {conflict_log}, {missing_log}")
         return
 
