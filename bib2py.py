@@ -25,7 +25,8 @@ EXCLUDED_KEYS = {
     "number",
     "note",
     "issue_date",
-    "keywords"
+    "keywords",
+    "part"
 }
 
 

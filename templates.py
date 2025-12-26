@@ -53,6 +53,8 @@ TEMPLATES = {
         "issn": '1611-3349',
         "address": 'Cham',
         "publisher": 'Springer Nature Switzerland',
+        "isbn": '978-3-031-73030-6',
+        "series": 'Lecture Notes in Computer Science',
     },
 
     ("Expert Systems with Applications", "2025"): {
@@ -318,6 +320,7 @@ TEMPLATES = {
         "address": 'New York, NY, USA',
         "publisher": 'Association for Computing Machinery',
         "isbn": '979-8-4007-0686-8',
+        "series": "MM '24",
     },
 
     ("Proceedings of the 41st International Conference on Machine Learning", "2024"): {
