@@ -5,3 +5,4 @@
 *.yaml
 !missing_templates.example.yaml
 logs/
+*.local.*
