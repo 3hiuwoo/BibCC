@@ -19,7 +19,7 @@ BibCC provides five commands through a single entry point — `bibcc.py`:
 
 | Command | Description |
 | --- | --- |
-| `check` | Quality c👋ecks: missing fields, title case, term protection, citation keys |
+| `check` | Quality checks: missing fields, title case, term protection, citation keys |
 | `complete` | Auto-fill missing BibTeX fields from templates |
 | `librarian` | Align PDF library with `.bib`: missing / extra / rename |
 | `scholar` | Citation counts and title verification via external APIs |
