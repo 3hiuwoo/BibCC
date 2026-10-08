@@ -25,7 +25,7 @@ Run the tests with `uv run pytest`.
 
 ## 🧩 Commands
 
-BibCC provides seven commands through a single entry point — `bibcc`:
+BibCC provides eight commands through a single entry point — `bibcc`:
 
 | Command | Description |
 | --- | --- |
@@ -33,6 +33,7 @@ BibCC provides seven commands through a single entry point — `bibcc`:
 | `complete` | Auto-fill missing BibTeX fields from the venue library |
 | `add` | Fetch new papers by DOI, arXiv ID, or title into a staging `.bib` |
 | `upgrade` | Replace arXiv preprints with their published versions, keeping keys |
+| `format` | Reformat `.bib` files consistently: aligned fields, braced values, month macros |
 | `librarian` | Align PDF library with `.bib`: missing / extra / rename |
 | `scholar` | Citation counts and title verification via external APIs |
 | `compose` | Merge per-folder `.bib` files into a single bibliography |
@@ -124,7 +125,7 @@ bibcc complete input.bib --output out.bib   # write completed output
 bibcc complete input.bib --in-place         # write back to input.bib
 ```
 
-Edits are **minimal and verified**: new fields are inserted before each entry's closing brace, using the entry's own indentation and `=` alignment, and nothing else in the file changes (comments, field order, LaTeX, line endings). Before writing, the result is re-parsed and checked to contain the same entries with only the intended fields changed. If that check fails, nothing is written. The same safe editing is used by `check --title-apply`/`--title-interactive` and `scholar cite`.
+Edits are **minimal and verified**: new fields are inserted before each entry's closing brace, using the entry's own indentation and `=` alignment, and nothing else in the file changes (comments, field order, LaTeX, line endings). Months are written as macros (`month = jun`), matching what `add` and `format` produce. Before writing, the result is re-parsed and checked to contain the same entries with only the intended fields changed. If that check fails, nothing is written. The same safe editing is used by `check --title-apply`/`--title-interactive` and `scholar cite`.
 
 When venues are missing from the library, a `.bibcc/<input>.missing_venues.yaml` file is generated. Fields are pre-filled from existing entries in the same journal/conference, from the **previous edition** of the same conference (e.g. CVPR 2025 → CVPR 2026: publisher, ISSN, month), and from venue-name guesses, so you only fill in what couldn't be inferred.
 
@@ -233,6 +234,64 @@ Preprints without a published version are listed as unchanged, with the arXiv co
 
 ---
 
+### `format` — Consistent Formatting
+
+Reformat whole `.bib` files, like BibTeX Tidy. Unlike the other commands, which only touch the fields they change, `format` rewrites the layout of every entry.
+
+```bash
+bibcc format bib/                     # dry run: one diff per changed file in .bibcc/
+bibcc format bib/ --in-place          # write the changes
+bibcc format refs.bib --output out.bib
+bibcc format bib/ --check             # write nothing; exit 1 if a file is not formatted (CI)
+```
+
+`PATH` can be `.bib` files or directories, which are searched recursively (`.bibcc/` folders are skipped). The default style:
+
+```bibtex
+@inproceedings{GKEAL_Zhuang_CVPR2023,
+  title     = {{GKEAL}: {Gaussian} Kernel Embedded Analytic Learning ...},
+  author    = {Zhuang, Huiping and Weng, Zhenyu and ...},
+  year      = {2023},
+  month     = jun,
+  booktitle = {2023 {IEEE/CVF} Conference on Computer Vision and Pattern Recognition ({CVPR})}
+}
+```
+
+- lowercase entry types and field names, two-space indent, `=` aligned to the longest field name;
+- `"..."` values and bare numbers become `{...}`; values joined with `#` and macros such as `@string` names stay as they are;
+- months become macros (`{June}`, `"6"`, `Jun.` → `jun`);
+- one blank line between entries and a single newline at the end of the file;
+- field order is kept unless `--sort-fields` is given;
+- values are otherwise copied exactly, including line breaks inside them;
+- `%` comments and `@string`/`@comment`/`@preamble` blocks are kept. With `--sort-entries`, a comment directly above an entry moves with it, and `@string`/`@preamble` blocks stay at the top.
+
+Every result is checked before anything is written: the file is parsed again and must contain the same entries, types, fields, and values (up to the conversions above), and formatting it a second time must change nothing. Files that fail the check, cannot be parsed, or have duplicate keys are reported and skipped.
+
+<details>
+<summary>All <code>format</code> options</summary>
+
+| Option | Description |
+| --- | --- |
+| `PATH ...` | `.bib` files or directories (recursive) |
+| `--in-place` | Write the formatted text back to each file |
+| `-o`, `--output FILE` | Write the formatted file here (single input file only) |
+| `--check` | Write nothing; exit 1 if any file would change |
+| `--sort-fields` | Reorder fields by `--field-order`; other fields follow in source order |
+| `--field-order LIST` | Comma-separated order for `--sort-fields` (default: the order `add` uses) |
+| `--sort-entries` | Sort entries by citation key (case-insensitive) |
+| `--keep-quotes` | Keep `"..."` values and bare numbers |
+| `--keep-months` | Do not turn months into macros |
+| `--no-align` | Write `name = value` without aligning `=` |
+| `--indent N` | Field indent: number of spaces or `tab` (default: `2`) |
+| `--blank-lines N` | Blank lines between entries (default: `1`) |
+| `--trailing-comma` | Put a comma after the last field |
+| `--drop-empty` | Remove fields with empty values (`{}` or `""`) |
+| `--log-dir DIR` | Directory for diffs and logs (default: `.bibcc/` next to each input) |
+
+</details>
+
+---
+
 ### `librarian` — PDF Library Alignment
 
 Align your PDF library with your bibliography. Three subcommands:
@@ -323,6 +382,7 @@ Reports are written to a `.bibcc/` folder next to the input `.bib` file, and log
 | `complete` | `.complete.diff` (dry-run preview), `.missing_venues.yaml`, `.missing_venues.txt`, `.conflicts.txt`, `.incomplete_entries.txt` | `.bibcc/logs/*.completer.log` |
 | `add` | (entries appended to the staging `.bib`) | `.bibcc/logs/*.adder.log` |
 | `upgrade` | `.upgrade.txt`, `.upgrade.diff` (dry-run preview) | `.bibcc/logs/*.upgrader.log` |
+| `format` | `.format.diff` (dry-run preview) | `.bibcc/logs/*.formatter.log` |
 | `scholar cite` | `.scholar_urls.txt` | `.bibcc/logs/*.scholar.cite.log` |
 | `scholar titles` | `.title_report.txt` | `.bibcc/logs/*.scholar.titles.log` |
 | `librarian` | `.missing_pdfs.txt`, `.extra_pdfs.txt`, `.rename_report.txt` | `.bibcc/logs/*.librarian.log` |
@@ -371,7 +431,7 @@ Entries missing year or venue (e.g., arXiv preprints, misc entries) are reported
 
 ## 🔗 Additional Resources
 
-BibCC keeps your existing formatting and only adds or replaces the fields it targets. For whole-file reformatting, use:
+Apart from `bibcc format`, BibCC keeps your existing formatting and only adds or replaces the fields it targets. Other formatters:
 
 - [**BibTeX Tidy**](https://flamingtempura.github.io/bibtex-tidy/)
 - VS Code's LaTeX Workshop extension
@@ -394,6 +454,8 @@ BibCC keeps your existing formatting and only adds or replaces the fields it tar
 - `add`:
   - [x] ~~Add papers by DOI, arXiv ID, or title with duplicate checks.~~ Done — `bibcc add`.
   - [x] ~~Replace preprints with published versions.~~ Done — `bibcc upgrade`.
+- `format`:
+  - [x] ~~Whole-file formatting (alignment, braces, month macros, sorting).~~ Done — `bibcc format`.
 - `librarian`:
   - [x] ~~Unified PDF library alignment (missing/extra/rename).~~ Done.
 - `scholar`:
