@@ -3,7 +3,8 @@
 *.txt
 *.bak
 *.yaml
-!missing_templates.example.yaml
+!missing_venues.example.yaml
+!src/bibcc/data/venues.yaml
 logs/
 *.local.*
 __pycache__/

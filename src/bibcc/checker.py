@@ -7,20 +7,20 @@ sub-checkers in the ``checkers`` package:
 - Missing field detection (e.g., month, publisher)
 - Title case validation with APA-style rules
 - Smart protection suggestions for technical terms and acronyms
-- Template completeness checking
+- Venue library completeness checking
 
 Usage:
     # Check for missing fields
-    python checker.py input.bib --fields month,publisher
+    bibcc check input.bib --fields month,publisher
 
     # Check title case
-    python checker.py input.bib --title-case
+    bibcc check input.bib --title-case
 
     # Suggest brace protection for terms
-    python checker.py input.bib --quote --quote-terms Gaussian,BERT
+    bibcc check input.bib --quote --quote-terms Gaussian,BERT
 
-    # Check template completeness
-    python checker.py --check-templates
+    # Check venue library completeness
+    bibcc check --check-venues
 """
 
 from __future__ import annotations
@@ -42,6 +42,7 @@ from bibcc.checkers import (
 )
 from bibcc.checkers.title_case import check_title_case, get_style
 from bibcc.logging_utils import Logger, get_output_dir, write_report
+from bibcc.venues import default_library_path
 
 
 def parse_list_arg(raw: str) -> List[str]:
@@ -59,7 +60,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "input",
         type=str,
-        nargs="?",  # Make optional for --check-templates mode
+        nargs="?",  # Make optional for --check-venues mode
         default="",
         help="Path to the input BibTeX (.bib) file",
     )
@@ -136,27 +137,29 @@ def build_parser() -> argparse.ArgumentParser:
         help="Check citation key legibility (METHOD_AUTHOR_VENUEYEAR convention).",
     )
     parser.add_argument(
+        "--check-venues",
         "--check-templates",
+        dest="check_venues",
         action="store_true",
-        help="Check templates.py for missing fields instead of a bib file.",
+        help="Check the venue library for missing fields instead of a bib file.",
     )
     parser.add_argument(
-        "--templates-path",
+        "--venues",
         type=str,
-        default=str(Path(__file__).parent / "templates.py"),
-        help="Path to templates.py file (default: the bundled templates.py).",
+        default="",
+        help=f"Venue library YAML (default: $BIBCC_VENUES or {default_library_path()}).",
     )
     parser.add_argument(
         "--journal-fields",
         type=str,
         default=",".join(DEFAULT_JOURNAL_FIELDS),
-        help=f"Comma-separated fields to check in journal templates (default: {','.join(DEFAULT_JOURNAL_FIELDS)}).",
+        help=f"Comma-separated fields to check in journal records (default: {','.join(DEFAULT_JOURNAL_FIELDS)}).",
     )
     parser.add_argument(
         "--proceedings-fields",
         type=str,
         default=",".join(DEFAULT_PROCEEDINGS_FIELDS),
-        help=f"Comma-separated fields to check in proceedings templates (default: {','.join(DEFAULT_PROCEEDINGS_FIELDS)}).",
+        help=f"Comma-separated fields to check in proceedings records (default: {','.join(DEFAULT_PROCEEDINGS_FIELDS)}).",
     )
 
     return parser
@@ -164,16 +167,15 @@ def build_parser() -> argparse.ArgumentParser:
 
 def run(args: argparse.Namespace) -> None:
     """Run checker with parsed arguments."""
-    # Template checking mode
-    if args.check_templates:
+    # Venue library checking mode
+    if args.check_venues:
+        venues_path = Path(args.venues) if args.venues else default_library_path()
         log_dir = get_output_dir() / "logs"
-        with Logger(
-            "checker", input_file=args.templates_path, log_dir=log_dir
-        ) as logger:
+        with Logger("checker", input_file=venues_path, log_dir=log_dir) as logger:
             journal_fields = parse_list_arg(args.journal_fields)
             proceedings_fields = parse_list_arg(args.proceedings_fields)
             check_template_fields(
-                Path(args.templates_path),
+                venues_path,
                 journal_fields,
                 proceedings_fields,
                 log=logger.log,
@@ -181,7 +183,7 @@ def run(args: argparse.Namespace) -> None:
         return
 
     if not args.input:
-        build_parser().error("an input .bib file is required unless --check-templates is used")
+        build_parser().error("an input .bib file is required unless --check-venues is used")
 
     report_dir = get_output_dir(args.input)
     base_name = Path(args.input).name

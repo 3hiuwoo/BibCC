@@ -1,6 +1,6 @@
 # 📚 BibTeX Check & Complete (BibCC)
 
-A CLI toolkit to auto-complete missing BibTeX fields, check formatting quality, manage reusable templates, and align your PDF library with your bibliography.
+A CLI toolkit to auto-complete missing BibTeX fields, check formatting quality, manage a reusable venue library, and align your PDF library with your bibliography.
 
 > 👋 Thanks for attention!
 >
@@ -19,7 +19,7 @@ uv tool install --editable .  # optional: put `bibcc` on your PATH
 bibcc --help
 ```
 
-The editable install keeps `bibcc` pointing at your checkout, so template updates and code changes apply immediately.
+The editable install keeps `bibcc` pointing at your checkout, so venue library updates and code changes apply immediately.
 
 Run the tests with `uv run pytest`.
 
@@ -30,7 +30,7 @@ BibCC provides five commands through a single entry point — `bibcc`:
 | Command | Description |
 | --- | --- |
 | `check` | Quality checks: missing fields, title case, term protection, citation keys |
-| `complete` | Auto-fill missing BibTeX fields from templates |
+| `complete` | Auto-fill missing BibTeX fields from the venue library |
 | `librarian` | Align PDF library with `.bib`: missing / extra / rename |
 | `scholar` | Citation counts and title verification via external APIs |
 | `compose` | Merge per-folder `.bib` files into a single bibliography |
@@ -72,11 +72,11 @@ bibcc check input.bib --quote --quote-vocab-file my_terms.txt
 bibcc check input.bib --check-keys
 ```
 
-**Template completeness** — check `templates.py` for missing fields:
+**Venue library completeness** — check the venue library for missing fields:
 
 ```bash
-bibcc check --check-templates
-bibcc check --check-templates --journal-fields publisher,issn --proceedings-fields venue,month,isbn
+bibcc check --check-venues
+bibcc check --check-venues --journal-fields publisher,issn --proceedings-fields venue,month,isbn
 ```
 
 **Combine checks** in one run:
@@ -103,9 +103,10 @@ bibcc check input.bib --fields month --title-case --quote --check-keys
 | `--quote-no-default` | Disable built-in technical vocabulary |
 | `--protection-min-length N` | Minimum word length for acronym detection (default: `3`) |
 | `--check-keys` | Check citation key legibility |
-| `--check-templates` | Check templates for missing fields |
-| `--journal-fields FIELDS` | Fields to check in journal templates (default: `publisher,issn`) |
-| `--proceedings-fields FIELDS` | Fields to check in proceedings templates (default: `venue,publisher,month`) |
+| `--check-venues` | Check the venue library for missing fields (`--check-templates` still works) |
+| `--venues FILE` | Venue library to check (default: `$BIBCC_VENUES` or the bundled library) |
+| `--journal-fields FIELDS` | Fields to check in journal records (default: `publisher,issn`) |
+| `--proceedings-fields FIELDS` | Fields to check in proceedings records (default: `venue,publisher,month`) |
 
 </details>
 
@@ -113,25 +114,25 @@ bibcc check input.bib --fields month --title-case --quote --check-keys
 
 ### `complete` — Auto-fill Missing Fields
 
-Fill missing BibTeX fields (publisher, ISSN, venue, month, …) from a built-in template database.
+Fill missing BibTeX fields (publisher, ISSN, venue, month, …) from the venue library (see [Venue Library](#venue-library)). Existing fields are never overwritten: differences are reported as conflicts.
 
 ```bash
 bibcc complete input.bib                    # preview (dry-run)
 bibcc complete input.bib --output out.bib   # write completed output
 ```
 
-When templates are missing, a `*.missing_templates.yaml` file is generated. Fields are **auto-guessed** from venue name patterns and **pre-filled** from existing entries in the same journal/conference, so you only need to fill in what couldn't be inferred.
+When venues are missing from the library, a `.bibcc/<input>.missing_venues.yaml` file is generated. Fields are pre-filled from existing entries in the same journal/conference, from the **previous edition** of the same conference (e.g. CVPR 2025 → CVPR 2026: publisher, ISSN, month), and from venue-name guesses, so you only fill in what couldn't be inferred.
 
-**One-step workflow** — generate YAML, update templates, and re-complete:
+**Workflow** — generate YAML, update the library, and complete:
 
 ```bash
-# 1. Run to generate the YAML (auto-guessed fields pre-filled)
+# 1. Run to generate the YAML (pre-filled where possible)
 bibcc complete input.bib
 
-# 2. Fill in remaining fields in input.bib.missing_templates.yaml
+# 2. Fill in remaining fields in .bibcc/input.bib.missing_venues.yaml
 
-# 3. Update templates and re-complete in one step
-bibcc complete input.bib --output out.bib --update-templates
+# 3. Merge into the library and complete in one step
+bibcc complete input.bib --output out.bib --update-venues
 ```
 
 <details>
@@ -140,8 +141,9 @@ bibcc complete input.bib --output out.bib --update-templates
 | Option | Description |
 | --- | --- |
 | `--output FILE` | Path to save the enhanced `.bib` file (omit for dry-run) |
-| `--log-dir DIR` | Directory to write logs (default: current directory) |
-| `--update-templates` | Invoke `yaml2templates` on the generated YAML, then re-run completion |
+| `--log-dir DIR` | Directory for logs and reports (default: `.bibcc/` next to the input) |
+| `--venues FILE` | Venue library to use (default: `$BIBCC_VENUES` or the bundled library) |
+| `--update-venues` | Merge the filled-in `*.missing_venues.yaml` into the library before completing (`--update-templates` still works) |
 
 </details>
 
@@ -234,29 +236,49 @@ Reports are written to a `.bibcc/` folder next to the input `.bib` file, and log
 | Command | Report Files | Log Files |
 | --- | --- | --- |
 | `check` | `.missing_fields.txt`, `.title_case.txt`, `.smart_protection.txt`, `.citation_keys.txt` | `.bibcc/logs/*.checker.log` |
-| `complete` | `.missing_templates.yaml`, `.missing_templates.txt`, `.conflicts.txt`, `.incomplete_entries.txt` | `.bibcc/logs/*.completer.log` |
+| `complete` | `.missing_venues.yaml`, `.missing_venues.txt`, `.conflicts.txt`, `.incomplete_entries.txt` | `.bibcc/logs/*.completer.log` |
 | `scholar cite` | `.scholar_urls.txt` | `.bibcc/logs/*.scholar.cite.log` |
 | `scholar titles` | `.title_report.txt` | `.bibcc/logs/*.scholar.titles.log` |
 | `librarian` | `.missing_pdfs.txt`, `.extra_pdfs.txt`, `.rename_report.txt` | `.bibcc/logs/*.librarian.log` |
 | `compose` | (composed `.bib` file) | `.bibcc/logs/*.composer.log` |
 
-## 🗂️ Template System
+## 🗂️ Venue Library <a id="venue-library"></a>
 
-Templates power the `complete` command. They live in `templates.py` as two dictionaries:
+The venue library powers `complete`. It is a YAML file, [`src/bibcc/data/venues.yaml`](src/bibcc/data/venues.yaml), with two lists:
 
-- **`JOURNAL_TEMPLATES`** — Keyed by journal name (year-agnostic, since journals have consistent metadata)
-- **`PROCEEDINGS_TEMPLATES`** — Keyed by `(venue_name, year)` tuple (conferences vary by year)
+```yaml
+journals:                       # year-agnostic
+  - name: Pattern Recognition
+    aliases: [Pattern Recognit.]  # optional other spellings
+    fields:
+      publisher: Elsevier
+      issn: 0031-3203
+proceedings:                    # one record per publication year
+  - name: Computer Vision -- ECCV 2024
+    year: '2025'                # publication year, not the edition
+    fields:
+      venue: Milan, Italy
+      series: Lecture Notes in Computer Science
+```
 
-### Adding New Templates
+Matching ignores braces, case, `\&` vs `&`, and extra spaces:
+
+- **Journals** match by name, any alias, or ISSN.
+- **Proceedings** match by name or alias **and** the entry's `year`.
+- If several records match one entry, nothing is added and the entry is reported as ambiguous.
+
+To use a library somewhere else (for example one kept with your paper), pass `--venues FILE` or set `BIBCC_VENUES`. See [`missing_venues.example.yaml`](missing_venues.example.yaml) for the format of the generated file.
+
+### Adding New Venues
 
 ```bash
 # 1. Run complete to generate YAML for unknown venues
 bibcc complete input.bib
 
-# 2. Edit the generated *.missing_templates.yaml — most fields are pre-filled
+# 2. Edit .bibcc/input.bib.missing_venues.yaml — most fields are pre-filled
 
-# 3. Update templates and complete in one step
-bibcc complete input.bib --output out.bib --update-templates
+# 3. Merge into the library and complete in one step
+bibcc complete input.bib --output out.bib --update-venues
 ```
 
 Entries missing year or venue (e.g., arXiv preprints, misc entries) are reported in `*.incomplete_entries.txt` and skipped.
@@ -270,13 +292,14 @@ The modified `.bib` file is not guaranteed to be well formatted. Use:
 
 ## 📋 TODO
 
-- `complete` & templates:
-  - [x] ~~Integrate completer with `yaml2templates` for unified template management workflow.~~ Done — `--update-templates` flag.
+- `complete` & venue library:
+  - [x] ~~Unified venue management workflow.~~ Done — YAML venue library + `--update-venues` flag.
+  - [x] ~~Aliases, ISSN matching, and previous-edition pre-fill.~~ Done.
   - [x] ~~Auto-guess fields from journal/conference names (publisher, issn, month).~~ Done — `# auto-guessed` markers in YAML.
   - [x] ~~Pre-fill YAML from existing bibliographies in the same venue.~~ Done — fields collected from bib entries.
 - `check`:
   - [x] ~~Citation key legibility check.~~ Done — `--check-keys`.
-  - [x] ~~Template-specific missing fields check.~~ Done — `--check-templates`.
+  - [x] ~~Venue library missing fields check.~~ Done — `--check-venues`.
   - [x] ~~Robust term protection (skip numbers, filter author names).~~ Done — `--quote` with smart filtering.
   - [x] ~~Robust title case (hyphenated words, configurable style).~~ Done — `--title-case` with APA handling.
   - [x] ~~Interactive title case application.~~ Done — `--title-interactive`.

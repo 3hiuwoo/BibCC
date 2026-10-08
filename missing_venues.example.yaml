@@ -1,0 +1,50 @@
+# Example *.missing_venues.yaml
+# `bibcc complete refs.bib` writes this file to .bibcc/refs.bib.missing_venues.yaml
+# when entries use venues that are not in the venue library.
+# Fill in the fields, then run:
+#   bibcc complete refs.bib --output out.bib --update-venues
+#
+# The schema is the same as the venue library (src/bibcc/data/venues.yaml):
+#   journals:    year-agnostic, matched by name, alias, or ISSN
+#   proceedings: matched by name or alias AND the entry's publication year
+# Records whose fields are all empty are skipped when merging.
+
+journals:
+  - name: "IEEE Transactions on Example Journal"
+    # aliases: []  # other spellings of this venue
+    fields:
+      publisher: "IEEE"  # auto-guessed
+      issn: ""  # fill this in
+      # address: ""  # optional, e.g., New York, NY, USA
+
+proceedings:
+  - name: "2026 Example Conference on Something (EXC)"
+    year: "2026"  # publication year, not necessarily the edition in the name
+    aliases: ["Proceedings of the Example Conference (EXC)"]
+    fields:
+      venue: ""  # e.g., "City, Country"
+      publisher: "IEEE"  # from 2025 edition
+      month: "June"  # auto-guessed
+      # isbn: ""
+      # issn: ""
+      # editor: ""
+      # series: ""
+      # address: ""
+
+# Common fields reference:
+#
+# For journals:
+#   - publisher: Publisher name (e.g., "IEEE", "Elsevier", "Springer")
+#   - issn: ISSN number
+#   - address: Publisher location (optional)
+#
+# For proceedings:
+#   - venue: Conference location (e.g., "Seattle, WA, USA")
+#   - publisher: Publisher name
+#   - isbn: ISBN number
+#   - issn: ISSN number (if applicable)
+#   - month: Conference month (e.g., "June", "October")
+#   - editor: Editor names in BibTeX format
+#   - series: Conference series name
+#   - address: Publisher location
+#   - day: Conference days (e.g., "21--27")

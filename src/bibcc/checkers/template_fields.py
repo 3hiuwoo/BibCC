@@ -1,23 +1,24 @@
 """
-Template completeness checker.
+Venue library completeness checker.
 
-Inspects the journal and proceedings templates defined in templates.py
-for missing fields (publisher, ISSN, venue, etc.).  Supports per-venue
+Inspects the journal and proceedings records in the venue library
+(``bibcc/data/venues.yaml``) for missing fields (publisher, ISSN, venue, etc.).  Supports per-venue
 field overrides so that specific conferences can require additional fields
 (e.g., ECCV → ``series``, some conferences → ``editor``).
 
 Usage:
     from bibcc.checkers.template_fields import check_template_fields
 
-    check_template_fields(Path("templates.py"), ["publisher", "issn"], ["venue"])
+    check_template_fields(Path("venues.yaml"), ["publisher", "issn"], ["venue"])
 """
 
 from __future__ import annotations
 
-import importlib.util
 import re
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Sequence, Tuple
+
+from bibcc.venues import VenueLibrary
 
 DEFAULT_JOURNAL_FIELDS = ["publisher", "issn"]
 DEFAULT_PROCEEDINGS_FIELDS = ["venue", "publisher", "month"]
@@ -60,7 +61,7 @@ def check_template_fields(
     matching proceedings templates are also checked for the extra fields.
 
     Args:
-        templates_path: Path to the templates.py module.
+        templates_path: Path to the venue library YAML.
         journal_fields: Fields to require in journal templates.
         proceedings_fields: Fields to require in proceedings templates.
         venue_overrides: Per-venue extra field requirements.  Defaults to
@@ -71,25 +72,18 @@ def check_template_fields(
     if venue_overrides is None:
         venue_overrides = VENUE_FIELD_OVERRIDES
 
-    # Load templates module
-    spec = importlib.util.spec_from_file_location("templates", templates_path)
-    if spec is None or spec.loader is None:
-        log(f"❌ Error: Cannot load templates from {templates_path}")
-        return
-
-    mod = importlib.util.module_from_spec(spec)
     try:
-        spec.loader.exec_module(mod)
+        library = VenueLibrary.load(templates_path)
     except Exception as e:
-        log(f"❌ Error loading templates: {e}")
+        log(f"❌ Error loading venue library {templates_path}: {e}")
         return
 
-    journal_templates: Dict[str, Dict] = getattr(mod, "JOURNAL_TEMPLATES", {})
-    proceedings_templates: Dict[Tuple[str, str], Dict] = getattr(
-        mod, "PROCEEDINGS_TEMPLATES", {}
-    )
+    journal_templates: Dict[str, Dict] = {v.name: v.fields for v in library.journals}
+    proceedings_templates: Dict[Tuple[str, str], Dict] = {
+        (v.name, str(v.year)): v.fields for v in library.proceedings
+    }
 
-    log(f"🔍 Checking templates in {templates_path}")
+    log(f"🔍 Checking venue library {templates_path}")
     log(f"   Journal fields to check: {', '.join(journal_fields)}")
     log(f"   Proceedings fields to check: {', '.join(proceedings_fields)}")
     log("")
