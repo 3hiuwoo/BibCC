@@ -30,6 +30,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import bibtexparser
 
+from bibcc.bibedit import BibEditError, read_bib, set_fields, write_bib
 from bibcc.logging_utils import (
     SEPARATOR_HEAVY,
     SEPARATOR_LIGHT,
@@ -145,43 +146,17 @@ def interactive_fill(
 
     log(f"\n✍️  Writing to: {output_path}")
 
-    with open(input_path, "r", encoding="utf-8") as f:
-        lines = f.readlines()
-
-    with open(output_path, "w", encoding="utf-8") as f:
-        current_entry_id: Optional[str] = None
-        entry_has_citation: Dict[str, bool] = {}
-
-        for entry in entries_to_process:
-            entry_id = entry.get("ID", "unknown")
-            entry_has_citation[entry_id] = "citation" in entry
-
-        for line in lines:
-            entry_match = re.search(r"@\w+\s*\{\s*([^,]+),", line)
-            if entry_match:
-                current_entry_id = entry_match.group(1).strip()
-                f.write(line)
-                if current_entry_id in patches and not entry_has_citation.get(
-                    current_entry_id, True
-                ):
-                    new_value = patches[current_entry_id]
-                    f.write(f"  citation     = {{{new_value}}},\n")
-                    del patches[current_entry_id]
-                continue
-
-            citation_match = re.match(r"(\s*citation\s*=\s*\{)([^}]*)(\},?)", line)
-            if citation_match and current_entry_id in patches:
-                prefix, _, suffix = citation_match.groups()
-                new_value = patches[current_entry_id]
-                f.write(f"{prefix}{new_value}{suffix}\n")
-                del patches[current_entry_id]
-                continue
-
-            f.write(line)
-
-    updated_count = len(
-        [e for e in entries_to_process if e.get("ID", "unknown") not in patches]
-    )
+    text = read_bib(input_path)
+    try:
+        new_text, applied = set_fields(
+            text, {eid: {"citation": value} for eid, value in patches.items()}
+        )
+    except BibEditError as e:
+        log(f"❌ Could not write citations safely: {e}")
+        log("   Nothing was written.")
+        return
+    write_bib(output_path, new_text)
+    updated_count = len(applied)
     log(f"✅ Done! Updated {updated_count} entries.")
     log(f"   Saved to: {output_path}")
 
@@ -334,22 +309,15 @@ def cmd_cite(
     output_path = Path(output_path).resolve()
     log(f"\n✍️  Writing output: {output_path}")
 
-    with open(input_path, "r", encoding="utf-8") as f:
-        lines = f.readlines()
-
-    with open(output_path, "w", encoding="utf-8") as f:
-        for line in lines:
-            f.write(line)
-            match = re.search(r"@\w+\s*\{\s*([^,]+),", line)
-            if match:
-                current_id = match.group(1).strip()
-                if current_id in patches:
-                    new_data = patches[current_id]
-                    for key, val in new_data.items():
-                        f.write(f"  {key:<12} = {{{val}}},\n")
-                    del patches[current_id]
-
-    log(f"✅ Done! Added empty 'citation' field to {len(entries_to_process)} entries.")
+    text = read_bib(input_path)
+    try:
+        new_text, applied = set_fields(text, patches, replace=False)
+    except BibEditError as e:
+        log(f"❌ Could not add citation fields safely: {e}")
+        log("   Nothing was written.")
+        return
+    write_bib(output_path, new_text)
+    log(f"✅ Done! Added empty 'citation' field to {len(applied)} entries.")
     log(f"   Output saved to: {output_path}")
     log("\n💡 Now fill in the citation counts from Google Scholar results!")
 

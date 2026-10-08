@@ -20,12 +20,14 @@ from __future__ import annotations
 import argparse
 import json
 import re
+import sys
 from collections import Counter
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import bibtexparser
 
+from bibcc.bibedit import BibEditError, read_bib, set_fields, unified_diff, write_bib
 from bibcc.logging_utils import Logger, get_output_dir, write_report
 from bibcc.venues import (
     JOURNAL,
@@ -331,7 +333,12 @@ def main(
     library: Optional[VenueLibrary] = None,
     log: Optional[Callable[[str], None]] = None,
 ):
-    """Complete *input_path* and write the result to *output_path* unless *dry_run*."""
+    """Complete *input_path* and write the result to *output_path* unless *dry_run*.
+
+    Only the added fields change in the output; everything else in the file
+    is kept byte for byte.  Raises :class:`BibEditError` (and writes nothing)
+    if the edits cannot be applied safely.
+    """
     log = log or print
     library = library if library is not None else VenueLibrary.load()
     log(f"Reading {input_path}...")
@@ -353,12 +360,16 @@ def main(
 
     log(f"  Identified {len(patches)} entries to patch.")
 
+    text = read_bib(input_path)
+    new_text, applied = set_fields(text, patches, replace=False)
+
     output_dir = get_output_dir(input_path, log_dir)
     base = Path(input_path).name
     conflict_log = output_dir / f"{base}.conflicts.txt"
     missing_txt_log = output_dir / f"{base}.missing_venues.txt"
     missing_yaml_log = output_dir / f"{base}.missing_venues.yaml"
     incomplete_log = output_dir / f"{base}.incomplete_entries.txt"
+    diff_log = output_dir / f"{base}.complete.diff"
 
     conflict_rows: List[str] = []
     for eid, rows in conflicts.items():
@@ -374,12 +385,11 @@ def main(
     ]
 
     if dry_run:
-        if patches:
-            log("\n🧪 Dry-run additions:")
-            for eid, fields in patches.items():
-                log(f"Entry ID: {eid}")
-                for k, v in fields.items():
-                    log(f"    add {k} = {{{v}}}")
+        diff = unified_diff(text, new_text, input_path)
+        if diff:
+            log(f"\n🧪 Dry-run preview ({len(applied)} fields to add):")
+            log(diff.rstrip("\n"))
+            diff_log.write_text(diff, encoding="utf-8")
         else:
             log("\n🧪 Dry-run: no additions needed.")
 
@@ -426,31 +436,16 @@ def main(
                 "--output <out.bib> --update-venues"
             )
 
-        log(f"\nLogs saved: {conflict_log}, {missing_txt_log}, {incomplete_log}")
+        saved = [conflict_log, missing_txt_log, incomplete_log] + ([diff_log] if diff else [])
+        log(f"\nReports saved: {', '.join(str(p) for p in saved)}")
+        log("💡 To write changes, run with --output <file.bib> or --in-place")
         return
 
-    # Write pass: re-read raw lines so comments and formatting are kept.
-    with open(input_path, "r", encoding="utf-8") as f:
-        lines = f.readlines()
-
-    with open(output_path, "w", encoding="utf-8") as f:
-        for line in lines:
-            f.write(line)
-
-            match = re.search(r"@\w+\s*\{\s*([^,]+),", line)
-
-            if match:
-                current_id = match.group(1).strip()
-
-                if current_id in patches:
-                    new_data = patches[current_id]
-
-                    for key, val in new_data.items():
-                        f.write(f"  {key:<12} = {{{val}}},\n")
-
-                    del patches[current_id]
-
-    log(f"✅ Done! Saved to {output_path} (Comments preserved)")
+    write_bib(output_path, new_text)
+    entries_changed = len({a.key for a in applied})
+    log(f"✅ Added {len(applied)} fields to {entries_changed} entries. Saved to {output_path}")
+    if conflicts or ambiguous:
+        log(f"⚠️  {len(conflicts)} conflicting and {len(ambiguous)} ambiguous entries left unchanged.")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -465,6 +460,11 @@ def build_parser() -> argparse.ArgumentParser:
         type=str,
         default="",
         help="Path to save the output enhanced BibTeX (.bib) file (omit for dry-run).",
+    )
+    parser.add_argument(
+        "--in-place",
+        action="store_true",
+        help="Write the completed entries back to the input file.",
     )
     parser.add_argument(
         "--log-dir",
@@ -491,7 +491,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 def run(args: argparse.Namespace) -> None:
     """Run completer with parsed arguments."""
-    dry_run = not bool(args.output)
+    if args.in_place and args.output:
+        build_parser().error("use either --output or --in-place, not both")
+    output = args.input if args.in_place else args.output
+    dry_run = not bool(output)
     log_dir = Path(args.log_dir) if args.log_dir else None
 
     with Logger("completer", input_file=args.input, log_dir=log_dir) as logger:
@@ -514,14 +517,19 @@ def run(args: argparse.Namespace) -> None:
                 else:
                     logger.log("ℹ️  Nothing new to merge.\n")
 
-        main(
-            args.input,
-            args.output or args.input,
-            dry_run=dry_run,
-            log_dir=log_dir,
-            library=library,
-            log=logger.log,
-        )
+        try:
+            main(
+                args.input,
+                output or args.input,
+                dry_run=dry_run,
+                log_dir=log_dir,
+                library=library,
+                log=logger.log,
+            )
+        except BibEditError as e:
+            logger.log(f"❌ Could not apply the edits safely: {e}")
+            logger.log("   Nothing was written.")
+            sys.exit(1)
 
 
 if __name__ == "__main__":

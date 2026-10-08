@@ -117,9 +117,12 @@ bibcc check input.bib --fields month --title-case --quote --check-keys
 Fill missing BibTeX fields (publisher, ISSN, venue, month, …) from the venue library (see [Venue Library](#venue-library)). Existing fields are never overwritten: differences are reported as conflicts.
 
 ```bash
-bibcc complete input.bib                    # preview (dry-run)
+bibcc complete input.bib                    # preview as a diff (dry-run)
 bibcc complete input.bib --output out.bib   # write completed output
+bibcc complete input.bib --in-place         # write back to input.bib
 ```
+
+Edits are **minimal and verified**: new fields are inserted before each entry's closing brace, using the entry's own indentation and `=` alignment, and nothing else in the file changes (comments, field order, LaTeX, line endings). Before writing, the result is re-parsed and checked to contain the same entries with only the intended fields changed. If that check fails, nothing is written. The same safe editing is used by `check --title-apply`/`--title-interactive` and `scholar cite`.
 
 When venues are missing from the library, a `.bibcc/<input>.missing_venues.yaml` file is generated. Fields are pre-filled from existing entries in the same journal/conference, from the **previous edition** of the same conference (e.g. CVPR 2025 → CVPR 2026: publisher, ISSN, month), and from venue-name guesses, so you only fill in what couldn't be inferred.
 
@@ -141,6 +144,7 @@ bibcc complete input.bib --output out.bib --update-venues
 | Option | Description |
 | --- | --- |
 | `--output FILE` | Path to save the enhanced `.bib` file (omit for dry-run) |
+| `--in-place` | Write the completed entries back to the input file |
 | `--log-dir DIR` | Directory for logs and reports (default: `.bibcc/` next to the input) |
 | `--venues FILE` | Venue library to use (default: `$BIBCC_VENUES` or the bundled library) |
 | `--update-venues` | Merge the filled-in `*.missing_venues.yaml` into the library before completing (`--update-templates` still works) |
@@ -236,7 +240,7 @@ Reports are written to a `.bibcc/` folder next to the input `.bib` file, and log
 | Command | Report Files | Log Files |
 | --- | --- | --- |
 | `check` | `.missing_fields.txt`, `.title_case.txt`, `.smart_protection.txt`, `.citation_keys.txt` | `.bibcc/logs/*.checker.log` |
-| `complete` | `.missing_venues.yaml`, `.missing_venues.txt`, `.conflicts.txt`, `.incomplete_entries.txt` | `.bibcc/logs/*.completer.log` |
+| `complete` | `.complete.diff` (dry-run preview), `.missing_venues.yaml`, `.missing_venues.txt`, `.conflicts.txt`, `.incomplete_entries.txt` | `.bibcc/logs/*.completer.log` |
 | `scholar cite` | `.scholar_urls.txt` | `.bibcc/logs/*.scholar.cite.log` |
 | `scholar titles` | `.title_report.txt` | `.bibcc/logs/*.scholar.titles.log` |
 | `librarian` | `.missing_pdfs.txt`, `.extra_pdfs.txt`, `.rename_report.txt` | `.bibcc/logs/*.librarian.log` |
@@ -285,16 +289,17 @@ Entries missing year or venue (e.g., arXiv preprints, misc entries) are reported
 
 ## 🔗 Additional Resources
 
-The modified `.bib` file is not guaranteed to be well formatted. Use:
+BibCC keeps your existing formatting and only adds or replaces the fields it targets. For whole-file reformatting, use:
 
-- [**BibTeX Tidy**](https://flamingtempura.github.io/bibtex-tidy/) for final formatting
-- VS Code's LaTeX Workshop extension for better alignment
+- [**BibTeX Tidy**](https://flamingtempura.github.io/bibtex-tidy/)
+- VS Code's LaTeX Workshop extension
 
 ## 📋 TODO
 
 - `complete` & venue library:
   - [x] ~~Unified venue management workflow.~~ Done — YAML venue library + `--update-venues` flag.
   - [x] ~~Aliases, ISSN matching, and previous-edition pre-fill.~~ Done.
+  - [x] ~~Minimal, verified edits that keep the rest of the file untouched.~~ Done — `bibcc/bibedit.py`.
   - [x] ~~Auto-guess fields from journal/conference names (publisher, issn, month).~~ Done — `# auto-guessed` markers in YAML.
   - [x] ~~Pre-fill YAML from existing bibliographies in the same venue.~~ Done — fields collected from bib entries.
 - `check`:

@@ -20,13 +20,13 @@ Usage:
     issues = check_title_case("input.bib", apply=True)
 """
 
-import argparse
 import re
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Callable, Dict, List, Optional, Set, Tuple
 
 import bibtexparser
+
+from bibcc.bibedit import BibEditError, read_bib, set_fields, write_bib
 
 
 @dataclass
@@ -523,34 +523,19 @@ def check_title_case(
 
     # Apply changes to file (for apply or interactive mode with accepted changes)
     if apply or (interactive and changed):
-        changed_map = {eid: new for eid, _, new in changed}
-        replacements = 0
-
-        lines = Path(input_path).read_text(encoding="utf-8").splitlines(keepends=True)
-        new_lines: List[str] = []
-        current_id: Optional[str] = None
-
-        for line in lines:
-            match_entry = re.match(r"@\w+\s*\{\s*([^,]+),", line)
-            if match_entry:
-                current_id = match_entry.group(1).strip()
-
-            if current_id and current_id in changed_map:
-                m_title = re.match(
-                    r"(\s*title\s*=\s*\{)(.*?)(\}\s*,?\s*$)",
-                    line,
-                    flags=re.IGNORECASE,
-                )
-                if m_title:
-                    prefix, _old, suffix = m_title.groups()
-                    new_val = changed_map[current_id]
-                    new_lines.append(f"{prefix}{new_val}{suffix}")
-                    replacements += 1
-                    continue
-
-            new_lines.append(line)
-
-        Path(input_path).write_text("".join(new_lines), encoding="utf-8")
+        # bibtexparser drops the continuation indent of multi-line values,
+        # so write titles back as a single line.
+        changed_map = {eid: {"title": " ".join(new.split())} for eid, _, new in changed}
+        text = read_bib(input_path)
+        try:
+            new_text, applied = set_fields(text, changed_map)
+        except BibEditError as e:
+            log(f"❌ Could not apply title changes safely: {e}")
+            log("   Nothing was written.")
+            return changed
+        replacements = len(applied)
+        if new_text != text:
+            write_bib(input_path, new_text)
 
         if interactive:
             log(
