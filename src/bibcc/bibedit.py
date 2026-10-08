@@ -34,6 +34,10 @@ _SKIPPED_TYPES = {"comment", "string", "preamble"}
 _ENTRY_START = re.compile(r"@\s*([A-Za-z][\w-]*)\s*([{(])")
 _FIELD_NAME = re.compile(r"[^\s=,{}()\"#%]+")
 _BARE_VALUE = re.compile(r"[^\s,#{}()\"%]+")
+_MONTH_NAMES = [
+    "january", "february", "march", "april", "may", "june",
+    "july", "august", "september", "october", "november", "december",
+]
 
 
 class BibEditError(Exception):
@@ -72,6 +76,26 @@ class AppliedEdit:
     action: str  # "added" or "replaced"
     old: Optional[str]
     new: str
+
+
+def month_macro(value: Optional[str]) -> Optional[str]:
+    """``jun`` for ``6``, ``June``, ``Jun.``, or ``{jun}``; None if not a month."""
+    text = (value or "").strip().strip("{}").strip().rstrip(".").lower()
+    if text.isdigit():
+        return _MONTH_NAMES[int(text) - 1][:3] if 1 <= int(text) <= 12 else None
+    for name in _MONTH_NAMES:
+        if len(text) >= 3 and name.startswith(text):
+            return name[:3]
+    return None
+
+
+def _render(name: str, value: str) -> str:
+    """Raw value text for *value*: months as bare macros, everything else braced."""
+    if name.lower() == "month":
+        macro = month_macro(value)
+        if macro:
+            return macro
+    return f"{{{value}}}"
 
 
 def _line_of(text: str, pos: int) -> int:
@@ -240,8 +264,8 @@ def _layout(text: str, entry: EntrySpan) -> Tuple[str, Optional[int]]:
 
 def _format_field(name: str, value: str, width: Optional[int]) -> str:
     if width and len(name) < width:
-        return f"{name.ljust(width)}= {{{value}}}"
-    return f"{name} = {{{value}}}"
+        return f"{name.ljust(width)}= {_render(name, value)}"
+    return f"{name} = {_render(name, value)}"
 
 
 def _parse_entries(text: str) -> List[Dict[str, str]]:
@@ -272,6 +296,9 @@ def _verify(old_text: str, new_text: str, changed: Dict[str, Dict[str, str]]) ->
             if old.get(name) != new.get(name):
                 raise BibEditError(f"edit changed untouched field '{name}' of '{old['ID']}'")
         for name, value in targets.items():
+            if name == "month" and month_macro(value):
+                if month_macro(new.get(name)) == month_macro(value):
+                    continue
             if _norm(new.get(name)) != _norm(value):
                 raise BibEditError(f"field '{name}' of '{old['ID']}' did not receive its new value")
 
@@ -286,7 +313,8 @@ def set_fields(
     Args:
         text: Raw BibTeX text.
         changes: ``{citation_key: {field: value}}``. Values are written
-            wrapped in braces.
+            wrapped in braces, except recognisable months, which are
+            written as bare macros (``month = jun``).
         replace: If False, fields that already exist are left alone.
 
     Returns:
@@ -321,7 +349,7 @@ def set_fields(
                 if not replace:
                     continue
                 old = text[existing.value_start : existing.value_end]
-                new = f"{{{value}}}"
+                new = _render(name, value)
                 if old == new:
                     continue
                 patches.append((existing.value_start, existing.value_end, new))
@@ -346,7 +374,7 @@ def set_fields(
                 )
             patches.append((pos, pos, chunk))
             for n, v in inserts:
-                applied.append(AppliedEdit(key, n, "added", None, f"{{{v}}}"))
+                applied.append(AppliedEdit(key, n, "added", None, _render(n, v)))
 
     new_text = _apply(text, patches)
     if new_text != text:

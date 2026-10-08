@@ -19,7 +19,7 @@ def test_complete_output_only_adds_fields(sample_bib: Path, tmp_path: Path):
     # Fields land before the closing brace, aligned like the entry's own fields.
     added_ispc = (
         ",\n  venue     = {Seattle, WA, USA},\n  issn      = {2575-7075},\n"
-        "  isbn      = {979-8-3503-5300-6},\n  publisher = {IEEE},\n  month     = {June}"
+        "  isbn      = {979-8-3503-5300-6},\n  publisher = {IEEE},\n  month     = jun"
     )
     added_dual = ",\n  issn    = {1939-3539},\n  publisher = {IEEE}"
     assert added_ispc in result

@@ -4,6 +4,7 @@ import pytest
 
 from bibcc.bibedit import (
     BibEditError,
+    month_macro,
     read_bib,
     replace_entry,
     scan,
@@ -54,9 +55,36 @@ def test_insert_follows_alignment_and_keeps_everything_else():
     text = _sample()
     new, applied = set_fields(text, {"ISPC_Wang_CVPR2024": {"month": "June", "publisher": "IEEE"}})
     assert [a.action for a in applied] == ["added", "added"]
-    assert "  citation  = {17},\n  month     = {June},\n  publisher = {IEEE}\n}" in new
+    assert "  citation  = {17},\n  month     = jun,\n  publisher = {IEEE}\n}" in new
     # Only insertions: removing them restores the original exactly.
-    assert new.replace(",\n  month     = {June},\n  publisher = {IEEE}", "", 1) == text
+    assert new.replace(",\n  month     = jun,\n  publisher = {IEEE}", "", 1) == text
+
+
+@pytest.mark.parametrize(
+    "value, expected",
+    [("June", "jun"), ("jun", "jun"), ("6", "jun"), ("Sept.", "sep"), ("{Oct}", "oct"),
+     ("13", None), ("Summer", None), ("ma", None), ("", None)],
+)
+def test_month_macro(value, expected):
+    assert month_macro(value) == expected
+
+
+def test_months_are_written_as_macros_and_other_values_braced():
+    text = "@misc{k,\n  title = {T},\n  month = {June}\n}\n"
+    new, applied = set_fields(text, {"k": {"month": "Oct", "note": "may"}})
+    assert new == "@misc{k,\n  title = {T},\n  month = oct,\n  note = {may}\n}\n"
+    assert [a.new for a in applied] == ["oct", "{may}"]
+
+
+def test_unrecognised_month_stays_braced():
+    new, _ = set_fields("@misc{k,\n  title = {T}\n}\n", {"k": {"month": "Summer"}})
+    assert "month = {Summer}" in new
+
+
+def test_rewriting_an_equivalent_macro_month_is_a_no_op():
+    text = "@misc{k,\n  title = {T},\n  month = jun\n}\n"
+    new, applied = set_fields(text, {"k": {"month": "June"}})
+    assert new == text and applied == []
 
 
 def test_insert_with_trailing_comma_and_unaligned_fields():
@@ -127,4 +155,4 @@ def test_unified_diff_shows_change():
     text = _sample()
     new, _ = set_fields(text, {"ISPC_Wang_CVPR2024": {"month": "June"}})
     diff = unified_diff(text, new, "sample.bib")
-    assert "+  month     = {June}" in diff
+    assert "+  month     = jun" in diff

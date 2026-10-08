@@ -27,7 +27,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import bibtexparser
 
-from bibcc.bibedit import BibEditError, read_bib, set_fields, unified_diff, write_bib
+from bibcc.bibedit import BibEditError, month_macro, read_bib, set_fields, unified_diff, write_bib
 from bibcc.logging_utils import Logger, get_output_dir, write_report
 from bibcc.venues import (
     JOURNAL,
@@ -303,6 +303,8 @@ def compute_completion(
         for k, v in result.venue.fields.items():
             if k not in entry:
                 fields_to_add[k] = v
+            elif k == "month" and month_macro(v) and month_macro(entry.get(k)) == month_macro(v):
+                continue
             elif normalize_text(entry.get(k, "")) != normalize_text(v):
                 entry_conflicts.append((k, entry.get(k, ""), v))
 

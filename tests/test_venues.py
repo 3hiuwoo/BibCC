@@ -117,6 +117,18 @@ def test_compute_completion_adds_missing_and_reports_conflicts(library: VenueLib
     assert result["incomplete"] == [("c", "", "2025")]
 
 
+def test_compute_completion_treats_equivalent_months_as_equal(library: VenueLibrary):
+    entry = {
+        "ID": "a",
+        "ENTRYTYPE": "inproceedings",
+        "year": "2025",
+        "booktitle": "2025 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)",
+        "month": "6",
+    }
+    result = compute_completion([entry], library)
+    assert "a" not in result["conflicts"]
+
+
 def test_missing_venues_yaml_round_trips_into_library(tmp_path: Path, library: VenueLibrary):
     bib = tmp_path / "new.bib"
     bib.write_text(

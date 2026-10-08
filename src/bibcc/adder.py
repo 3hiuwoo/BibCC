@@ -29,7 +29,7 @@ from typing import Callable, Dict, Iterable, List, Optional, Set, Tuple
 
 import bibtexparser
 
-from bibcc.bibedit import BibEditError, read_bib, scan, write_bib
+from bibcc.bibedit import BibEditError, month_macro, read_bib, scan, write_bib
 from bibcc.checkers.citation_keys import abbreviate_venue
 from bibcc.checkers.smart_protection import find_unprotected_terms, protect_terms
 from bibcc.completer import previous_edition
@@ -73,21 +73,12 @@ FIELD_ORDER = [
     "url",
 ]
 
-_MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"]
 _NAME_PARTICLES = {"van", "von", "de", "der", "den", "di", "da", "del", "della", "du", "dos", "la", "le", "ter", "ten"}
 # Fields fetched as plain text that need LaTeX escaping and dash conversion.
 _TEXT_FIELDS = ("title", "author", "journal", "booktitle", "publisher", "series", "venue")
 
 
 # ------------------------------------------------------------- formatting
-
-
-def month_macro(value: Optional[str]) -> Optional[str]:
-    """``jun`` for ``6``, ``June``, or ``jun``; None if not a month."""
-    text = (value or "").strip().lower()
-    if text.isdigit() and 1 <= int(text) <= 12:
-        return _MONTHS[int(text) - 1]
-    return text[:3] if len(text) >= 3 and text[:3] in _MONTHS else None
 
 
 def latex_escape(text: str) -> str:
