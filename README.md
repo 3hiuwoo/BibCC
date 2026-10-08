@@ -25,13 +25,14 @@ Run the tests with `uv run pytest`.
 
 ## 🧩 Commands
 
-BibCC provides six commands through a single entry point — `bibcc`:
+BibCC provides seven commands through a single entry point — `bibcc`:
 
 | Command | Description |
 | --- | --- |
 | `check` | Quality checks: missing fields, title case, term protection, citation keys |
 | `complete` | Auto-fill missing BibTeX fields from the venue library |
 | `add` | Fetch new papers by DOI, arXiv ID, or title into a staging `.bib` |
+| `upgrade` | Replace arXiv preprints with their published versions, keeping keys |
 | `librarian` | Align PDF library with `.bib`: missing / extra / rename |
 | `scholar` | Citation counts and title verification via external APIs |
 | `compose` | Merge per-folder `.bib` files into a single bibliography |
@@ -167,8 +168,8 @@ bibcc add 2501.13198 --dry-run                                        # print on
 
 For each paper, `add`:
 
-1. **Fetches metadata.** DOIs come from CrossRef, arXiv IDs from the arXiv API, and titles are matched through Semantic Scholar, then CrossRef, then arXiv. A title only counts as found when it matches exactly (ignoring case and punctuation).
-2. **Prefers the published version.** For an arXiv paper it looks for a published version: the DOI known to Semantic Scholar or arXiv, the DBLP key Semantic Scholar reports (e.g. `conf/iclr/...25` → ICLR 2025, with the booktitle taken from the venue library), or a CrossRef record with the same title. Pass `--preprint` to keep the arXiv entry.
+1. **Fetches metadata.** DOIs come from CrossRef, arXiv IDs from the arXiv API, and titles are matched through Semantic Scholar, then OpenReview, CrossRef, and arXiv. A title only counts as found when it matches exactly (ignoring case and punctuation).
+2. **Prefers the published version.** For an arXiv paper it looks for a published version: the DOI linked from arXiv or known to Semantic Scholar, an accepted OpenReview paper (ICLR, NeurIPS, ICML, …; "Submitted to" and withdrawn papers are ignored), the DBLP key Semantic Scholar reports (e.g. `conf/iclr/...25` → ICLR 2025), or a CrossRef record with the same title. Conference booktitles come from the venue library. Pass `--preprint` to keep the arXiv entry.
 3. **Skips duplicates.** Papers already in the `--against` files or directories (same DOI, arXiv ID, or title), or already in the staging file, are reported and skipped. A published paper whose preprint is already in your bibliography is flagged too.
 4. **Formats the entry like the rest of the bibliography.** Title Case (APA), braces around acronyms and technical terms (`{SD-LoRA}`), `--` page ranges, month macros (`month = jun`), escaped `&`/`%`/`_`, and aligned `=`.
 5. **Fills venue fields from the venue library.** Library values replace fetched ones (e.g. `publisher = {IEEE}` instead of CrossRef's long name). Unknown venues are listed; run `bibcc complete added.bib` to get the fill-in YAML.
@@ -191,6 +192,42 @@ DBLP is not queried directly because its API is behind a bot challenge. Semantic
 | `--dry-run` | Print the entries without writing |
 | `--delay SECONDS` | Wait between papers to respect API limits (default: `1`) |
 | `--log-dir DIR` | Directory for the log (default: `.bibcc/logs/` next to the output) |
+
+</details>
+
+---
+
+### `upgrade` — Preprints to Published Versions
+
+Find arXiv preprints in a `.bib` file that have since been published, and replace them with the published entry.
+
+```bash
+bibcc upgrade input.bib                        # dry run: report + diff in .bibcc/
+bibcc upgrade input.bib --in-place             # write back to input.bib
+bibcc upgrade input.bib --ids KeyA,KeyB --output out.bib
+```
+
+Preprints are `@misc`/`@unpublished` entries and entries whose journal is arXiv or CoRR. The published version is looked up the same way as in `add`. The replacement:
+
+- **keeps the citation key**, so `\cite` commands keep working (a note suggests the conventional key, e.g. `..._ICML2026`);
+- keeps your title when it matches the published one, so hand-made braces survive;
+- keeps custom fields such as `citation`, and drops arXiv-only fields (`eprint`, `archiveprefix`, `primaryclass`, the arXiv `url`);
+- fills venue fields from the venue library;
+- is a whole-entry replacement checked like other edits: the rest of the file, including comments above the entry, stays byte for byte.
+
+Preprints without a published version are listed as unchanged, with the arXiv comment when it says the paper was accepted (e.g. "Accepted at AAAI 2026") but is not indexed yet. Lookups that hit a rate limit are listed as failed; run again later or set `S2_API_KEY`.
+
+<details>
+<summary>All <code>upgrade</code> options</summary>
+
+| Option | Description |
+| --- | --- |
+| `--output FILE` | Write the upgraded file here (omit for dry-run) |
+| `--in-place` | Write back to the input file |
+| `--ids KEYS` | Comma-separated citation keys to upgrade (default: all preprints) |
+| `--venues FILE` | Venue library to use (default: `$BIBCC_VENUES` or the bundled library) |
+| `--delay SECONDS` | Wait between entries to respect API limits (default: `1`) |
+| `--log-dir DIR` | Directory for reports and logs (default: `.bibcc/` next to the input) |
 
 </details>
 
@@ -285,6 +322,7 @@ Reports are written to a `.bibcc/` folder next to the input `.bib` file, and log
 | `check` | `.missing_fields.txt`, `.title_case.txt`, `.smart_protection.txt`, `.citation_keys.txt` | `.bibcc/logs/*.checker.log` |
 | `complete` | `.complete.diff` (dry-run preview), `.missing_venues.yaml`, `.missing_venues.txt`, `.conflicts.txt`, `.incomplete_entries.txt` | `.bibcc/logs/*.completer.log` |
 | `add` | (entries appended to the staging `.bib`) | `.bibcc/logs/*.adder.log` |
+| `upgrade` | `.upgrade.txt`, `.upgrade.diff` (dry-run preview) | `.bibcc/logs/*.upgrader.log` |
 | `scholar cite` | `.scholar_urls.txt` | `.bibcc/logs/*.scholar.cite.log` |
 | `scholar titles` | `.title_report.txt` | `.bibcc/logs/*.scholar.titles.log` |
 | `librarian` | `.missing_pdfs.txt`, `.extra_pdfs.txt`, `.rename_report.txt` | `.bibcc/logs/*.librarian.log` |
@@ -355,6 +393,7 @@ BibCC keeps your existing formatting and only adds or replaces the fields it tar
   - [x] ~~Modular sub-checker architecture.~~ Done — `checkers/` package.
 - `add`:
   - [x] ~~Add papers by DOI, arXiv ID, or title with duplicate checks.~~ Done — `bibcc add`.
+  - [x] ~~Replace preprints with published versions.~~ Done — `bibcc upgrade`.
 - `librarian`:
   - [x] ~~Unified PDF library alignment (missing/extra/rename).~~ Done.
 - `scholar`:

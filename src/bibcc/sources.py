@@ -1,5 +1,5 @@
 """
-Fetch bibliographic records from CrossRef, arXiv, and Semantic Scholar.
+Fetch bibliographic records from CrossRef, arXiv, Semantic Scholar, and OpenReview.
 
 Every fetcher returns ``(record_or_None, error_or_None)``; ``(None, None)``
 means the source answered but had no match.  Records hold plain-text field
@@ -519,6 +519,11 @@ def published_from_s2(
     abbrev, year = dblp_venue(ext.get("DBLP"))
     if not abbrev:
         return None, error
+    # OpenReview has the authors' own name spellings and the forum URL.
+    record, _ = openreview_search(clean_text(paper.get("title")), library)
+    if record:
+        record.arxiv_id = arxiv_id
+        return record, None
     booktitle = library_booktitle(library, abbrev, year)
     notes = []
     if booktitle is None:
@@ -546,31 +551,124 @@ def published_from_s2(
     )
 
 
+# ------------------------------------------------------------- OpenReview
+
+_OPENREVIEW_API = "https://api2.openreview.net/notes/search"
+_OPENREVIEW_CONFERENCES = {
+    "CVPR", "ICCV", "ECCV", "NeurIPS", "ICML", "ICLR", "AAAI", "MM", "WWW",
+    "ACL", "EMNLP", "NAACL", "KDD", "Interspeech",
+}
+_UNACCEPTED = re.compile(r"\b(submitted|withdrawn|rejected|desk)\b", re.IGNORECASE)
+
+
+def _note_value(content: Dict[str, Any], name: str) -> Any:
+    value = content.get(name)
+    return value.get("value") if isinstance(value, dict) else value
+
+
+def openreview_search(
+    title: str, library: VenueLibrary
+) -> Tuple[Optional[Record], Optional[str]]:
+    """Accepted conference paper on OpenReview with exactly this title.
+
+    Covers venues whose papers have no DOI (ICLR, NeurIPS, ICML).  Notes
+    whose venue says "Submitted to" or "Withdrawn" are ignored, and the
+    conference's own note is preferred over a DBLP import.
+    """
+    query = urllib.parse.quote(clean_title_for_search(title))
+    data, error = fetch_json(f"{_OPENREVIEW_API}?term={query}&content=title&source=forum&limit=10")
+    if error:
+        return None, error
+    best = None
+    for note in (data or {}).get("notes") or []:
+        content = note.get("content") or {}
+        if not titles_match(title, clean_text(_note_value(content, "title"))):
+            continue
+        venue = clean_text(_note_value(content, "venue"))
+        m = re.match(r"^([A-Za-z]+)\s+(\d{4})\b", venue)
+        if not m or _UNACCEPTED.search(venue):
+            continue
+        abbrev = next((k for k in _OPENREVIEW_CONFERENCES if k.lower() == m.group(1).lower()), None)
+        if abbrev is None:
+            continue
+        official = not str(_note_value(content, "venueid") or "").startswith("dblp.org")
+        if best is None or (official and not best[0]):
+            best = (official, note, venue, abbrev, m.group(2))
+    if best is None:
+        return None, None
+
+    _, note, venue, abbrev, year = best
+    content = note.get("content") or {}
+    notes = []
+    booktitle = library_booktitle(library, abbrev, year)
+    if booktitle is None:
+        booktitle = f"{abbrev} {year}"
+        notes.append(f"booktitle '{booktitle}' is a placeholder; the venue library has no single {abbrev} {year} record")
+    html_url = str(_note_value(content, "html") or "")
+    url = html_url if "openreview.net/forum" in html_url else f"https://openreview.net/forum?id={note.get('forum') or note.get('id')}"
+    authors = [clean_text(a) for a in _note_value(content, "authors") or []]
+    fields = {
+        "title": clean_text(_note_value(content, "title")),
+        "author": " and ".join(a for a in authors if a),
+        "year": year,
+        "booktitle": booktitle,
+        "url": url,
+    }
+    return (
+        Record(
+            entry_type="inproceedings",
+            fields={k: v for k, v in fields.items() if v},
+            source=f"OpenReview ({venue})",
+            notes=notes,
+        ),
+        None,
+    )
+
+
 # ---------------------------------------------------------------- resolve
 
 
 def _published_for_arxiv(
     arxiv_id: str, preprint: Optional[Record], library: VenueLibrary
 ) -> Tuple[Optional[Record], Optional[str]]:
-    paper, error = s2_paper(f"arXiv:{arxiv_id}")
-    if paper:
-        record, _ = published_from_s2(paper, library)
-        if record:
-            return record, None
     linked_doi = (preprint.extra.get("doi") if preprint else "") or ""
     if linked_doi and not is_arxiv_doi(linked_doi):
         record, _ = crossref_record(linked_doi)
         if record:
             record.source = "CrossRef (DOI linked from arXiv)"
             return record, None
+    paper, error = s2_paper(f"arXiv:{arxiv_id}")
+    if paper:
+        record, _ = published_from_s2(paper, library)
+        if record:
+            # Semantic Scholar's own author names are often re-spelled; arXiv's are not.
+            if record.source.startswith("Semantic Scholar") and preprint and preprint.fields.get("author"):
+                record.fields["author"] = preprint.fields["author"]
+            return record, None
     title = preprint.fields.get("title", "") if preprint else ""
     if title:
-        # Conference papers without a DOI (ICLR, NeurIPS) are only found via S2.
+        if not (paper and dblp_venue((paper.get("externalIds") or {}).get("DBLP"))[0]):
+            record, _ = openreview_search(title, library)
+            if record:
+                return record, None
         record, _ = crossref_search(title)
         if record and record.entry_type != "misc":
             record.source = "CrossRef (title search)"
             return record, None
     return None, error
+
+
+def acceptance_note(preprint: Optional[Record]) -> str:
+    """A note when the arXiv comment or journal-ref says the paper was published."""
+    if preprint is None:
+        return ""
+    journal_ref = preprint.extra.get("journal_ref", "")
+    if journal_ref:
+        return f"arXiv journal-ref: '{journal_ref}' (published version not indexed yet)"
+    comment = preprint.extra.get("comment", "")
+    if re.search(r"\b(accepted|published|to appear)\b", comment, re.IGNORECASE):
+        return f"arXiv comment says: '{comment}' (published version not indexed yet)"
+    return ""
 
 
 def find_published(
@@ -617,29 +715,47 @@ def resolve(
             return Resolution(error=error)
         if pub_error:
             preprint.notes.append(f"could not check for a published version: {pub_error}")
-        comment = preprint.extra.get("comment", "")
-        if re.search(r"\b(accepted|published|to appear)\b", comment, re.IGNORECASE):
-            preprint.notes.append(f"arXiv comment says: '{comment}' (published version not indexed yet)")
+        note = acceptance_note(preprint)
+        if note:
+            preprint.notes.append(note)
         return Resolution(record=preprint)
 
     errors: List[str] = []
     paper, error = s2_match(value)
     if error:
         errors.append(f"Semantic Scholar: {error}")
+    published: Optional[Record] = None
+    arxiv_id = ""
     if paper:
-        record, _ = published_from_s2(paper, library)
+        published, _ = published_from_s2(paper, library)
         arxiv_id = normalize_arxiv_id((paper.get("externalIds") or {}).get("ArXiv", ""))
-        if record and prefer_published:
-            return Resolution(record=record)
-        if arxiv_id:
-            preprint, error = arxiv_record(arxiv_id)
-            if preprint:
-                return Resolution(record=preprint)
-            errors.append(f"arXiv: {error}")
+    if published and prefer_published:
+        return Resolution(record=published)
+
+    def search_openreview(title: str) -> Tuple[Optional[Record], Optional[str]]:
+        return openreview_search(title, library)
+
+    searches: List[Tuple[str, Callable[[str], Tuple[Optional[Record], Optional[str]]]]] = [
+        ("OpenReview", search_openreview),
+        ("CrossRef", crossref_search),
+        ("arXiv", arxiv_search),
+    ]
+    if prefer_published:
+        record, error = search_openreview(value)
         if record:
             return Resolution(record=record)
+        if error:
+            errors.append(f"OpenReview: {error}")
+        searches.pop(0)
+    if arxiv_id:
+        preprint, error = arxiv_record(arxiv_id)
+        if preprint:
+            return Resolution(record=preprint)
+        errors.append(f"arXiv: {error}")
+    if published:
+        return Resolution(record=published)
 
-    for name, search in (("CrossRef", crossref_search), ("arXiv", arxiv_search)):
+    for name, search in searches:
         record, error = search(value)
         if record:
             if errors:

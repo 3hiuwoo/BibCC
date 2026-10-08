@@ -8,6 +8,7 @@ Subcommands:
     check      Quality checks (missing fields, title case, term protection, …)
     complete   Auto-fill missing BibTeX fields from templates
     add        Fetch papers by DOI, arXiv ID, or title into a staging .bib
+    upgrade    Replace arXiv preprints with their published versions
     librarian  Align a PDF library with a .bib file (missing / extra / rename)
     scholar    Citation counts and title verification via external APIs
     compose    Merge per-folder .bib files into a single bibliography
@@ -16,6 +17,7 @@ Usage:
     bibcc check input.bib --fields month --title-case
     bibcc complete input.bib --output out.bib
     bibcc add 2501.13198 10.1109/TPAMI.2024.3429383 --against bibs/
+    bibcc upgrade input.bib --in-place
     bibcc librarian missing input.bib papers.txt
     bibcc scholar cite input.bib
     bibcc scholar titles input.bib
@@ -33,6 +35,7 @@ TOOLS = {
     "check": "Quality checks: missing fields, title case, term protection, keys",
     "complete": "Auto-fill missing BibTeX fields from templates",
     "add": "Fetch papers by DOI, arXiv ID, or title into a staging .bib",
+    "upgrade": "Replace arXiv preprints with their published versions",
     "librarian": "Align PDF library with .bib: missing / extra / rename",
     "scholar": "Citation counts and title verification via external APIs",
     "compose": "Merge per-folder .bib files into a single bibliography",
@@ -43,6 +46,7 @@ _RUN_TOOLS = {
     "check": "bibcc.checker",
     "complete": "bibcc.completer",
     "add": "bibcc.adder",
+    "upgrade": "bibcc.upgrader",
 }
 _MAIN_TOOLS = {
     "librarian": "bibcc.utils.librarian",

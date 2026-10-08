@@ -159,6 +159,46 @@ def test_add_arxiv_finds_published_version_via_crossref_search(web, library, tmp
     assert _entries(out)["ClassIncremental_Zhou_TPAMI2024"]["ENTRYTYPE"] == "article"
 
 
+def test_add_arxiv_published_via_dblp_keeps_arxiv_author_names(web, library, tmp_path):
+    import json
+
+    web.routes["paper/arXiv:2603.03818"] = (json.dumps({
+        "title": "Pretrained Vision-Language-Action Models are Surprisingly Resistant to Forgetting in Continual Learning",
+        "externalIds": {"DBLP": "conf/iclr/LiuKLLZ25", "ArXiv": "2603.03818"},
+        "authors": [{"name": "H. Liu"}],
+    }), None)
+    out = tmp_path / "added.bib"
+    add_papers(["2603.03818"], out, library, delay=0, log=lambda _: None)
+    entry = _entries(out)["PretrainedVision_Liu_ICLR2025"]
+    assert entry["author"].startswith("Huihan Liu and Changyeon Kim")
+    assert entry["booktitle"] == "The Thirteenth International Conference on Learning Representations"
+
+
+def test_add_title_uses_openreview_when_s2_is_rate_limited(web, library, tmp_path):
+    web.routes["semanticscholar.org/graph/v1/paper/search/match"] = (None, "HTTP 429: Too Many Requests")
+    web.routes["api2.openreview.net"] = (_fixture("openreview_sdlora.json"), None)
+    out = tmp_path / "added.bib"
+    title = "SD-LoRA: Scalable Decoupled Low-Rank Adaptation for Class Incremental Learning"
+    add_papers([title], out, library, delay=0, log=lambda _: None)
+    entry = _entries(out)["SD-LoRA_Wu_ICLR2025"]
+    assert entry["booktitle"] == "The Thirteenth International Conference on Learning Representations"
+    assert entry["url"] == "https://openreview.net/forum?id=5U1rlpX68A"  # the conference's note
+    assert entry["author"].startswith("Yichen Wu and Hongming Piao")
+
+
+def test_openreview_ignores_unaccepted_and_other_titles(web, library):
+    import json
+
+    notes = {"notes": [
+        {"id": "a", "forum": "a", "content": {"title": {"value": "Some Paper"},
+                                              "venue": {"value": "Submitted to ICLR 2025"}}},
+        {"id": "b", "forum": "b", "content": {"title": {"value": "Another Paper"},
+                                              "venue": {"value": "ICLR 2025 Poster"}}},
+    ]}
+    web.routes["api2.openreview.net"] = (json.dumps(notes), None)
+    assert sources.openreview_search("Some Paper", library) == (None, None)
+
+
 def test_add_title_falls_back_to_arxiv_search(web, library, tmp_path):
     web.routes["search/match"] = (None, "HTTP 429: Too Many Requests")
     web.routes["search_query=ti"] = (_fixture("arxiv_2603.03818.xml"), None)

@@ -1,0 +1,94 @@
+{
+ "notes": [
+  {
+   "id": "Sf4qvFwAcp",
+   "forum": "Sf4qvFwAcp",
+   "content": {
+    "venue": {
+     "value": "ICLR 2025"
+    },
+    "venueid": {
+     "value": "dblp.org/conf/ICLR/2025"
+    },
+    "html": {
+     "value": "https://openreview.net/forum?id=5U1rlpX68A"
+    },
+    "title": {
+     "value": "SD-LoRA: Scalable Decoupled Low-Rank Adaptation for Class Incremental Learning"
+    },
+    "authors": {
+     "value": [
+      "Yichen Wu",
+      "Hongming Piao",
+      "Long-Kai Huang",
+      "Renzhen Wang",
+      "Wanhua Li",
+      "Hanspeter Pfister",
+      "Deyu Meng",
+      "Kede Ma",
+      "Ying Wei"
+     ]
+    }
+   }
+  },
+  {
+   "id": "5U1rlpX68A",
+   "forum": "5U1rlpX68A",
+   "content": {
+    "venue": {
+     "value": "ICLR 2025 Oral"
+    },
+    "title": {
+     "value": "SD-LoRA: Scalable Decoupled Low-Rank Adaptation for Class Incremental Learning"
+    },
+    "venueid": {
+     "value": "ICLR.cc/2025/Conference"
+    },
+    "authors": {
+     "value": [
+      "Yichen Wu",
+      "Hongming Piao",
+      "Long-Kai Huang",
+      "Renzhen Wang",
+      "Wanhua Li",
+      "Hanspeter Pfister",
+      "Deyu Meng",
+      "Kede Ma",
+      "Ying Wei"
+     ]
+    }
+   }
+  },
+  {
+   "id": "8Q80W3uo63",
+   "forum": "8Q80W3uo63",
+   "content": {
+    "venue": {
+     "value": "CoRR 2025"
+    },
+    "venueid": {
+     "value": "dblp.org/journals/CORR/2025"
+    },
+    "html": {
+     "value": "https://doi.org/10.48550/arXiv.2501.13198"
+    },
+    "title": {
+     "value": "S-LoRA: Scalable Low-Rank Adaptation for Class Incremental Learning"
+    },
+    "authors": {
+     "value": [
+      "Yichen Wu",
+      "Hongming Piao",
+      "Long-Kai Huang",
+      "Renzhen Wang",
+      "Wanhua Li",
+      "Hanspeter Pfister",
+      "Deyu Meng",
+      "Kede Ma",
+      "Ying Wei"
+     ]
+    }
+   }
+  }
+ ]
+}
