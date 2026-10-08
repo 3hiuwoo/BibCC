@@ -13,7 +13,7 @@ AUTHOR is alphabetic (optionally with ``'`` or ``-``), and ABBREV is a venue
 abbreviation immediately followed by a four-digit year.
 
 Usage:
-    from checkers.citation_keys import check_citation_keys
+    from bibcc.checkers.citation_keys import check_citation_keys
 
     rows = check_citation_keys("refs.bib", log=print)
 """

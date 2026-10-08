@@ -2,26 +2,26 @@
 BibTeX Quality Checkers package.
 
 Re-exports all checker functions for convenient access:
-    from checkers import check_missing_fields, check_smart_protection, ...
+    from bibcc.checkers import check_missing_fields, check_smart_protection, ...
 """
 
 from __future__ import annotations
 
-from checkers.citation_keys import VENUE_ABBREVIATIONS, check_citation_keys
-from checkers.missing_fields import DEFAULT_ENTRY_TYPES, check_missing_fields
-from checkers.smart_protection import (
+from bibcc.checkers.citation_keys import VENUE_ABBREVIATIONS, check_citation_keys
+from bibcc.checkers.missing_fields import DEFAULT_ENTRY_TYPES, check_missing_fields
+from bibcc.checkers.smart_protection import (
     DEFAULT_VOCAB,
     check_smart_protection,
     load_vocab_file,
     parse_terms,
 )
-from checkers.template_fields import (
+from bibcc.checkers.template_fields import (
     DEFAULT_JOURNAL_FIELDS,
     DEFAULT_PROCEEDINGS_FIELDS,
     VENUE_FIELD_OVERRIDES,
     check_template_fields,
 )
-from checkers.title_case import DEFAULT_STOPWORDS, check_title_case, get_style
+from bibcc.checkers.title_case import DEFAULT_STOPWORDS, check_title_case, get_style
 
 __all__ = [
     "DEFAULT_ENTRY_TYPES",

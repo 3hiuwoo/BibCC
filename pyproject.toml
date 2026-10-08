@@ -1,0 +1,28 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "bibcc"
+version = "0.2.0"
+description = "BibTeX Check & Complete: quality checks, field completion, and PDF library alignment"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    # The code uses the bibtexparser 1.x API (bparser.BibTexParser); 2.x is incompatible.
+    "bibtexparser>=1.4,<2",
+    "pyyaml>=6.0",
+]
+
+[project.scripts]
+bibcc = "bibcc.cli:main"
+
+[dependency-groups]
+dev = ["pytest>=8"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/bibcc"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"

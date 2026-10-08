@@ -1,19 +1,24 @@
 #!/usr/bin/env python3
 """
-Scholar - Unified citation and title management for BibTeX files.
+Title Checker - Find original titles from multiple sources and report differences.
 
-Subcommands:
-    cite    - Generate Google Scholar URLs and manage citation fields
-    titles  - Check titles against CrossRef, DBLP, Semantic Scholar, arXiv
+Source strategy:
+- Entries WITH DOI: Use CrossRef ONLY (DOI lookup is authoritative)
+  If CrossRef fails, the entry is reported as failed - no fallback.
+- Entries WITHOUT DOI: Use these sources in order:
+  1. arXiv API (if arXiv ID is present)
+  2. DBLP API (search by title)
+  3. Semantic Scholar API (search by title, as backup)
 
 Usage:
-    python utils/scholar.py cite input.bib
-    python utils/scholar.py cite input.bib --interactive
-    python utils/scholar.py titles input.bib
-    python utils/scholar.py titles input.bib --retry-errors report.txt
-"""
+    python titleretriever.py <bib_file>
+    python titleretriever.py <bib_file> --retry-errors report.txt  # Re-check only failed entries
+    python titleretriever.py <bib_file> --ids ID1,ID2,ID3          # Check specific entries
 
-from __future__ import annotations
+Output:
+    - Automatically generates <bib_file>.titleretriever.log
+    - Report saved to <bib_file>.title_report.txt
+"""
 
 import argparse
 import json
@@ -23,345 +28,14 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-import webbrowser
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
 import bibtexparser
 
-# Add parent directory to path for imports
-sys.path.insert(0, str(Path(__file__).parent.parent))
-from logging_utils import (
-    SEPARATOR_HEAVY,
-    SEPARATOR_LIGHT,
-    SEPARATOR_WIDTH,
-    Logger,
-    get_repo_dir,
-)
-
-
-def clean_title_for_search(title: str) -> str:
-    """Clean a BibTeX title for search queries."""
-    if not title:
-        return ""
-    # Remove braces
-    title = re.sub(r"[{}\[\]]", "", title)
-    # Convert common LaTeX commands
-    title = title.replace(r"\&", "&")
-    title = title.replace(r"\'", "'")
-    title = title.replace(r"\$", "")
-    title = title.replace(r"\textasciicircum", "^")
-    title = re.sub(r"\\[a-zA-Z]+", "", title)  # Remove other LaTeX commands
-    # Clean up whitespace
-    title = re.sub(r"\s+", " ", title).strip()
-    return title
-
-
-# =========================
-# Citation command helpers
-# =========================
-
-
-def build_scholar_url(title: str) -> str:
-    """Build a Google Scholar search URL for a paper title."""
-    clean_title = clean_title_for_search(title)
-    encoded_title = urllib.parse.quote(f'"{clean_title}"')
-    return f"https://scholar.google.com/scholar?q={encoded_title}"
-
-
-def interactive_fill(
-    input_path: Path,
-    output_path: Path,
-    entries_to_process: List[Dict[str, Any]],
-    log: Callable[[str], None] = print,
-) -> None:
-    """Interactive mode: open URLs and prompt for citation counts."""
-    log("\n🎯 Interactive Fill Mode")
-    log(SEPARATOR_HEAVY * SEPARATOR_WIDTH)
-    log("For each entry, a Google Scholar tab will open.")
-    log("Enter the citation count, or:")
-    log("  - Press Enter to skip (leave empty)")
-    log("  - Type 'q' to quit and save progress")
-    log("  - Type 's' to skip without opening URL")
-    log(SEPARATOR_HEAVY * SEPARATOR_WIDTH)
-
-    patches: Dict[str, str] = {}
-    total = len(entries_to_process)
-
-    for i, entry in enumerate(entries_to_process, 1):
-        entry_id = entry.get("ID", "unknown")
-        title = entry.get("title", "")
-        clean_title = clean_title_for_search(title)
-        display_title = (
-            clean_title[:60] + "..." if len(clean_title) > 60 else clean_title
-        )
-
-        log(f"\n[{i}/{total}] {entry_id}")
-        log(f"   Title: {display_title}")
-
-        try:
-            action = input("   Open in browser? [Y/n/s(kip)/q(uit)]: ").strip().lower()
-        except (KeyboardInterrupt, EOFError):
-            log("\n\n⏹️  Interrupted. Saving progress...")
-            break
-
-        if action == "q":
-            log("\n⏹️  Quitting. Saving progress...")
-            break
-        elif action == "s":
-            log("   ⏭️  Skipped")
-            continue
-        elif action in ("", "y", "yes"):
-            url = build_scholar_url(title)
-            webbrowser.open_new_tab(url)
-            time.sleep(0.5)
-
-        try:
-            citation_input = input(
-                "   Enter citation count (or Enter to skip): "
-            ).strip()
-        except (KeyboardInterrupt, EOFError):
-            log("\n\n⏹️  Interrupted. Saving progress...")
-            break
-
-        if citation_input.lower() == "q":
-            log("\n⏹️  Quitting. Saving progress...")
-            break
-        elif citation_input == "":
-            log("   ⏭️  Skipped")
-            continue
-        elif citation_input.isdigit():
-            patches[entry_id] = citation_input
-            log(f"   ✅ Set citation = {citation_input}")
-        else:
-            patches[entry_id] = citation_input
-            log(f"   ✅ Set citation = {citation_input}")
-
-    log(f"\n{SEPARATOR_HEAVY * SEPARATOR_WIDTH}")
-    log(f"📊 Summary: {len(patches)} citation(s) collected out of {total} entries")
-
-    if not patches:
-        log("   No changes to write.")
-        return
-
-    log(f"\n✍️  Writing to: {output_path}")
-
-    with open(input_path, "r", encoding="utf-8") as f:
-        lines = f.readlines()
-
-    with open(output_path, "w", encoding="utf-8") as f:
-        current_entry_id: Optional[str] = None
-        entry_has_citation: Dict[str, bool] = {}
-
-        for entry in entries_to_process:
-            entry_id = entry.get("ID", "unknown")
-            entry_has_citation[entry_id] = "citation" in entry
-
-        for line in lines:
-            entry_match = re.search(r"@\w+\s*\{\s*([^,]+),", line)
-            if entry_match:
-                current_entry_id = entry_match.group(1).strip()
-                f.write(line)
-                if current_entry_id in patches and not entry_has_citation.get(
-                    current_entry_id, True
-                ):
-                    new_value = patches[current_entry_id]
-                    f.write(f"  citation     = {{{new_value}}},\n")
-                    del patches[current_entry_id]
-                continue
-
-            citation_match = re.match(r"(\s*citation\s*=\s*\{)([^}]*)(\},?)", line)
-            if citation_match and current_entry_id in patches:
-                prefix, _, suffix = citation_match.groups()
-                new_value = patches[current_entry_id]
-                f.write(f"{prefix}{new_value}{suffix}\n")
-                del patches[current_entry_id]
-                continue
-
-            f.write(line)
-
-    updated_count = len(
-        [e for e in entries_to_process if e.get("ID", "unknown") not in patches]
-    )
-    log(f"✅ Done! Updated {updated_count} entries.")
-    log(f"   Saved to: {output_path}")
-
-
-def cmd_cite(
-    input_path: str | Path,
-    output_path: str | Path = "",
-    open_browser: bool = False,
-    interactive: bool = False,
-    include_filled: bool = False,
-    batch_size: int = 5,
-    dry_run: bool = True,
-    log_dir: Optional[Path] = None,
-    log: Callable[[str], None] = print,
-) -> None:
-    """Process BibTeX file for citation counts."""
-    input_path = Path(input_path).resolve()
-
-    if not input_path.exists():
-        log(f"❌ File not found: {input_path}")
-        return
-
-    log(f"📖 Reading: {input_path}")
-
-    with open(input_path, "r", encoding="utf-8") as f:
-        parser = bibtexparser.bparser.BibTexParser(common_strings=True)
-        bib_db = bibtexparser.load(f, parser=parser)
-
-    log(f"   Found {len(bib_db.entries)} entries")
-
-    entries_to_process: List[Dict[str, Any]] = []
-    entries_with_citation: List[Tuple[str, str]] = []
-
-    for entry in bib_db.entries:
-        entry_id = entry.get("ID", "unknown")
-        citation_val = entry.get("citation", None)
-
-        if citation_val is None:
-            entries_to_process.append(entry)
-        elif citation_val.strip() == "":
-            entries_to_process.append(entry)
-        else:
-            entries_with_citation.append((entry_id, citation_val.strip()))
-
-    log(f"   Entries with citation: {len(entries_with_citation)}")
-    log(f"   Entries needing citation: {len(entries_to_process)}")
-
-    if entries_with_citation and not include_filled:
-        log("\n⏭️  Skipping entries with existing citations:")
-        for entry_id, cit_val in entries_with_citation[:5]:
-            display_val = cit_val[:20] + "..." if len(cit_val) > 20 else cit_val
-            log(f"      {entry_id}: {display_val}")
-        if len(entries_with_citation) > 5:
-            log(f"      ... and {len(entries_with_citation) - 5} more")
-
-    if include_filled and entries_with_citation:
-        log(
-            f"\n🔄 Including {len(entries_with_citation)} entries with existing citations (--include-filled)"
-        )
-        for entry in bib_db.entries:
-            citation_val = entry.get("citation", None)
-            if citation_val is not None and citation_val.strip() != "":
-                entries_to_process.append(entry)
-
-    if not entries_to_process:
-        log("\n✅ All entries already have citation values!")
-        return
-
-    if interactive:
-        out_path = Path(output_path).resolve() if output_path else input_path
-        interactive_fill(input_path, out_path, entries_to_process, log)
-        return
-
-    url_list: List[Tuple[str, str, str]] = []
-    for entry in entries_to_process:
-        entry_id = entry.get("ID", "unknown")
-        title = entry.get("title", "")
-        if title:
-            url = build_scholar_url(title)
-            url_list.append((entry_id, clean_title_for_search(title), url))
-        else:
-            log(f"   ⚠️  No title for entry: {entry_id}")
-
-    log(f"\n📋 Entries to process ({len(url_list)}):")
-    log(SEPARATOR_LIGHT * SEPARATOR_WIDTH)
-    for i, (entry_id, title, url) in enumerate(url_list, 1):
-        display_title = title[:50] + "..." if len(title) > 50 else title
-        log(f"  [{i:3d}] {entry_id}")
-        log(f"        {display_title}")
-        if not open_browser:
-            log(f"        {url}")
-    log(SEPARATOR_LIGHT * SEPARATOR_WIDTH)
-
-    repo_dir = get_repo_dir()
-    output_dir = Path(log_dir) if log_dir else repo_dir
-    output_dir.mkdir(parents=True, exist_ok=True)
-    url_list_path = output_dir / f"{input_path.name}.scholar_urls.txt"
-
-    with open(url_list_path, "w", encoding="utf-8") as f:
-        f.write("# Google Scholar URLs for citation lookup\n")
-        f.write(f"# Generated from: {input_path.name}\n")
-        f.write(f"# Entries: {len(url_list)}\n\n")
-        for entry_id, title, url in url_list:
-            f.write(f"{entry_id}\n")
-            f.write(f"  Title: {title}\n")
-            f.write(f"  URL: {url}\n\n")
-
-    log(f"\n📝 URL list saved: {url_list_path}")
-
-    if open_browser:
-        log(f"\n🌐 Opening URLs in browser (batch size: {batch_size})...")
-
-        total_batches = (len(url_list) + batch_size - 1) // batch_size
-        end_idx = 0
-
-        for batch_num in range(total_batches):
-            start_idx = batch_num * batch_size
-            end_idx = min(start_idx + batch_size, len(url_list))
-            batch = url_list[start_idx:end_idx]
-
-            log(f"\n📦 Batch {batch_num + 1}/{total_batches} ({len(batch)} entries):")
-            for entry_id, title, url in batch:
-                display_title = title[:40] + "..." if len(title) > 40 else title
-                log(f"   Opening: {entry_id} - {display_title}")
-                webbrowser.open_new_tab(url)
-                time.sleep(0.3)
-
-            if batch_num < total_batches - 1:
-                log(f"\n   ⏸️  Opened {end_idx} of {len(url_list)} URLs.")
-                try:
-                    input("   Press Enter to open next batch (Ctrl+C to stop)...")
-                except KeyboardInterrupt:
-                    log("\n   Stopped by user.")
-                    break
-
-        log(f"\n✅ Opened {min(end_idx, len(url_list))} URLs in browser")
-
-    patches: Dict[str, Dict[str, str]] = {}
-    for entry in entries_to_process:
-        entry_id = entry.get("ID", "unknown")
-        patches[entry_id] = {"citation": ""}
-
-    if dry_run:
-        log("\n🧪 Dry-run: Would add empty 'citation' field to these entries:")
-        for entry_id in list(patches.keys())[:10]:
-            log(f"   {entry_id}")
-        if len(patches) > 10:
-            log(f"   ... and {len(patches) - 10} more")
-        log("\n💡 To write changes, run with --output <file.bib>")
-        return
-
-    output_path = Path(output_path).resolve()
-    log(f"\n✍️  Writing output: {output_path}")
-
-    with open(input_path, "r", encoding="utf-8") as f:
-        lines = f.readlines()
-
-    with open(output_path, "w", encoding="utf-8") as f:
-        for line in lines:
-            f.write(line)
-            match = re.search(r"@\w+\s*\{\s*([^,]+),", line)
-            if match:
-                current_id = match.group(1).strip()
-                if current_id in patches:
-                    new_data = patches[current_id]
-                    for key, val in new_data.items():
-                        f.write(f"  {key:<12} = {{{val}}},\n")
-                    del patches[current_id]
-
-    log(f"✅ Done! Added empty 'citation' field to {len(entries_to_process)} entries.")
-    log(f"   Output saved to: {output_path}")
-    log("\n💡 Now fill in the citation counts from Google Scholar results!")
-
-
-# ======================
-# Title command helpers
-# ======================
+from bibcc.logging_utils import Logger, get_repo_dir
 
 
 @dataclass
@@ -380,32 +54,42 @@ class LookupResult:
 
     source: str
     match: Optional[TitleMatch] = None
-    error: Optional[str] = None
-    searched: bool = True
-
-
-@dataclass
-class SourceStatus:
-    """Status of a lookup attempt."""
-
-    source: str
-    status: str  # "found", "no_match", "error", "skipped"
-    error: Optional[str] = None
+    error: Optional[str] = None  # Error message if lookup failed
+    searched: bool = True  # False if skipped (no DOI, etc.)
 
 
 def normalize_for_comparison(text: str) -> str:
     """Normalize text for comparison (lowercase, remove special chars)."""
     if not text:
         return ""
+    # Remove braces, normalize whitespace, lowercase
     text = re.sub(r"[{}\[\]]", "", text)
     text = re.sub(r"\s+", " ", text).strip().lower()
+    # Remove common punctuation for comparison
     text = re.sub(r"[:\-–—,.'\"?!]", " ", text)
     text = re.sub(r"\s+", " ", text).strip()
     return text
 
 
+def clean_title_for_search(title: str) -> str:
+    """Clean a BibTeX title for API search queries."""
+    if not title:
+        return ""
+    # Remove braces
+    title = re.sub(r"[{}\[\]]", "", title)
+    # Convert common LaTeX commands
+    title = title.replace(r"\&", "&")
+    title = title.replace(r"\'", "'")
+    title = title.replace(r"\$", "")
+    title = title.replace(r"\textasciicircum", "^")
+    title = re.sub(r"\\[a-zA-Z]+", "", title)  # Remove other LaTeX commands
+    # Clean up whitespace
+    title = re.sub(r"\s+", " ", title).strip()
+    return title
+
+
 def titles_match(title1: str, title2: str) -> bool:
-    """Check if two titles are essentially the same."""
+    """Check if two titles are essentially the same (ignoring case and formatting)."""
     return normalize_for_comparison(title1) == normalize_for_comparison(title2)
 
 
@@ -413,13 +97,14 @@ def case_differs(title1: str, title2: str) -> bool:
     """Check if titles differ only in case (not content)."""
     if not titles_match(title1, title2):
         return False
+    # Remove braces for comparison
     t1 = re.sub(r"[{}]", "", title1).strip()
     t2 = re.sub(r"[{}]", "", title2).strip()
     return t1 != t2
 
 
 def fetch_url(
-    url: str, headers: Optional[Dict[str, str]] = None, timeout: int = 10
+    url: str, headers: Optional[Dict] = None, timeout: int = 10
 ) -> Tuple[Optional[str], Optional[str]]:
     """Fetch URL content with error handling. Returns (content, error)."""
     try:
@@ -448,6 +133,7 @@ def lookup_crossref(doi: str) -> LookupResult:
     if not doi:
         return LookupResult(source=source, searched=False)
 
+    # Clean DOI
     doi = doi.strip()
     if doi.startswith("http"):
         doi = re.sub(r"https?://doi\.org/", "", doi)
@@ -457,6 +143,7 @@ def lookup_crossref(doi: str) -> LookupResult:
 
     if error:
         return LookupResult(source=source, error=error)
+
     if not content:
         return LookupResult(source=source, error="Empty response")
 
@@ -475,7 +162,7 @@ def lookup_crossref(doi: str) -> LookupResult:
                         url=f"https://doi.org/{doi}",
                     ),
                 )
-        return LookupResult(source=source)
+        return LookupResult(source=source)  # No match found
     except json.JSONDecodeError as e:
         return LookupResult(source=source, error=f"JSON parse error: {e}")
 
@@ -486,6 +173,7 @@ def lookup_dblp(title: str) -> LookupResult:
     if not title:
         return LookupResult(source=source, searched=False)
 
+    # Clean title for search (remove braces, LaTeX commands)
     search_title = clean_title_for_search(title)
     query = urllib.parse.quote(search_title)
     url = f"https://dblp.org/search/publ/api?q={query}&format=json&h=5"
@@ -493,6 +181,7 @@ def lookup_dblp(title: str) -> LookupResult:
     content, error = fetch_url(url)
     if error:
         return LookupResult(source=source, error=error)
+
     if not content:
         return LookupResult(source=source, error="Empty response")
 
@@ -502,7 +191,11 @@ def lookup_dblp(title: str) -> LookupResult:
 
         for hit in hits:
             info = hit.get("info", {})
-            dblp_title = info.get("title", "").rstrip(".")
+            dblp_title = info.get("title", "")
+
+            # Remove trailing period that DBLP sometimes adds
+            dblp_title = dblp_title.rstrip(".")
+
             if titles_match(title, dblp_title):
                 return LookupResult(
                     source=source,
@@ -513,7 +206,7 @@ def lookup_dblp(title: str) -> LookupResult:
                         url=info.get("url"),
                     ),
                 )
-        return LookupResult(source=source)
+        return LookupResult(source=source)  # No match found
     except json.JSONDecodeError as e:
         return LookupResult(source=source, error=f"JSON parse error: {e}")
 
@@ -526,14 +219,12 @@ def lookup_semantic_scholar(title: str) -> LookupResult:
 
     search_title = clean_title_for_search(title)
     query = urllib.parse.quote(search_title)
-    url = (
-        "https://api.semanticscholar.org/graph/v1/paper/search?"
-        f"query={query}&limit=5&fields=title,url"
-    )
+    url = f"https://api.semanticscholar.org/graph/v1/paper/search?query={query}&limit=5&fields=title,url"
 
     content, error = fetch_url(url)
     if error:
         return LookupResult(source=source, error=error)
+
     if not content:
         return LookupResult(source=source, error="Empty response")
 
@@ -553,15 +244,16 @@ def lookup_semantic_scholar(title: str) -> LookupResult:
                         url=paper.get("url"),
                     ),
                 )
-        return LookupResult(source=source)
+        return LookupResult(source=source)  # No match found
     except json.JSONDecodeError as e:
         return LookupResult(source=source, error=f"JSON parse error: {e}")
 
 
-def lookup_arxiv(entry: Dict[str, Any]) -> LookupResult:
+def lookup_arxiv(entry: Dict) -> LookupResult:
     """Look up title via arXiv API using eprint or URL."""
     source = "arXiv"
-    arxiv_id: Optional[str] = None
+    # Try to find arXiv ID
+    arxiv_id = None
 
     eprint = entry.get("eprint", "")
     if eprint and (
@@ -570,6 +262,7 @@ def lookup_arxiv(entry: Dict[str, Any]) -> LookupResult:
     ):
         arxiv_id = eprint
 
+    # Check URL for arXiv
     if not arxiv_id:
         url = entry.get("url", "")
         match = re.search(r"arxiv\.org/abs/(\d{4}\.\d+)", url)
@@ -579,11 +272,13 @@ def lookup_arxiv(entry: Dict[str, Any]) -> LookupResult:
     if not arxiv_id:
         return LookupResult(source=source, searched=False)
 
+    # Query arXiv API
     api_url = f"http://export.arxiv.org/api/query?id_list={arxiv_id}"
     content, error = fetch_url(api_url)
 
     if error:
         return LookupResult(source=source, error=error)
+
     if not content:
         return LookupResult(source=source, error="Empty response")
 
@@ -594,6 +289,7 @@ def lookup_arxiv(entry: Dict[str, Any]) -> LookupResult:
         for entry_elem in root.findall("atom:entry", ns):
             title_elem = entry_elem.find("atom:title", ns)
             if title_elem is not None and title_elem.text:
+                # arXiv titles often have newlines, clean them
                 arxiv_title = re.sub(r"\s+", " ", title_elem.text).strip()
                 return LookupResult(
                     source=source,
@@ -604,20 +300,38 @@ def lookup_arxiv(entry: Dict[str, Any]) -> LookupResult:
                         url=f"https://arxiv.org/abs/{arxiv_id}",
                     ),
                 )
-        return LookupResult(source=source)
+        return LookupResult(source=source)  # No match found
     except ET.ParseError as e:
         return LookupResult(source=source, error=f"XML parse error: {e}")
 
 
+@dataclass
+class SourceStatus:
+    """Status of a lookup attempt."""
+
+    source: str
+    status: str  # "found", "no_match", "error", "skipped"
+    error: Optional[str] = None
+
+
 def find_original_title(
-    entry: Dict[str, Any], delay: float = 0.3
+    entry: Dict, delay: float = 0.3
 ) -> Tuple[List[TitleMatch], List[SourceStatus]]:
-    """Find original title from sources according to DOI/arXiv/DBLP/SS rules."""
-    matches: List[TitleMatch] = []
-    source_statuses: List[SourceStatus] = []
+    """
+    Find original title from multiple sources.
+    Returns (matches, source_statuses) - list of matches and status of each source tried.
+
+    Strategy:
+    - If entry has DOI: Use ONLY CrossRef (DOI lookup is authoritative)
+      If CrossRef fails, report as error - no fallback to other sources.
+    - If entry has no DOI: Use arXiv (if applicable), DBLP, Semantic Scholar.
+    """
+    matches = []
+    source_statuses = []
     current_title = entry.get("title", "")
     doi = entry.get("doi", "")
 
+    # If entry has DOI, use ONLY CrossRef (authoritative lookup)
     if doi:
         result = lookup_crossref(doi)
         if result.error:
@@ -628,10 +342,14 @@ def find_original_title(
         else:
             source_statuses.append(SourceStatus(result.source, "no_match"))
         time.sleep(delay)
+        # DOI entries only use CrossRef - return immediately
         return matches, source_statuses
 
+    # No DOI - use other sources
+
+    # 1. Try arXiv (if applicable)
     result = lookup_arxiv(entry)
-    if result.searched:
+    if result.searched:  # Only if arXiv ID was found
         if result.error:
             source_statuses.append(SourceStatus(result.source, "error", result.error))
         elif result.match:
@@ -643,6 +361,7 @@ def find_original_title(
             source_statuses.append(SourceStatus(result.source, "no_match"))
         time.sleep(delay)
 
+    # 2. Try DBLP
     if current_title:
         result = lookup_dblp(current_title)
         if result.error:
@@ -656,6 +375,7 @@ def find_original_title(
             source_statuses.append(SourceStatus(result.source, "no_match"))
         time.sleep(delay)
 
+    # 3. Try Semantic Scholar (as backup, only if no matches yet)
     if not matches and current_title:
         result = lookup_semantic_scholar(current_title)
         if result.error:
@@ -672,6 +392,7 @@ def find_original_title(
 
 def highlight_case_diff(current: str, original: str) -> str:
     """Create a visual diff highlighting case differences."""
+    # Simple word-by-word comparison
     current_clean = re.sub(r"[{}]", "", current)
     original_clean = re.sub(r"[{}]", "", original)
 
@@ -681,7 +402,7 @@ def highlight_case_diff(current: str, original: str) -> str:
     if len(current_words) != len(original_words):
         return f"  Current:  {current}\n  Original: {original}"
 
-    diff_words: List[str] = []
+    diff_words = []
     for cw, ow in zip(current_words, original_words):
         if cw.lower() == ow.lower() and cw != ow:
             diff_words.append(f"[{cw} → {ow}]")
@@ -693,57 +414,57 @@ def highlight_case_diff(current: str, original: str) -> str:
     return ""
 
 
-def parse_error_ids_from_report(
-    report_path: str,
-    log: Callable[[str], None] = print,
-) -> List[str]:
+def parse_error_ids_from_report(report_path: str) -> List[str]:
     """Parse entry IDs that had errors from a previous report file."""
-    error_ids: List[str] = []
+    error_ids = []
     try:
         with open(report_path, "r", encoding="utf-8") as f:
             content = f.read()
 
+        # Find the LOOKUP ERRORS section
         in_error_section = False
         for line in content.split("\n"):
             if "LOOKUP ERRORS" in line:
                 in_error_section = True
                 continue
             if in_error_section:
+                # Stop at next section
                 if line.startswith("---") and "NO MATCH FOUND" in line:
                     break
                 if line.startswith("==="):
                     break
+                # Extract ID lines
                 if line.startswith("ID: "):
                     error_ids.append(line[4:].strip())
     except FileNotFoundError:
-        log(f"❌ Error: Report file not found: {report_path}")
+        print(f"❌ Error: Report file not found: {report_path}")
     except Exception as e:
-        log(f"❌ Error reading report file: {e}")
+        print(f"❌ Error reading report file: {e}")
 
     return error_ids
 
 
 def parse_full_report(
     report_path: str,
-    log: Callable[[str], None] = print,
-) -> Tuple[
-    List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]], Dict[str, Any]
-]:
-    """Parse full report sections: case_diffs, with_errors, no_match, metadata."""
-    case_diffs: List[Dict[str, Any]] = []
-    with_errors: List[Dict[str, Any]] = []
-    no_match: List[Dict[str, Any]] = []
-    metadata: Dict[str, Any] = {"bib_path": "", "total": 0}
+) -> Tuple[List[Dict], List[Dict], List[Dict], Dict]:
+    """
+    Parse a full report file to extract all sections.
+    Returns (case_diffs, with_errors, no_match, metadata).
+    """
+    case_diffs = []
+    with_errors = []
+    no_match = []
+    metadata = {"bib_path": "", "total": 0}
 
     try:
         with open(report_path, "r", encoding="utf-8") as f:
             content = f.read()
 
         lines = content.split("\n")
-        section: Optional[str] = None
-        current_entry: Dict[str, Any] = {}
+        section = None
+        current_entry = {}
 
-        def save_current_entry() -> None:
+        def save_current_entry():
             nonlocal current_entry
             if current_entry and current_entry.get("id"):
                 if section == "case_diffs":
@@ -755,11 +476,13 @@ def parse_full_report(
             current_entry = {}
 
         for line in lines:
+            # Parse metadata
             if line.startswith("Generated from:"):
                 metadata["bib_path"] = line.split(":", 1)[1].strip()
             elif line.startswith("Total entries checked:"):
                 metadata["total"] = int(line.split(":")[1].strip())
 
+            # Detect sections (check before === handling)
             if "CASE DIFFERENCES FOUND" in line:
                 save_current_entry()
                 section = "case_diffs"
@@ -773,9 +496,11 @@ def parse_full_report(
                 section = "no_match"
                 continue
 
+            # Skip separator lines
             if line.startswith("===") or line.startswith("---"):
                 continue
 
+            # Parse entries
             if section and line.startswith("ID: "):
                 save_current_entry()
                 current_entry = {"id": line[4:].strip()}
@@ -793,31 +518,37 @@ def parse_full_report(
                 elif line.startswith("Searched: "):
                     current_entry["searched"] = line[10:].strip()
 
+        # Save last entry
         save_current_entry()
 
     except Exception as e:
-        log(f"❌ Error parsing report: {e}")
+        print(f"❌ Error parsing report: {e}")
 
     return case_diffs, with_errors, no_match, metadata
 
 
 def merge_and_write_report(
     report_path: str,
-    new_results: List[Dict[str, Any]],
+    new_results: List[Dict],
     retried_ids: List[str],
     bib_path: str,
     total_entries: int,
-    log: Callable[[str], None] = print,
-) -> None:
-    """Merge new retry results into an existing report file."""
+):
+    """
+    Merge new retry results into an existing report.
+    Replaces entries that were retried with their new results.
+    """
+    # Parse existing report
     old_case_diffs, old_with_errors, old_no_match, metadata = parse_full_report(
-        report_path, log=log
+        report_path
     )
 
+    # Remove retried entries from old lists
     retried_set = set(retried_ids)
     old_with_errors = [e for e in old_with_errors if e.get("id") not in retried_set]
     old_no_match = [e for e in old_no_match if e.get("id") not in retried_set]
 
+    # Separate new results
     new_case_diffs = [r for r in new_results if not r.get("not_found")]
     new_not_found = [r for r in new_results if r.get("not_found")]
     new_with_errors = [
@@ -827,29 +558,31 @@ def merge_and_write_report(
     ]
     new_no_match = [r for r in new_not_found if r not in new_with_errors]
 
+    # Merge
     all_case_diffs = old_case_diffs + new_case_diffs
     all_with_errors = old_with_errors + new_with_errors
     all_no_match = old_no_match + new_no_match
 
+    # Use original metadata if available
     if metadata.get("bib_path"):
         bib_path = metadata["bib_path"]
     if metadata.get("total"):
         total_entries = metadata["total"]
 
-    sep = SEPARATOR_HEAVY * SEPARATOR_WIDTH
+    # Write merged report
     with open(report_path, "w", encoding="utf-8") as f:
-        f.write("TITLE CHECK REPORT\n")
+        f.write(f"TITLE CHECK REPORT\n")
         f.write(f"Generated from: {bib_path}\n")
-        f.write(sep + "\n\n")
+        f.write("=" * 80 + "\n\n")
         f.write(f"Total entries checked: {total_entries}\n")
         f.write(f"Entries with case differences: {len(all_case_diffs)}\n")
         f.write(f"Entries with lookup errors: {len(all_with_errors)}\n")
         f.write(f"Entries with no match found: {len(all_no_match)}\n\n")
 
         if all_case_diffs:
-            f.write(sep + "\n")
+            f.write("=" * 80 + "\n")
             f.write("CASE DIFFERENCES FOUND:\n")
-            f.write(sep + "\n\n")
+            f.write("=" * 80 + "\n\n")
             for r in all_case_diffs:
                 f.write(f"ID: {r.get('id', r.get('ID', 'unknown'))}\n")
                 f.write(f"Source: {r.get('source', 'unknown')}\n")
@@ -860,9 +593,9 @@ def merge_and_write_report(
                 f.write("\n")
 
         if all_with_errors or all_no_match:
-            f.write(sep + "\n")
+            f.write("=" * 80 + "\n")
             f.write("NOT FOUND IN ANY SOURCE (need manual check):\n")
-            f.write(sep + "\n\n")
+            f.write("=" * 80 + "\n\n")
 
             if all_with_errors:
                 f.write("--- LOOKUP ERRORS (network/API failures) ---\n\n")
@@ -890,10 +623,10 @@ def merge_and_write_report(
                         f.write(f"Searched: {sources}\n")
                     f.write("\n")
 
-    log(f"\n📝 Report updated: {report_path}")
-    log(f"   Case differences: {len(all_case_diffs)}")
-    log(f"   Lookup errors: {len(all_with_errors)}")
-    log(f"   No match found: {len(all_no_match)}")
+    print(f"\n📝 Report updated: {report_path}")
+    print(f"   Case differences: {len(all_case_diffs)}")
+    print(f"   Lookup errors: {len(all_with_errors)}")
+    print(f"   No match found: {len(all_no_match)}")
 
 
 def check_titles(
@@ -903,14 +636,24 @@ def check_titles(
     verbose: bool = True,
     filter_ids: Optional[List[str]] = None,
     log: Optional[Callable[[str], None]] = None,
-) -> List[Dict[str, Any]]:
-    """Check all titles in a bib file against external sources."""
+) -> List[Dict]:
+    """
+    Check all titles in a bib file against external sources.
+    Returns list of entries with differences.
+    Sequential processing for maximum reliability.
+
+    Args:
+        filter_ids: If provided, only check entries with these IDs
+        log: Optional logging function (default: print)
+    """
     log = log or print
 
+    # Load bib file
     with open(bib_path, "r", encoding="utf-8") as f:
         parser = bibtexparser.bparser.BibTexParser(common_strings=True)
         bib_db = bibtexparser.load(f, parser=parser)
 
+    # Filter entries if IDs specified
     if filter_ids:
         filter_set = set(filter_ids)
         entries_to_check = [e for e in bib_db.entries if e.get("ID") in filter_set]
@@ -925,9 +668,9 @@ def check_titles(
         entries_to_check = bib_db.entries
         log(f"🔍 Checking {len(entries_to_check)} entries in {bib_path}")
 
-    log("\n" + SEPARATOR_HEAVY * SEPARATOR_WIDTH)
+    log("\n" + "=" * 80)
 
-    results: List[Dict[str, Any]] = []
+    results = []
     total = len(entries_to_check)
 
     for i, entry in enumerate(entries_to_check, 1):
@@ -943,11 +686,13 @@ def check_titles(
 
         matches, source_statuses = find_original_title(entry, delay)
 
+        # Track entries not found in any source
         if not matches:
+            # Build detailed reason from source statuses
             if not source_statuses:
                 reason = "No DOI, arXiv ID, or title to search"
             else:
-                status_parts: List[str] = []
+                status_parts = []
                 has_errors = False
                 for ss in source_statuses:
                     if ss.status == "error":
@@ -981,6 +726,7 @@ def check_titles(
             )
             continue
 
+        # Check for case differences
         for match in matches:
             if case_differs(current_title, match.original_title):
                 results.append(
@@ -997,11 +743,13 @@ def check_titles(
                 break
 
     if verbose:
-        log("")
+        log("")  # Clear progress line
 
+    # Separate results
     not_found = [r for r in results if r.get("not_found")]
     case_diffs = [r for r in results if not r.get("not_found")]
 
+    # Further separate not_found into errors vs no-match
     with_errors = [
         r
         for r in not_found
@@ -1009,17 +757,18 @@ def check_titles(
     ]
     no_match = [r for r in not_found if r not in with_errors]
 
-    log("\n📋 TITLE CHECK REPORT")
-    log(SEPARATOR_HEAVY * SEPARATOR_WIDTH)
+    # Print report
+    log(f"\n📋 TITLE CHECK REPORT")
+    log("=" * 80)
     log(f"Total entries checked: {total}")
     log(f"Entries with case differences: {len(case_diffs)}")
     log(f"Entries with lookup errors (network/API): {len(with_errors)}")
     log(f"Entries with no match found: {len(no_match)}")
-    log(SEPARATOR_HEAVY * SEPARATOR_WIDTH + "\n")
+    log("=" * 80 + "\n")
 
     if case_diffs:
         log("📝 CASE DIFFERENCES FOUND:")
-        log(SEPARATOR_LIGHT * SEPARATOR_WIDTH)
+        log("-" * 80)
         for r in case_diffs:
             log(f"📄 {r['id']}")
             log(f"  Source: {r['source']}")
@@ -1034,8 +783,9 @@ def check_titles(
 
     if not_found:
         log("❓ NOT FOUND IN ANY SOURCE (need manual check):")
-        log(SEPARATOR_LIGHT * SEPARATOR_WIDTH)
+        log("-" * 80)
 
+        # Show entries with errors first
         if with_errors:
             log("\n⚠️  LOOKUP ERRORS (network/API failures):")
             for r in with_errors:
@@ -1048,6 +798,7 @@ def check_titles(
                         log(f"  ✓ {ss.source}: searched, no match")
                 log("")
 
+        # Show entries with no match (but no errors)
         if no_match:
             log("\n🔍 NO MATCH FOUND (searched successfully but not found):")
             for r in no_match:
@@ -1063,20 +814,20 @@ def check_titles(
     if not case_diffs and not not_found:
         log("✅ All titles verified - no issues found!")
 
-    sep = SEPARATOR_HEAVY * SEPARATOR_WIDTH
+    # Write to file if requested
     if output_path:
         with open(output_path, "w", encoding="utf-8") as f:
-            f.write("TITLE CHECK REPORT\n")
+            f.write(f"TITLE CHECK REPORT\n")
             f.write(f"Generated from: {bib_path}\n")
-            f.write(sep + "\n\n")
+            f.write("=" * 80 + "\n\n")
             f.write(f"Total entries checked: {total}\n")
             f.write(f"Entries with case differences: {len(case_diffs)}\n")
             f.write(f"Entries not found in any source: {len(not_found)}\n\n")
 
             if case_diffs:
-                f.write(sep + "\n")
+                f.write("=" * 80 + "\n")
                 f.write("CASE DIFFERENCES FOUND:\n")
-                f.write(sep + "\n\n")
+                f.write("=" * 80 + "\n\n")
                 for r in case_diffs:
                     f.write(f"ID: {r['id']}\n")
                     f.write(f"Source: {r['source']}\n")
@@ -1087,9 +838,9 @@ def check_titles(
                     f.write("\n")
 
             if not_found:
-                f.write(sep + "\n")
+                f.write("=" * 80 + "\n")
                 f.write("NOT FOUND IN ANY SOURCE (need manual check):\n")
-                f.write(sep + "\n\n")
+                f.write("=" * 80 + "\n\n")
 
                 if with_errors:
                     f.write("--- LOOKUP ERRORS (network/API failures) ---\n\n")
@@ -1118,162 +869,81 @@ def check_titles(
     return results
 
 
-def cmd_titles(
-    bib_file: Path,
-    delay: float = 0.5,
-    quiet: bool = False,
-    retry_errors: Optional[str] = None,
-    ids: Optional[str] = None,
-    log: Optional[Callable[[str], None]] = None,
-) -> None:
-    """Run title checking command flow."""
-    log = log or print
-
-    repo_dir = get_repo_dir()
-    base_name = bib_file.name
-    output_path = repo_dir / f"{base_name}.title_report.txt"
-
-    filter_ids: Optional[List[str]] = None
-    retry_report_path: Optional[str] = None
-
-    if retry_errors:
-        filter_ids = parse_error_ids_from_report(retry_errors, log=log)
-        if not filter_ids:
-            log("No error entries found in the report file.")
-            return
-        log(f"📋 Found {len(filter_ids)} entries with errors to re-check")
-        retry_report_path = retry_errors
-    elif ids:
-        filter_ids = [entry_id.strip() for entry_id in ids.split(",")]
-        log(f"📋 Will check {len(filter_ids)} specified entries")
-
-    results = check_titles(
-        str(bib_file),
-        output_path=(str(output_path) if not retry_report_path else None),
-        delay=delay,
-        verbose=not quiet,
-        filter_ids=filter_ids,
-        log=log,
-    )
-
-    if retry_report_path and results is not None and filter_ids is not None:
-        merge_and_write_report(
-            retry_report_path,
-            results,
-            filter_ids,
-            str(bib_file),
-            len(filter_ids),
-            log=log,
-        )
-
-
-# =========================
-# Parser and entry point
-# =========================
-
-
-def build_parser() -> argparse.ArgumentParser:
-    """Build argument parser with scholar subcommands."""
+def main():
     parser = argparse.ArgumentParser(
-        description="Scholar: citation and title management for BibTeX files.",
+        description="Check BibTeX titles against external sources (CrossRef, DBLP, Semantic Scholar, arXiv)"
     )
-    subparsers = parser.add_subparsers(dest="command", required=True)
-
-    p_cite = subparsers.add_parser(
-        "cite", help="Google Scholar URLs and citation fields"
-    )
-    p_cite.add_argument("bib_file", type=Path, help="Path to .bib file")
-    p_cite.add_argument(
-        "--output",
-        "-o",
-        type=str,
-        default="",
-        help="Output file (omit for dry-run)",
-    )
-    p_cite.add_argument("--open", action="store_true", help="Open URLs in browser")
-    p_cite.add_argument(
-        "--interactive",
-        "-i",
-        action="store_true",
-        help="Interactive citation fill",
-    )
-    p_cite.add_argument(
-        "--include-filled",
-        action="store_true",
-        help="Include entries with citations",
-    )
-    p_cite.add_argument(
-        "--batch-size",
-        type=int,
-        default=5,
-        help="URLs per batch (default: 5)",
-    )
-    p_cite.add_argument(
-        "--log-dir",
-        type=str,
-        default="",
-        help="Directory to write logs. Default: repo directory.",
-    )
-
-    p_titles = subparsers.add_parser(
-        "titles", help="Check titles against external sources"
-    )
-    p_titles.add_argument("bib_file", type=Path, help="Path to .bib file")
-    p_titles.add_argument(
+    parser.add_argument("input", help="Path to the input BibTeX (.bib) file")
+    parser.add_argument(
         "--delay",
         "-d",
         type=float,
         default=0.5,
-        help="API delay in seconds",
+        help="Delay between API requests in seconds (default: 0.5)",
     )
-    p_titles.add_argument(
-        "--quiet", "-q", action="store_true", help="Suppress progress"
+    parser.add_argument(
+        "--quiet",
+        "-q",
+        action="store_true",
+        help="Suppress progress output",
     )
-    p_titles.add_argument(
+    parser.add_argument(
         "--retry-errors",
         metavar="REPORT",
-        help="Re-check error entries from report",
+        help="Re-check only entries that had errors in a previous report file",
     )
-    p_titles.add_argument("--ids", help="Comma-separated entry IDs to check")
+    parser.add_argument(
+        "--ids",
+        help="Comma-separated list of entry IDs to check (e.g., --ids ID1,ID2,ID3)",
+    )
 
-    return parser
-
-
-def main() -> None:
-    """Main entry point for scholar tool."""
-    parser = build_parser()
     args = parser.parse_args()
 
-    if args.command == "cite":
-        if args.interactive and not args.output:
-            args.output = str(args.bib_file)
+    # Auto-generate output path in repo directory
+    repo_dir = get_repo_dir()
+    input_path = Path(args.input)
+    base_name = input_path.name
+    output_path = repo_dir / f"{base_name}.title_report.txt"
 
-        dry_run = not bool(args.output) and not args.interactive
-        log_dir = Path(args.log_dir) if args.log_dir else None
+    # Create unified logger
+    with Logger("titleretriever", input_file=args.input) as logger:
+        log = logger.log
 
-        with Logger(
-            "scholar.cite", input_file=str(args.bib_file), log_dir=log_dir
-        ) as logger:
-            cmd_cite(
-                args.bib_file,
-                args.output or str(args.bib_file),
-                open_browser=args.open,
-                interactive=args.interactive,
-                include_filled=args.include_filled,
-                batch_size=args.batch_size,
-                dry_run=dry_run,
-                log_dir=log_dir,
-                log=logger.log,
-            )
-    elif args.command == "titles":
-        with Logger("scholar.titles", input_file=str(args.bib_file)) as logger:
-            cmd_titles(
-                args.bib_file,
-                delay=args.delay,
-                quiet=args.quiet,
-                retry_errors=args.retry_errors,
-                ids=args.ids,
-                log=logger.log,
+        # Determine which entries to check
+        filter_ids = None
+        retry_report_path = None
+
+        if args.retry_errors:
+            filter_ids = parse_error_ids_from_report(args.retry_errors)
+            if not filter_ids:
+                log("No error entries found in the report file.")
+                return
+            log(f"📋 Found {len(filter_ids)} entries with errors to re-check")
+            retry_report_path = args.retry_errors  # Will merge back into this report
+        elif args.ids:
+            filter_ids = [id.strip() for id in args.ids.split(",")]
+            log(f"📋 Will check {len(filter_ids)} specified entries")
+
+        # Run the check
+        results = check_titles(
+            args.input,
+            output_path=(
+                str(output_path) if not retry_report_path else None
+            ),  # Don't write if retrying
+            delay=args.delay,
+            verbose=not args.quiet,
+            filter_ids=filter_ids,
+            log=log,
+        )
+
+        # If retrying, merge results back into original report
+        if retry_report_path and results is not None and filter_ids is not None:
+            merge_and_write_report(
+                retry_report_path,
+                results,
+                filter_ids,
+                args.input,
+                len(filter_ids),
             )
 
 

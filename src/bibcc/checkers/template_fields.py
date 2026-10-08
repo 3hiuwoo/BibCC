@@ -7,7 +7,7 @@ field overrides so that specific conferences can require additional fields
 (e.g., ECCV → ``series``, some conferences → ``editor``).
 
 Usage:
-    from checkers.template_fields import check_template_fields
+    from bibcc.checkers.template_fields import check_template_fields
 
     check_template_fields(Path("templates.py"), ["publisher", "issn"], ["venue"])
 """

@@ -1,8 +1,12 @@
 *.bib
-!templates/*
+!tests/fixtures/**/*.bib
 *.txt
 *.bak
 *.yaml
 !missing_templates.example.yaml
 logs/
 *.local.*
+__pycache__/
+.venv/
+.pytest_cache/
+dist/

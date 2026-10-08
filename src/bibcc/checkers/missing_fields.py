@@ -5,7 +5,7 @@ Scans a .bib file and reports entries that lack specified required fields
 (e.g., month, publisher).
 
 Usage:
-    from checkers.missing_fields import check_missing_fields
+    from bibcc.checkers.missing_fields import check_missing_fields
 
     rows = check_missing_fields("refs.bib", ["month"], ["article"])
 """

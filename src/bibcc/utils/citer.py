@@ -41,9 +41,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import bibtexparser
 
-# Add parent directory to path for imports
-sys.path.insert(0, str(Path(__file__).parent.parent))
-from logging_utils import Logger, get_repo_dir
+from bibcc.logging_utils import Logger, get_repo_dir
 
 
 def clean_title_for_search(title: str) -> str:

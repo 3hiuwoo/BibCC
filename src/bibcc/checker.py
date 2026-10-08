@@ -29,7 +29,7 @@ import argparse
 from pathlib import Path
 from typing import List
 
-from checkers import (
+from bibcc.checkers import (
     DEFAULT_ENTRY_TYPES,
     DEFAULT_JOURNAL_FIELDS,
     DEFAULT_PROCEEDINGS_FIELDS,
@@ -40,8 +40,8 @@ from checkers import (
     load_vocab_file,
     parse_terms,
 )
-from checkers.title_case import check_title_case, get_style
-from logging_utils import Logger, get_repo_dir, write_report
+from bibcc.checkers.title_case import check_title_case, get_style
+from bibcc.logging_utils import Logger, get_repo_dir, write_report
 
 
 def parse_list_arg(raw: str) -> List[str]:
@@ -143,8 +143,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--templates-path",
         type=str,
-        default="templates.py",
-        help="Path to templates.py file (default: templates.py).",
+        default=str(Path(__file__).parent / "templates.py"),
+        help="Path to templates.py file (default: the bundled templates.py).",
     )
     parser.add_argument(
         "--journal-fields",

@@ -8,7 +8,7 @@ This module provides a consistent logging strategy across all tools:
 - All logs stored in logs/ subdirectory
 
 Usage:
-    from logging_utils import Logger
+    from bibcc.logging_utils import Logger
 
     # Create logger that auto-generates log file from input file
     logger = Logger("checker", input_file="my.bib")

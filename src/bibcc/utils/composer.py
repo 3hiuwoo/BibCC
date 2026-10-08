@@ -23,11 +23,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Dict, List, Set, Tuple
 
-import sys
-
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
-from logging_utils import Logger, get_repo_dir
+from bibcc.logging_utils import Logger, get_repo_dir
 
 SOURCE_MARKER_PREFIX = "% === source:"
 SOURCE_MARKER_SUFFIX = "==="

@@ -8,14 +8,24 @@ A CLI toolkit to auto-complete missing BibTeX fields, check formatting quality, 
 
 ## 🚀 Quick Start
 
+BibCC is a Python package managed with [uv](https://docs.astral.sh/uv/).
+
 ```bash
-pip install bibtexparser pyyaml
-python bibcc.py --help
+git clone https://github.com/3hiuwoo/BibCC.git && cd BibCC
+uv sync                       # create .venv with dependencies
+uv run bibcc --help           # run from the checkout
+
+uv tool install --editable .  # optional: put `bibcc` on your PATH
+bibcc --help
 ```
+
+The editable install keeps `bibcc` pointing at your checkout, so template updates and code changes apply immediately.
+
+Run the tests with `uv run pytest`.
 
 ## 🧩 Commands
 
-BibCC provides five commands through a single entry point — `bibcc.py`:
+BibCC provides five commands through a single entry point — `bibcc`:
 
 | Command | Description |
 | --- | --- |
@@ -25,7 +35,7 @@ BibCC provides five commands through a single entry point — `bibcc.py`:
 | `scholar` | Citation counts and title verification via external APIs |
 | `compose` | Merge per-folder `.bib` files into a single bibliography |
 
-Run `python bibcc.py <command> -h` for command-specific help.
+Run `bibcc <command> -h` for command-specific help.
 
 ---
 
@@ -36,43 +46,43 @@ Run one or more quality checks on a `.bib` file. All checks are independent and 
 **Missing fields** — detect entries lacking required fields:
 
 ```bash
-python bibcc.py check input.bib --fields month
-python bibcc.py check input.bib --fields month,publisher --entry-types inproceedings,article
+bibcc check input.bib --fields month
+bibcc check input.bib --fields month,publisher --entry-types inproceedings,article
 ```
 
 **Title case** — suggest APA-style title case corrections:
 
 ```bash
-python bibcc.py check input.bib --title-case
-python bibcc.py check input.bib --title-case --title-apply          # apply changes in-place
-python bibcc.py check input.bib --title-case --title-interactive    # review each suggestion
+bibcc check input.bib --title-case
+bibcc check input.bib --title-case --title-apply          # apply changes in-place
+bibcc check input.bib --title-case --title-interactive    # review each suggestion
 ```
 
 **Smart term protection** — suggest `{braces}` for technical terms, acronyms, and proper nouns:
 
 ```bash
-python bibcc.py check input.bib --quote
-python bibcc.py check input.bib --quote --quote-terms Gaussian,BERT
-python bibcc.py check input.bib --quote --quote-vocab-file my_terms.txt
+bibcc check input.bib --quote
+bibcc check input.bib --quote --quote-terms Gaussian,BERT
+bibcc check input.bib --quote --quote-vocab-file my_terms.txt
 ```
 
 **Citation key legibility** — check that keys follow `METHOD_AUTHOR_VENUEYEAR`:
 
 ```bash
-python bibcc.py check input.bib --check-keys
+bibcc check input.bib --check-keys
 ```
 
 **Template completeness** — check `templates.py` for missing fields:
 
 ```bash
-python bibcc.py check --check-templates
-python bibcc.py check --check-templates --journal-fields publisher,issn --proceedings-fields venue,month,isbn
+bibcc check --check-templates
+bibcc check --check-templates --journal-fields publisher,issn --proceedings-fields venue,month,isbn
 ```
 
 **Combine checks** in one run:
 
 ```bash
-python bibcc.py check input.bib --fields month --title-case --quote --check-keys
+bibcc check input.bib --fields month --title-case --quote --check-keys
 ```
 
 <details>
@@ -106,8 +116,8 @@ python bibcc.py check input.bib --fields month --title-case --quote --check-keys
 Fill missing BibTeX fields (publisher, ISSN, venue, month, …) from a built-in template database.
 
 ```bash
-python bibcc.py complete input.bib                    # preview (dry-run)
-python bibcc.py complete input.bib --output out.bib   # write completed output
+bibcc complete input.bib                    # preview (dry-run)
+bibcc complete input.bib --output out.bib   # write completed output
 ```
 
 When templates are missing, a `*.missing_templates.yaml` file is generated. Fields are **auto-guessed** from venue name patterns and **pre-filled** from existing entries in the same journal/conference, so you only need to fill in what couldn't be inferred.
@@ -116,12 +126,12 @@ When templates are missing, a `*.missing_templates.yaml` file is generated. Fiel
 
 ```bash
 # 1. Run to generate the YAML (auto-guessed fields pre-filled)
-python bibcc.py complete input.bib
+bibcc complete input.bib
 
 # 2. Fill in remaining fields in input.bib.missing_templates.yaml
 
 # 3. Update templates and re-complete in one step
-python bibcc.py complete input.bib --output out.bib --update-templates
+bibcc complete input.bib --output out.bib --update-templates
 ```
 
 <details>
@@ -143,14 +153,14 @@ Align your PDF library with your bibliography. Three subcommands:
 
 ```bash
 # Find bib entries whose PDFs are missing from your library
-python bibcc.py librarian missing input.bib papers.txt
+bibcc librarian missing input.bib papers.txt
 
 # Find library PDFs not referenced in bib
-python bibcc.py librarian extra input.bib papers.txt
+bibcc librarian extra input.bib papers.txt
 
 # Rename PDFs to citation-key names via title matching
-python bibcc.py librarian rename input.bib ~/Downloads/papers --dry-run   # preview
-python bibcc.py librarian rename input.bib ~/Downloads/papers             # apply
+bibcc librarian rename input.bib ~/Downloads/papers --dry-run   # preview
+bibcc librarian rename input.bib ~/Downloads/papers             # apply
 ```
 
 **Rename workflow**: Export PDFs from Zotero (or similar) with full titles in the filename (e.g., `Author 等 - 2025 - Full Paper Title.pdf`). The tool extracts titles from filenames, normalises them, and matches against bib entries for exact renaming — no manual ordering required.
@@ -164,18 +174,18 @@ Two subcommands for web-based bibliography management.
 **`cite`** — Google Scholar citation URLs and interactive citation fill:
 
 ```bash
-python bibcc.py scholar cite input.bib                         # dry-run: show URLs
-python bibcc.py scholar cite input.bib -i                      # interactive: fill counts
-python bibcc.py scholar cite input.bib --open --batch-size 10  # batch open in browser
-python bibcc.py scholar cite input.bib -i --include-filled     # re-check filled entries
+bibcc scholar cite input.bib                         # dry-run: show URLs
+bibcc scholar cite input.bib -i                      # interactive: fill counts
+bibcc scholar cite input.bib --open --batch-size 10  # batch open in browser
+bibcc scholar cite input.bib -i --include-filled     # re-check filled entries
 ```
 
 **`titles`** — Verify paper titles against CrossRef, DBLP, Semantic Scholar, arXiv:
 
 ```bash
-python bibcc.py scholar titles input.bib
-python bibcc.py scholar titles input.bib --retry-errors report.txt  # retry failures
-python bibcc.py scholar titles input.bib --ids ID1,ID2              # specific entries
+bibcc scholar titles input.bib
+bibcc scholar titles input.bib --retry-errors report.txt  # retry failures
+bibcc scholar titles input.bib --ids ID1,ID2              # specific entries
 ```
 
 <details>
@@ -209,8 +219,8 @@ python bibcc.py scholar titles input.bib --ids ID1,ID2              # specific e
 Combine `.bib` files from a folder tree into a single bibliography:
 
 ```bash
-python bibcc.py compose compose ./my-bibs combined.bib
-python bibcc.py compose compose ./my-bibs combined.bib --no-dup-warning
+bibcc compose compose ./my-bibs combined.bib
+bibcc compose compose ./my-bibs combined.bib --no-dup-warning
 ```
 
 Source path markers (`% === source: path/file.bib ===`) are inserted between files. All original comments are preserved. Duplicate entry IDs are warned by default.
@@ -241,12 +251,12 @@ Templates power the `complete` command. They live in `templates.py` as two dicti
 
 ```bash
 # 1. Run complete to generate YAML for unknown venues
-python bibcc.py complete input.bib
+bibcc complete input.bib
 
 # 2. Edit the generated *.missing_templates.yaml — most fields are pre-filled
 
 # 3. Update templates and complete in one step
-python bibcc.py complete input.bib --output out.bib --update-templates
+bibcc complete input.bib --output out.bib --update-templates
 ```
 
 Entries missing year or venue (e.g., arXiv preprints, misc entries) are reported in `*.incomplete_entries.txt` and skipped.
@@ -278,6 +288,6 @@ The modified `.bib` file is not guaranteed to be well formatted. Use:
 - `compose`:
   - [x] ~~Folder-based .bib composition with comment preservation.~~ Done.
 - CLI & output:
-  - [x] ~~Unified CLI entry point.~~ Done — `bibcc.py`.
+  - [x] ~~Unified CLI entry point.~~ Done — `bibcc`.
   - [x] ~~Consistent output formatting and logging.~~ Done — shared format constants and report writer.
-  - [ ] Refine and package the repo as a installable command-line tool with only bibcc and templates exposed.
+  - [x] ~~Package the repo as an installable command-line tool.~~ Done — `pyproject.toml` + `uv`.

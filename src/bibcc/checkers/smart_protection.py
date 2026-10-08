@@ -5,7 +5,7 @@ Detects technical terms, acronyms, mixed-case words, and vocabulary terms
 that should be wrapped in braces to prevent BibTeX from altering casing.
 
 Usage:
-    from checkers.smart_protection import check_smart_protection, DEFAULT_VOCAB
+    from bibcc.checkers.smart_protection import check_smart_protection, DEFAULT_VOCAB
 
     rows = check_smart_protection("refs.bib", extra_vocab=["BERT", "ResNet"])
 """

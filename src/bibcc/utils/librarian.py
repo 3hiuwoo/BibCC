@@ -27,13 +27,10 @@ from __future__ import annotations
 import argparse
 import re
 import shutil
-import sys
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
 
-# Add parent directory to path for imports
-sys.path.insert(0, str(Path(__file__).parent.parent))
-from logging_utils import SEPARATOR_THIN, SEPARATOR_WIDTH, Logger, get_repo_dir
+from bibcc.logging_utils import SEPARATOR_THIN, SEPARATOR_WIDTH, Logger, get_repo_dir
 
 
 # ---------------------------------------------------------------------------

@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 BibCC — BibTeX Check & Complete CLI.
 
@@ -13,18 +12,20 @@ Subcommands:
     compose    Merge per-folder .bib files into a single bibliography
 
 Usage:
-    python bibcc.py check input.bib --fields month --title-case
-    python bibcc.py complete input.bib --output out.bib
-    python bibcc.py librarian missing input.bib papers.txt
-    python bibcc.py scholar cite input.bib
-    python bibcc.py scholar titles input.bib
-    python bibcc.py compose compose ./bibs combined.bib
+    bibcc check input.bib --fields month --title-case
+    bibcc complete input.bib --output out.bib
+    bibcc librarian missing input.bib papers.txt
+    bibcc scholar cite input.bib
+    bibcc scholar titles input.bib
+    bibcc compose compose ./bibs combined.bib
 """
 
 from __future__ import annotations
 
+import importlib
 import sys
 
+from bibcc import __version__
 
 TOOLS = {
     "check": "Quality checks: missing fields, title case, term protection, keys",
@@ -34,62 +35,55 @@ TOOLS = {
     "compose": "Merge per-folder .bib files into a single bibliography",
 }
 
+# Tools exposing build_parser() + run(args) vs. a self-parsing main().
+_RUN_TOOLS = {
+    "check": "bibcc.checker",
+    "complete": "bibcc.completer",
+}
+_MAIN_TOOLS = {
+    "librarian": "bibcc.utils.librarian",
+    "scholar": "bibcc.utils.scholar",
+    "compose": "bibcc.utils.composer",
+}
+
 
 def _print_usage() -> None:
     """Print top-level usage information."""
     print("usage: bibcc <tool> [args ...]\n")
-    print("BibCC — BibTeX Check & Complete toolkit.\n")
+    print(f"BibCC {__version__} — BibTeX Check & Complete toolkit.\n")
     print("Available tools:")
     for name, desc in TOOLS.items():
         print(f"  {name:<12} {desc}")
-    print(f"\nRun 'bibcc <tool> -h' for tool-specific help.")
+    print("\nRun 'bibcc <tool> -h' for tool-specific help.")
 
 
-def _cli() -> None:
+def main(argv: list[str] | None = None) -> None:
     """Parse the first positional arg as a tool name and delegate."""
-    if len(sys.argv) < 2 or sys.argv[1] in ("-h", "--help"):
+    argv = list(sys.argv[1:] if argv is None else argv)
+
+    if not argv or argv[0] in ("-h", "--help"):
         _print_usage()
         sys.exit(0)
+    if argv[0] in ("-V", "--version"):
+        print(f"bibcc {__version__}")
+        sys.exit(0)
 
-    tool = sys.argv[1]
-
+    tool = argv[0]
     if tool not in TOOLS:
         print(f"bibcc: unknown tool '{tool}'")
         _print_usage()
         sys.exit(1)
 
-    # Strip 'bibcc <tool>' so the delegated parser sees its own argv
-    sys.argv = [f"bibcc {tool}"] + sys.argv[2:]
+    # Delegated parsers read sys.argv, so present them their own argv.
+    sys.argv = [f"bibcc {tool}"] + argv[1:]
 
-    if tool == "check":
-        from checker import build_parser, run
-
-        parser = build_parser()
-        args = parser.parse_args()
-        run(args)
-
-    elif tool == "complete":
-        from completer import build_parser, run
-
-        parser = build_parser()
-        args = parser.parse_args()
-        run(args)
-
-    elif tool == "librarian":
-        from utils.librarian import main as librarian_main
-
-        librarian_main()
-
-    elif tool == "scholar":
-        from utils.scholar import main as scholar_main
-
-        scholar_main()
-
-    elif tool == "compose":
-        from utils.composer import main as composer_main
-
-        composer_main()
+    if tool in _RUN_TOOLS:
+        module = importlib.import_module(_RUN_TOOLS[tool])
+        args = module.build_parser().parse_args()
+        module.run(args)
+    else:
+        importlib.import_module(_MAIN_TOOLS[tool]).main()
 
 
 if __name__ == "__main__":
-    _cli()
+    main()

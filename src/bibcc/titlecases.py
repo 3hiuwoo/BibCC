@@ -10,7 +10,7 @@ It handles:
 - Acronym preservation (all-caps words)
 
 Usage:
-    from titlecases import suggest_title_case, check_title_case
+    from bibcc.titlecases import suggest_title_case, check_title_case
 
     # Get title case suggestion
     suggested = suggest_title_case("a study on machine learning")

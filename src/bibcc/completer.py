@@ -21,8 +21,8 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import bibtexparser
 
-from logging_utils import Logger, get_repo_dir, write_report
-from templates import JOURNAL_TEMPLATES, PROCEEDINGS_TEMPLATES
+from bibcc.logging_utils import Logger, get_repo_dir, write_report
+from bibcc.templates import JOURNAL_TEMPLATES, PROCEEDINGS_TEMPLATES
 
 
 def normalize_text(text: Optional[str]) -> str:
@@ -516,7 +516,7 @@ def run(args: argparse.Namespace) -> None:
 
         # If --update-templates is set, invoke yaml2templates on the generated YAML
         if args.update_templates:
-            from yaml2templates import yaml2templates as y2t
+            from bibcc.yaml2templates import yaml2templates as y2t
 
             repo_dir = get_repo_dir()
             base = Path(args.input).name
@@ -540,7 +540,7 @@ def run(args: argparse.Namespace) -> None:
                     logger.log(f"\n🔄 Re-running completion with updated templates...")
                     # Force reload of templates module
                     import importlib
-                    import templates as _tpl_mod
+                    from bibcc import templates as _tpl_mod
 
                     importlib.reload(_tpl_mod)
 
