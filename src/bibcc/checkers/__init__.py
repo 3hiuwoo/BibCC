@@ -8,6 +8,7 @@ Re-exports all checker functions for convenient access:
 from __future__ import annotations
 
 from bibcc.checkers.citation_keys import VENUE_ABBREVIATIONS, check_citation_keys
+from bibcc.checkers.field_issues import KNOWN_FIELDS, check_field_issues
 from bibcc.checkers.missing_fields import DEFAULT_ENTRY_TYPES, check_missing_fields
 from bibcc.checkers.smart_protection import (
     DEFAULT_VOCAB,
@@ -29,8 +30,10 @@ __all__ = [
     "DEFAULT_PROCEEDINGS_FIELDS",
     "DEFAULT_STOPWORDS",
     "DEFAULT_VOCAB",
+    "KNOWN_FIELDS",
     "VENUE_ABBREVIATIONS",
     "check_citation_keys",
+    "check_field_issues",
     "check_missing_fields",
     "check_smart_protection",
     "check_template_fields",

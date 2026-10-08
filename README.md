@@ -29,7 +29,7 @@ BibCC provides eight commands through a single entry point — `bibcc`:
 
 | Command | Description |
 | --- | --- |
-| `check` | Quality checks: missing fields, title case, term protection, citation keys |
+| `check` | Quality checks: missing fields, title case, term protection, citation keys, field typos and duplicates |
 | `complete` | Auto-fill missing BibTeX fields from the venue library |
 | `add` | Fetch new papers by DOI, arXiv ID, or title into a staging `.bib` |
 | `upgrade` | Replace arXiv preprints with their published versions, keeping keys |
@@ -75,6 +75,20 @@ bibcc check input.bib --quote --quote-vocab-file my_terms.txt
 bibcc check input.bib --check-keys
 ```
 
+**Field names, values, and duplicates** — find mistakes BibTeX ignores silently:
+
+```bash
+bibcc check input.bib --check-fields
+bibcc check input.bib --check-fields --against bib/          # also look for duplicates in other files
+bibcc check input.bib --check-fields --known-fields code,pdf  # accept extra field names
+```
+
+- **Unknown fields**: names that are not standard BibTeX/biblatex fields or commonly exported ones (`abstract`, `keywords`, `numpages`, …). These are usually typos, which BibTeX drops without a warning. A likely correction is suggested: `'volumn' → did you mean 'volume'?`.
+- **Values**: empty values, years that are not four digits, single-hyphen page ranges (`12-15` → `12--15`), DOIs written as URLs or malformed, months that are not macros (`{June}` → `jun`), malformed ISSNs, and URLs without `http(s)://`.
+- **Duplicates**: the same paper (same DOI, arXiv ID, or title) or the same citation key twice, in the file or in the `--against` files. Conference and journal versions sometimes share a title, so check before deleting.
+
+`bibcc format` fixes months automatically. The other issues are only reported.
+
 **Venue library completeness** — check the venue library for missing fields:
 
 ```bash
@@ -85,7 +99,7 @@ bibcc check --check-venues --journal-fields publisher,issn --proceedings-fields 
 **Combine checks** in one run:
 
 ```bash
-bibcc check input.bib --fields month --title-case --quote --check-keys
+bibcc check input.bib --fields month --title-case --quote --check-keys --check-fields
 ```
 
 <details>
@@ -106,6 +120,9 @@ bibcc check input.bib --fields month --title-case --quote --check-keys
 | `--quote-no-default` | Disable built-in technical vocabulary |
 | `--protection-min-length N` | Minimum word length for acronym detection (default: `3`) |
 | `--check-keys` | Check citation key legibility |
+| `--check-fields` | Check field names, field values, and duplicates |
+| `--known-fields FIELDS` | Extra field names to accept with `--check-fields` |
+| `--against PATH` | With `--check-fields`, also look for duplicates in this `.bib` file or directory; repeatable |
 | `--check-venues` | Check the venue library for missing fields (`--check-templates` still works) |
 | `--venues FILE` | Venue library to check (default: `$BIBCC_VENUES` or the bundled library) |
 | `--journal-fields FIELDS` | Fields to check in journal records (default: `publisher,issn`) |
@@ -378,7 +395,7 @@ Reports are written to a `.bibcc/` folder next to the input `.bib` file, and log
 
 | Command | Report Files | Log Files |
 | --- | --- | --- |
-| `check` | `.missing_fields.txt`, `.title_case.txt`, `.smart_protection.txt`, `.citation_keys.txt` | `.bibcc/logs/*.checker.log` |
+| `check` | `.missing_fields.txt`, `.title_case.txt`, `.smart_protection.txt`, `.citation_keys.txt`, `.field_issues.txt` | `.bibcc/logs/*.checker.log` |
 | `complete` | `.complete.diff` (dry-run preview), `.missing_venues.yaml`, `.missing_venues.txt`, `.conflicts.txt`, `.incomplete_entries.txt` | `.bibcc/logs/*.completer.log` |
 | `add` | (entries appended to the staging `.bib`) | `.bibcc/logs/*.adder.log` |
 | `upgrade` | `.upgrade.txt`, `.upgrade.diff` (dry-run preview) | `.bibcc/logs/*.upgrader.log` |
@@ -446,6 +463,7 @@ Apart from `bibcc format`, BibCC keeps your existing formatting and only adds or
   - [x] ~~Pre-fill YAML from existing bibliographies in the same venue.~~ Done — fields collected from bib entries.
 - `check`:
   - [x] ~~Citation key legibility check.~~ Done — `--check-keys`.
+  - [x] ~~Field name typos, malformed values, and duplicate papers.~~ Done — `--check-fields`.
   - [x] ~~Venue library missing fields check.~~ Done — `--check-venues`.
   - [x] ~~Robust term protection (skip numbers, filter author names).~~ Done — `--quote` with smart filtering.
   - [x] ~~Robust title case (hyphenated words, configurable style).~~ Done — `--title-case` with APA handling.

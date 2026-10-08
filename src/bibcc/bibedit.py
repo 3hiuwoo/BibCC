@@ -89,6 +89,19 @@ def month_macro(value: Optional[str]) -> Optional[str]:
     return None
 
 
+_RANGE_PART = re.compile(r"^(\s*)([A-Za-z]*\d+[A-Za-z]*)\s*[-‐‑–—−]\s*([A-Za-z]*\d+[A-Za-z]*)(\s*)$")
+
+
+def page_range(value: str) -> str:
+    """``12--15`` for ``12-15``, ``12 – 15``, or ``S1-S9``; other values unchanged.
+
+    Comma-separated lists of ranges are handled part by part.
+    """
+    parts = value.split(",")
+    fixed = [_RANGE_PART.sub(r"\1\2--\3\4", part) for part in parts]
+    return ",".join(fixed)
+
+
 def _render(name: str, value: str) -> str:
     """Raw value text for *value*: months as bare macros, everything else braced."""
     if name.lower() == "month":

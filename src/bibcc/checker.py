@@ -8,6 +8,7 @@ sub-checkers in the ``checkers`` package:
 - Title case validation with APA-style rules
 - Smart protection suggestions for technical terms and acronyms
 - Venue library completeness checking
+- Field names, field values, and duplicate papers
 
 Usage:
     # Check for missing fields
@@ -18,6 +19,9 @@ Usage:
 
     # Suggest brace protection for terms
     bibcc check input.bib --quote --quote-terms Gaussian,BERT
+
+    # Check field names/values and look for duplicates in other files
+    bibcc check input.bib --check-fields --against bib/
 
     # Check venue library completeness
     bibcc check --check-venues
@@ -34,6 +38,7 @@ from bibcc.checkers import (
     DEFAULT_JOURNAL_FIELDS,
     DEFAULT_PROCEEDINGS_FIELDS,
     check_citation_keys,
+    check_field_issues,
     check_missing_fields,
     check_smart_protection,
     check_template_fields,
@@ -135,6 +140,26 @@ def build_parser() -> argparse.ArgumentParser:
         "--check-keys",
         action="store_true",
         help="Check citation key legibility (METHOD_AUTHOR_VENUEYEAR convention).",
+    )
+    parser.add_argument(
+        "--check-fields",
+        action="store_true",
+        help="Check field names (typos such as 'volumn'), field values (years, page "
+        "ranges, DOIs, months, ISSNs, URLs, empty values), and duplicate papers.",
+    )
+    parser.add_argument(
+        "--known-fields",
+        type=str,
+        default="",
+        help="Comma-separated extra field names to accept with --check-fields.",
+    )
+    parser.add_argument(
+        "--against",
+        action="append",
+        default=[],
+        metavar="PATH",
+        help="With --check-fields, also look for duplicates in this .bib file or "
+        "directory (recursive). Repeatable.",
     )
     parser.add_argument(
         "--check-venues",
@@ -259,6 +284,25 @@ def run(args: argparse.Namespace) -> None:
                     rows,
                 )
                 logger.log(f"\n📄 Citation key report: {report_path}")
+
+        # Field names, values, duplicates
+        if args.check_fields:
+            logger.log("\n")
+            field_rows = check_field_issues(
+                args.input,
+                against=args.against,
+                extra_fields=parse_list_arg(args.known_fields),
+                log=logger.log,
+            )
+            if field_rows:
+                report_path = report_dir / f"{base_name}.field_issues.txt"
+                rows = [f"{eid}\t{kind}\t{detail}" for eid, kind, detail in field_rows]
+                write_report(
+                    report_path,
+                    "field issues: entry_id\tissue_type\tdetail",
+                    rows,
+                )
+                logger.log(f"\n📄 Field issues report: {report_path}")
 
         # Smart protection
         protection_rows = []
