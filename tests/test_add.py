@@ -315,6 +315,15 @@ def test_suggest_key_is_unique_and_follows_convention():
     assert _KEY_PATTERN.match(key)
 
 
+def test_key_venue_check_ignores_braces():
+    from bibcc.checkers.citation_keys import _match_venue_abbreviation
+
+    assert _match_venue_abbreviation(
+        "TPAMI", None, "{IEEE} Transactions on Pattern Analysis and Machine Intelligence"
+    ) is None
+    assert _match_venue_abbreviation("TIP", None, "Pattern Recognition") is not None
+
+
 def test_key_pattern_accepts_arxiv_and_prefixes():
     assert _KEY_PATTERN.match("PretrainedVLA_Liu_arXiv2026")
     assert _KEY_PATTERN.match("Survey:CIL_Zhou_TPAMI2024")

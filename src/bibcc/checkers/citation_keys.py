@@ -143,7 +143,8 @@ def _match_venue_abbreviation(
 
     Returns a mismatch reason string if there's a problem, or None if OK.
     """
-    venue_text = (booktitle or journal or "").lower()
+    raw = booktitle or journal or ""
+    venue_text = " ".join(raw.replace("{", "").replace("}", "").replace("\\&", "&").split()).lower()
     if not venue_text:
         return None  # Can't verify without venue info
 
