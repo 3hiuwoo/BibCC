@@ -1,0 +1,93 @@
+{
+ "status": "ok",
+ "message": {
+  "DOI": "10.1109/tpami.2024.3429383",
+  "type": "journal-article",
+  "title": [
+   "Class-Incremental Learning: A Survey"
+  ],
+  "subtitle": [],
+  "container-title": [
+   "IEEE Transactions on Pattern Analysis and Machine Intelligence"
+  ],
+  "author": [
+   {
+    "given": "Da-Wei",
+    "family": "Zhou",
+    "sequence": "first"
+   },
+   {
+    "given": "Qi-Wei",
+    "family": "Wang",
+    "sequence": "additional"
+   },
+   {
+    "given": "Zhi-Hong",
+    "family": "Qi",
+    "sequence": "additional"
+   },
+   {
+    "given": "Han-Jia",
+    "family": "Ye",
+    "sequence": "additional"
+   },
+   {
+    "given": "De-Chuan",
+    "family": "Zhan",
+    "sequence": "additional"
+   },
+   {
+    "given": "Ziwei",
+    "family": "Liu",
+    "sequence": "additional"
+   }
+  ],
+  "published-print": {
+   "date-parts": [
+    [
+     2024,
+     12
+    ]
+   ]
+  },
+  "issued": {
+   "date-parts": [
+    [
+     2024,
+     12
+    ]
+   ]
+  },
+  "published": {
+   "date-parts": [
+    [
+     2024,
+     12
+    ]
+   ]
+  },
+  "volume": "46",
+  "issue": "12",
+  "page": "9851-9873",
+  "publisher": "Institute of Electrical and Electronics Engineers (IEEE)",
+  "ISSN": [
+   "0162-8828",
+   "2160-9292",
+   "1939-3539"
+  ],
+  "issn-type": [
+   {
+    "value": "0162-8828",
+    "type": "print"
+   },
+   {
+    "value": "2160-9292",
+    "type": "electronic"
+   },
+   {
+    "value": "1939-3539",
+    "type": "electronic"
+   }
+  ]
+ }
+}

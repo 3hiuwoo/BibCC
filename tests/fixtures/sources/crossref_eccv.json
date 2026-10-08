@@ -1,0 +1,97 @@
+{
+ "status": "ok",
+ "message": {
+  "DOI": "10.1007/978-3-031-72667-5_1",
+  "type": "book-chapter",
+  "title": [
+   "ScaleDreamer: Scalable Text-to-3D Synthesis with Asynchronous Score Distillation"
+  ],
+  "subtitle": [],
+  "container-title": [
+   "Lecture Notes in Computer Science",
+   "Computer Vision – ECCV 2024"
+  ],
+  "author": [
+   {
+    "given": "Zhiyuan",
+    "family": "Ma",
+    "sequence": "first"
+   },
+   {
+    "given": "Yuxiang",
+    "family": "Wei",
+    "sequence": "additional"
+   },
+   {
+    "given": "Yabin",
+    "family": "Zhang",
+    "sequence": "additional"
+   },
+   {
+    "given": "Xiangyu",
+    "family": "Zhu",
+    "sequence": "additional"
+   },
+   {
+    "given": "Zhen",
+    "family": "Lei",
+    "sequence": "additional"
+   },
+   {
+    "given": "Lei",
+    "family": "Zhang",
+    "sequence": "additional"
+   }
+  ],
+  "published-print": {
+   "date-parts": [
+    [
+     2025
+    ]
+   ]
+  },
+  "published-online": {
+   "date-parts": [
+    [
+     2024,
+     9,
+     29
+    ]
+   ]
+  },
+  "issued": {
+   "date-parts": [
+    [
+     2024,
+     9,
+     29
+    ]
+   ]
+  },
+  "published": {
+   "date-parts": [
+    [
+     2024,
+     9,
+     29
+    ]
+   ]
+  },
+  "page": "1-19",
+  "publisher": "Springer Nature Switzerland",
+  "ISSN": [
+   "0302-9743",
+   "1611-3349"
+  ],
+  "issn-type": [
+   {
+    "value": "0302-9743",
+    "type": "print"
+   },
+   {
+    "value": "1611-3349",
+    "type": "electronic"
+   }
+  ]
+ }
+}

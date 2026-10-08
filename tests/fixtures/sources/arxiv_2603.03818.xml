@@ -1,0 +1,39 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<feed xmlns:opensearch="http://a9.com/-/spec/opensearch/1.1/" xmlns:arxiv="http://arxiv.org/schemas/atom" xmlns="http://www.w3.org/2005/Atom">
+  <id>https://arxiv.org/api/kFDtyTdYM0l8QT+WWuPPTruhAUU</id>
+  <title>arXiv Query: search_query=&amp;id_list=2603.03818&amp;start=0&amp;max_results=10</title>
+  <updated>2026-10-08T11:10:33Z</updated>
+  <link href="https://arxiv.org/api/query?search_query=&amp;start=0&amp;max_results=10&amp;id_list=2603.03818" type="application/atom+xml"/>
+  <opensearch:itemsPerPage>10</opensearch:itemsPerPage>
+  <opensearch:totalResults>1</opensearch:totalResults>
+  <opensearch:startIndex>0</opensearch:startIndex>
+  <entry>
+    <id>http://arxiv.org/abs/2603.03818v2</id>
+    <title>Pretrained Vision-Language-Action Models are Surprisingly Resistant to Forgetting in Continual Learning</title>
+    <updated>2026-03-17T18:41:08Z</updated>
+    <link href="https://arxiv.org/abs/2603.03818v2" rel="alternate" type="text/html"/>
+    <link href="https://arxiv.org/pdf/2603.03818v2" rel="related" type="application/pdf" title="pdf"/>
+    <summary>Abstract.</summary>
+    <category term="cs.LG" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="cs.AI" scheme="http://arxiv.org/schemas/atom"/>
+    <category term="cs.RO" scheme="http://arxiv.org/schemas/atom"/>
+    <published>2026-03-04T08:03:13Z</published>
+    <arxiv:comment>Project website: https://continual-vlas.github.io/forget-me-not/</arxiv:comment>
+    <arxiv:primary_category term="cs.LG"/>
+    <author>
+      <name>Huihan Liu</name>
+    </author>
+    <author>
+      <name>Changyeon Kim</name>
+    </author>
+    <author>
+      <name>Bo Liu</name>
+    </author>
+    <author>
+      <name>Minghuan Liu</name>
+    </author>
+    <author>
+      <name>Yuke Zhu</name>
+    </author>
+  </entry>
+</feed>

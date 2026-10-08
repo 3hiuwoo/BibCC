@@ -38,23 +38,12 @@ from bibcc.logging_utils import (
     Logger,
     get_output_dir,
 )
-
-
-def clean_title_for_search(title: str) -> str:
-    """Clean a BibTeX title for search queries."""
-    if not title:
-        return ""
-    # Remove braces
-    title = re.sub(r"[{}\[\]]", "", title)
-    # Convert common LaTeX commands
-    title = title.replace(r"\&", "&")
-    title = title.replace(r"\'", "'")
-    title = title.replace(r"\$", "")
-    title = title.replace(r"\textasciicircum", "^")
-    title = re.sub(r"\\[a-zA-Z]+", "", title)  # Remove other LaTeX commands
-    # Clean up whitespace
-    title = re.sub(r"\s+", " ", title).strip()
-    return title
+from bibcc.sources import (
+    clean_title_for_search,
+    fetch_url,
+    looks_like_html,
+    titles_match,
+)
 
 
 # =========================
@@ -356,22 +345,6 @@ class SourceStatus:
     error: Optional[str] = None
 
 
-def normalize_for_comparison(text: str) -> str:
-    """Normalize text for comparison (lowercase, remove special chars)."""
-    if not text:
-        return ""
-    text = re.sub(r"[{}\[\]]", "", text)
-    text = re.sub(r"\s+", " ", text).strip().lower()
-    text = re.sub(r"[:\-–—,.'\"?!]", " ", text)
-    text = re.sub(r"\s+", " ", text).strip()
-    return text
-
-
-def titles_match(title1: str, title2: str) -> bool:
-    """Check if two titles are essentially the same."""
-    return normalize_for_comparison(title1) == normalize_for_comparison(title2)
-
-
 def case_differs(title1: str, title2: str) -> bool:
     """Check if titles differ only in case (not content)."""
     if not titles_match(title1, title2):
@@ -379,30 +352,6 @@ def case_differs(title1: str, title2: str) -> bool:
     t1 = re.sub(r"[{}]", "", title1).strip()
     t2 = re.sub(r"[{}]", "", title2).strip()
     return t1 != t2
-
-
-def fetch_url(
-    url: str, headers: Optional[Dict[str, str]] = None, timeout: int = 10
-) -> Tuple[Optional[str], Optional[str]]:
-    """Fetch URL content with error handling. Returns (content, error)."""
-    try:
-        req = urllib.request.Request(url)
-        if headers:
-            for key, value in headers.items():
-                req.add_header(key, value)
-        req.add_header(
-            "User-Agent", "BibCC-TitleChecker/1.0 (mailto:research@example.com)"
-        )
-        with urllib.request.urlopen(req, timeout=timeout) as response:
-            return response.read().decode("utf-8"), None
-    except urllib.error.HTTPError as e:
-        return None, f"HTTP {e.code}: {e.reason}"
-    except urllib.error.URLError as e:
-        return None, f"Network error: {e.reason}"
-    except TimeoutError:
-        return None, "Request timed out"
-    except Exception as e:
-        return None, f"{type(e).__name__}: {str(e)}"
 
 
 def lookup_crossref(doi: str) -> LookupResult:
@@ -458,6 +407,8 @@ def lookup_dblp(title: str) -> LookupResult:
         return LookupResult(source=source, error=error)
     if not content:
         return LookupResult(source=source, error="Empty response")
+    if looks_like_html(content):
+        return LookupResult(source=source, error="DBLP returned an HTML page (bot protection)")
 
     try:
         data = json.loads(content)

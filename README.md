@@ -25,12 +25,13 @@ Run the tests with `uv run pytest`.
 
 ## 🧩 Commands
 
-BibCC provides five commands through a single entry point — `bibcc`:
+BibCC provides six commands through a single entry point — `bibcc`:
 
 | Command | Description |
 | --- | --- |
 | `check` | Quality checks: missing fields, title case, term protection, citation keys |
 | `complete` | Auto-fill missing BibTeX fields from the venue library |
+| `add` | Fetch new papers by DOI, arXiv ID, or title into a staging `.bib` |
 | `librarian` | Align PDF library with `.bib`: missing / extra / rename |
 | `scholar` | Citation counts and title verification via external APIs |
 | `compose` | Merge per-folder `.bib` files into a single bibliography |
@@ -153,6 +154,48 @@ bibcc complete input.bib --output out.bib --update-venues
 
 ---
 
+### `add` — Add New Papers
+
+Fetch papers by DOI, arXiv ID/URL, or title and append them to a staging file (`added.bib` by default). Review the entries there, then move them into your topic files.
+
+```bash
+bibcc add 10.1109/TPAMI.2024.3429383 2501.13198 --against bib/
+bibcc add "SD-LoRA: Scalable Decoupled Low-Rank Adaptation for Class Incremental Learning" --against bib/
+bibcc add --from new_papers.txt --against bib/ --output added.bib   # one identifier per line
+bibcc add 2501.13198 --dry-run                                        # print only
+```
+
+For each paper, `add`:
+
+1. **Fetches metadata.** DOIs come from CrossRef, arXiv IDs from the arXiv API, and titles are matched through Semantic Scholar, then CrossRef, then arXiv. A title only counts as found when it matches exactly (ignoring case and punctuation).
+2. **Prefers the published version.** For an arXiv paper it looks for a published version: the DOI known to Semantic Scholar or arXiv, the DBLP key Semantic Scholar reports (e.g. `conf/iclr/...25` → ICLR 2025, with the booktitle taken from the venue library), or a CrossRef record with the same title. Pass `--preprint` to keep the arXiv entry.
+3. **Skips duplicates.** Papers already in the `--against` files or directories (same DOI, arXiv ID, or title), or already in the staging file, are reported and skipped. A published paper whose preprint is already in your bibliography is flagged too.
+4. **Formats the entry like the rest of the bibliography.** Title Case (APA), braces around acronyms and technical terms (`{SD-LoRA}`), `--` page ranges, month macros (`month = jun`), escaped `&`/`%`/`_`, and aligned `=`.
+5. **Fills venue fields from the venue library.** Library values replace fetched ones (e.g. `publisher = {IEEE}` instead of CrossRef's long name). Unknown venues are listed; run `bibcc complete added.bib` to get the fill-in YAML.
+6. **Suggests a key** `METHOD_AUTHOR_VENUEYEAR`. METHOD is the title's `Name:` prefix, or else its first two content words, so check it.
+
+DBLP is not queried directly because its API is behind a bot challenge. Semantic Scholar allows few requests without a key; set `S2_API_KEY` for higher limits. Requests that hit a rate limit are retried with backoff.
+
+<details>
+<summary>All <code>add</code> options</summary>
+
+| Option | Description |
+| --- | --- |
+| `IDENTIFIER ...` | DOIs, arXiv IDs or URLs, or quoted titles |
+| `--from FILE` | Text file with one identifier per line (`#` starts a comment) |
+| `--against PATH` | `.bib` file or directory (recursive) to check for duplicates; repeatable |
+| `--output FILE` | Staging file new entries are appended to (default: `added.bib`) |
+| `--venues FILE` | Venue library to use (default: `$BIBCC_VENUES` or the bundled library) |
+| `--preprint` | Keep arXiv papers as preprints |
+| `--keep-title` | Do not title-case fetched titles (term protection still applies) |
+| `--dry-run` | Print the entries without writing |
+| `--delay SECONDS` | Wait between papers to respect API limits (default: `1`) |
+| `--log-dir DIR` | Directory for the log (default: `.bibcc/logs/` next to the output) |
+
+</details>
+
+---
+
 ### `librarian` — PDF Library Alignment
 
 Align your PDF library with your bibliography. Three subcommands:
@@ -241,6 +284,7 @@ Reports are written to a `.bibcc/` folder next to the input `.bib` file, and log
 | --- | --- | --- |
 | `check` | `.missing_fields.txt`, `.title_case.txt`, `.smart_protection.txt`, `.citation_keys.txt` | `.bibcc/logs/*.checker.log` |
 | `complete` | `.complete.diff` (dry-run preview), `.missing_venues.yaml`, `.missing_venues.txt`, `.conflicts.txt`, `.incomplete_entries.txt` | `.bibcc/logs/*.completer.log` |
+| `add` | (entries appended to the staging `.bib`) | `.bibcc/logs/*.adder.log` |
 | `scholar cite` | `.scholar_urls.txt` | `.bibcc/logs/*.scholar.cite.log` |
 | `scholar titles` | `.title_report.txt` | `.bibcc/logs/*.scholar.titles.log` |
 | `librarian` | `.missing_pdfs.txt`, `.extra_pdfs.txt`, `.rename_report.txt` | `.bibcc/logs/*.librarian.log` |
@@ -309,6 +353,8 @@ BibCC keeps your existing formatting and only adds or replaces the fields it tar
   - [x] ~~Robust title case (hyphenated words, configurable style).~~ Done — `--title-case` with APA handling.
   - [x] ~~Interactive title case application.~~ Done — `--title-interactive`.
   - [x] ~~Modular sub-checker architecture.~~ Done — `checkers/` package.
+- `add`:
+  - [x] ~~Add papers by DOI, arXiv ID, or title with duplicate checks.~~ Done — `bibcc add`.
 - `librarian`:
   - [x] ~~Unified PDF library alignment (missing/extra/rename).~~ Done.
 - `scholar`:

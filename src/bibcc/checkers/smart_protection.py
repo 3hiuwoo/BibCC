@@ -140,6 +140,96 @@ def _is_pure_number(word: str) -> bool:
     return bool(re.fullmatch(r"\d+", word))
 
 
+# Mixed case: require a lowercase→uppercase transition (e.g., ResNet, iPhone)
+_REGEX_MIXED = r"\b(?:[a-z]+[A-Z][a-zA-Z]*)|(?:[A-Z][a-z]*[A-Z][a-zA-Z]*)\b"
+_REGEX_ALLCAPS = r"\b[A-Z]{2,}\b"
+# Numbers with letters (model names like ResNet50), but skip pure numbers
+_REGEX_NUMERIC = r"\b[A-Za-z]+\d+[A-Za-z0-9\-]*\b"
+
+
+def find_unprotected_terms(
+    title: str,
+    author: str = "",
+    vocab_terms: Optional[Iterable[str]] = None,
+    min_length: int = MIN_MIXED_CASE_LENGTH,
+) -> List[Tuple[str, str]]:
+    """Return ``(word, reason)`` pairs in *title* that should be brace-protected.
+
+    Text already inside braces is ignored, and vocabulary terms that are
+    author surnames are skipped.  Titles that are mostly upper case return
+    nothing (they are likely all-caps titles, not acronyms).
+    """
+    vocab = {t.lower() for t in (DEFAULT_VOCAB if vocab_terms is None else vocab_terms)}
+    clean_title = re.sub(r"\{.*?\}", lambda x: " " * len(x.group()), title)
+    if sum(1 for c in clean_title if c.isupper()) / max(len(clean_title), 1) > 0.7:
+        return []
+
+    author_surnames = _extract_author_surnames({"author": author})
+    found: List[Tuple[str, str]] = []
+    for match in re.finditer(_REGEX_MIXED, clean_title):
+        if len(match.group()) >= min_length:
+            found.append((match.group(), "Mixed Case"))
+    for match in re.finditer(_REGEX_ALLCAPS, clean_title):
+        word = match.group()
+        if word not in _ROMAN_NUMERALS and len(word) >= MIN_ACRONYM_LENGTH:
+            found.append((word, "Acronym"))
+    for match in re.finditer(_REGEX_NUMERIC, clean_title):
+        found.append((match.group(), "Contains Number"))
+    for term in vocab:
+        pattern = re.compile(rf"(?<!\w){re.escape(term)}(?!\w)", re.IGNORECASE)
+        for match in pattern.finditer(clean_title):
+            if match.group().lower() not in author_surnames:
+                found.append((match.group(), "Vocabulary"))
+
+    unique: Dict[str, str] = {}
+    for word, reason in found:
+        is_substring = False
+        for existing in list(unique):
+            if word in existing and word != existing:
+                is_substring = True
+            elif existing in word and existing != word:
+                del unique[existing]
+        if not is_substring:
+            unique[word] = reason
+    return list(unique.items())
+
+
+_OPEN, _CLOSE = "\x00", "\x01"
+
+
+def protect_terms(title: str, words: Iterable[str]) -> str:
+    """Wrap each occurrence of *words* outside existing braces in ``{...}``.
+
+    Neighbouring terms joined by ``-`` or ``/`` share one group, so ``SD-LoRA``
+    becomes ``{SD-LoRA}`` rather than ``{SD}-{LoRA}``.
+    """
+    words = sorted(set(words), key=len, reverse=True)
+    if not words:
+        return title
+    pattern = re.compile(
+        r"(?<![\w{])(" + "|".join(re.escape(w) for w in words) + r")(?![\w}])"
+    )
+    out: List[str] = []
+    depth = 0
+    i = 0
+    while i < len(title):
+        ch = title[i]
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+        elif depth == 0:
+            m = pattern.match(title, i)
+            if m and (i == 0 or not title[i - 1].isalnum()):
+                out.append(_OPEN + m.group(1) + _CLOSE)
+                i = m.end()
+                continue
+        out.append(ch)
+        i += 1
+    text = re.sub(f"{_CLOSE}([-/]){_OPEN}", r"\1", "".join(out))
+    return text.replace(_OPEN, "{").replace(_CLOSE, "}")
+
+
 def check_smart_protection(
     input_path: str,
     extra_vocab: Iterable[str],
@@ -172,12 +262,6 @@ def check_smart_protection(
 
     protection_rows: List[Tuple[str, str, str]] = []  # (entry_id, word, reason)
 
-    # Mixed case: require at least min_length chars and a lowercase→uppercase transition
-    regex_mixed = r"\b(?:[a-z]+[A-Z][a-zA-Z]*)|(?:[A-Z][a-z]*[A-Z][a-zA-Z]*)\b"
-    regex_allcaps = r"\b[A-Z]{2,}\b"
-    # Numbers with letters (model names like ResNet50), but skip pure numbers
-    regex_numeric = r"\b[A-Za-z]+\d+[A-Za-z0-9\-]*\b"
-
     log(f"{'ID':<30} | {'Suspicious Word':<20} | {'Reason'}")
     log("-" * 75)
 
@@ -188,61 +272,9 @@ def check_smart_protection(
         title = entry.get("title")
         if not title:
             continue
-
-        clean_title = re.sub(r"\{.*?\}", lambda x: " " * len(x.group()), title)
-
-        if sum(1 for c in clean_title if c.isupper()) / max(len(clean_title), 1) > 0.7:
-            continue
-
-        # Build per-entry context for false-positive filtering
-        author_surnames = _extract_author_surnames(entry)
-
-        found_issues: List[Tuple[str, str]] = []
-
-        for match in re.finditer(regex_mixed, clean_title):
-            word = match.group()
-            # Skip words shorter than minimum length
-            if len(word) < min_length:
-                continue
-            found_issues.append((word, "Mixed Case"))
-
-        for match in re.finditer(regex_allcaps, clean_title):
-            word = match.group()
-            # Skip Roman numerals
-            if word in _ROMAN_NUMERALS:
-                continue
-            # Skip very short acronyms (single letter already excluded by regex)
-            if len(word) < MIN_ACRONYM_LENGTH:
-                continue
-            found_issues.append((word, "Acronym"))
-
-        for match in re.finditer(regex_numeric, clean_title):
-            word = match.group()
-            # Pure numbers are already excluded by the regex (requires letters)
-            found_issues.append((word, "Contains Number"))
-
-        for term in vocab_terms:
-            pattern = re.compile(rf"(?<!\w){re.escape(term)}(?!\w)", re.IGNORECASE)
-            for match in pattern.finditer(clean_title):
-                matched = match.group()
-                # Skip if the term is an author surname in this entry
-                if matched.lower() in author_surnames:
-                    continue
-                found_issues.append((matched, "Vocabulary"))
-
-        unique_issues = {}
-        for word, reason in found_issues:
-            is_substring = False
-            for existing in list(unique_issues.keys()):
-                if word in existing and word != existing:
-                    is_substring = True
-                elif existing in word and existing != word:
-                    del unique_issues[existing]
-
-            if not is_substring:
-                unique_issues[word] = reason
-
-        for word, reason in unique_issues.items():
+        for word, reason in find_unprotected_terms(
+            title, entry.get("author", ""), vocab_terms, min_length
+        ):
             log(f"{entry['ID']:<30} | {word:<20} | {reason}")
             protection_rows.append((entry["ID"], word, reason))
 

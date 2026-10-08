@@ -1,0 +1,65 @@
+{
+ "data": [
+  {
+   "paperId": "eb2bb5a847bfe2666d9699583b7eea12c7c826bb",
+   "externalIds": {
+    "DBLP": "conf/iclr/WuPHW0PMM025",
+    "ArXiv": "2501.13198",
+    "CorpusId": 275820710
+   },
+   "publicationVenue": {
+    "id": "939c6e1d-0d17-4d6e-8a82-66d960df0e40",
+    "name": "International Conference on Learning Representations",
+    "type": "conference",
+    "alternate_names": [
+     "Int Conf Learn Represent",
+     "ICLR"
+    ],
+    "url": "https://iclr.cc/"
+   },
+   "title": "SD-LoRA: Scalable Decoupled Low-Rank Adaptation for Class Incremental Learning",
+   "venue": "International Conference on Learning Representations",
+   "year": 2025,
+   "publicationDate": "2025-01-22",
+   "authors": [
+    {
+     "authorId": "2304608072",
+     "name": "Yi-Chen Wu"
+    },
+    {
+     "authorId": "2315673599",
+     "name": "Hongming Piao"
+    },
+    {
+     "authorId": "2266423769",
+     "name": "Long-Kai Huang"
+    },
+    {
+     "authorId": "2108876345",
+     "name": "Renzhen Wang"
+    },
+    {
+     "authorId": "2276582939",
+     "name": "Wan-Hua Li"
+    },
+    {
+     "authorId": "2243182075",
+     "name": "Hanspeter Pfister"
+    },
+    {
+     "authorId": "2263401389",
+     "name": "Deyu Meng"
+    },
+    {
+     "authorId": "2329714665",
+     "name": "Ke-De Ma"
+    },
+    {
+     "authorId": "2313848616",
+     "name": "Ying Wei"
+    }
+   ],
+   "matchScore": 305.21667
+  }
+ ]
+}

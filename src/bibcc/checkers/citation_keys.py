@@ -25,13 +25,15 @@ from typing import Callable, Dict, List, Optional, Set, Tuple
 
 import bibtexparser
 
-# Regex for expected citation key format: METHOD_AUTHOR_VENUEYEAR
+# Regex for expected citation key format: [PREFIX:]METHOD_AUTHOR_VENUEYEAR
+# PREFIX: optional grouping label such as ``Survey:``
 # METHOD: alphanumeric + hyphens + plus (at least 1 char)
 # AUTHOR: alphabetic + apostrophe + hyphen (at least 1 char)
-# VENUE: uppercase alpha abbreviation (at least 1 char)
+# VENUE: alphabetic abbreviation (at least 1 char; ``arXiv`` is lower-case)
 # YEAR: exactly 4 digits
 _KEY_PATTERN = re.compile(
-    r"^(?P<method>[A-Za-z0-9+\-]+)_(?P<author>[A-Za-z][A-Za-z'\-]*)_(?P<venue>[A-Z][A-Za-z]*)(?P<year>\d{4})$"
+    r"^(?:[A-Za-z]+:)?(?P<method>[A-Za-z0-9+\-]+)_(?P<author>[A-Za-z][A-Za-z'\-]*)"
+    r"_(?P<venue>[A-Za-z]+)(?P<year>\d{4})$"
 )
 
 # Known venue abbreviations mapped from common full names
@@ -96,6 +98,40 @@ VENUE_ABBREVIATIONS: Dict[str, Set[str]] = {
     "SP": {"signal processing"},
     "SPL": {"ieee signal processing letters"},
 }
+
+
+def _keyword_in(keyword: str, text: str) -> bool:
+    return re.search(rf"(?<!\w){re.escape(keyword)}(?!\w)", text) is not None
+
+
+def abbreviate_venue(venue: Optional[str]) -> str:
+    """Suggest the key abbreviation for a journal or booktitle.
+
+    Uses the longest matching :data:`VENUE_ABBREVIATIONS` keyword, then a
+    parenthesised acronym such as ``(CVPR)``, then the venue's initials.
+    Returns ``""`` when *venue* is empty.
+    """
+    text = (venue or "").replace("{", "").replace("}", "").replace("\\&", "&")
+    lower = " ".join(text.split()).lower()
+    if not lower:
+        return ""
+    best, best_len = "", 0
+    for abbrev, keywords in VENUE_ABBREVIATIONS.items():
+        for keyword in keywords:
+            if len(keyword) > best_len and _keyword_in(keyword, lower):
+                best, best_len = abbrev, len(keyword)
+    if best:
+        return best
+    acronym = re.search(r"\(([A-Z][A-Za-z]{1,9})\)", text)
+    if acronym:
+        return acronym.group(1)
+    words = [w for w in re.findall(r"[A-Za-z]+", text) if w.lower() not in _VENUE_STOPWORDS]
+    if len(words) == 1:
+        return words[0]
+    return "".join(w[0].upper() for w in words) or "Venue"
+
+
+_VENUE_STOPWORDS = {"a", "an", "and", "for", "in", "of", "on", "the", "to", "with"}
 
 
 def _match_venue_abbreviation(

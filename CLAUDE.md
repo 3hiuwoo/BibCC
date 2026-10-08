@@ -17,6 +17,7 @@ uv run pytest          # run the tests
 - **Output format constants** live in `bibcc/logging_utils.py` — use `SEPARATOR_WIDTH`, `SEPARATOR_HEAVY`, `SEPARATOR_LIGHT`, `SEPARATOR_THIN`, `Logger`, `write_report`. Never hard-code widths or separator characters.
 - **CLI pattern**: main tools expose `build_parser()` → `run(args)`; utils tools use `build_parser()` + `main()` with subparsers. Register new tools in `bibcc/cli.py`.
 - **Venue library**: lives in `bibcc/data/venues.yaml`; load and save it through `bibcc.venues.VenueLibrary`. When hand-writing YAML strings (e.g. the missing-venues file), quote them with `json.dumps` so backslashes and quotes are escaped.
+- **Network access**: go through `bibcc.sources.fetch_url` / `fetch_json`, so tests can monkeypatch one function. Tests never hit the network; canned API responses live in `tests/fixtures/sources/`.
 - **Tests**: add tests under `tests/` for new behaviour; never touch the real survey bibliography in tests.
 
 ## Git
