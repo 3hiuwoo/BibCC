@@ -33,7 +33,7 @@ BibCC provides eight commands through a single entry point — `bibcc`:
 | `complete` | Auto-fill missing BibTeX fields from the venue library |
 | `add` | Fetch new papers by DOI, arXiv ID, or title into a staging `.bib` |
 | `upgrade` | Replace arXiv preprints with their published versions, keeping keys |
-| `format` | Reformat `.bib` files consistently: aligned fields, braced values, month macros |
+| `format` | Reformat `.bib` files consistently: aligned fields, braced values, month macros, `--` page ranges |
 | `librarian` | Align PDF library with `.bib`: missing / extra / rename |
 | `scholar` | Citation counts and title verification via external APIs |
 | `compose` | Merge per-folder `.bib` files into a single bibliography |
@@ -87,7 +87,7 @@ bibcc check input.bib --check-fields --known-fields code,pdf  # accept extra fie
 - **Values**: empty values, years that are not four digits, single-hyphen page ranges (`12-15` → `12--15`), DOIs written as URLs or malformed, months that are not macros (`{June}` → `jun`), malformed ISSNs, and URLs without `http(s)://`.
 - **Duplicates**: the same paper (same DOI, arXiv ID, or title) or the same citation key twice, in the file or in the `--against` files. Conference and journal versions sometimes share a title, so check before deleting.
 
-`bibcc format` fixes months automatically. The other issues are only reported.
+`bibcc format` fixes page ranges and months automatically. The other issues are only reported.
 
 **Venue library completeness** — check the venue library for missing fields:
 
@@ -277,6 +277,7 @@ bibcc format bib/ --check             # write nothing; exit 1 if a file is not f
 - lowercase entry types and field names, two-space indent, `=` aligned to the longest field name;
 - `"..."` values and bare numbers become `{...}`; values joined with `#` and macros such as `@string` names stay as they are;
 - months become macros (`{June}`, `"6"`, `Jun.` → `jun`);
+- page ranges use a double hyphen (`12-15`, `12 – 15` → `12--15`; lists such as `S1-S9, 20-22` are handled part by part);
 - one blank line between entries and a single newline at the end of the file;
 - field order is kept unless `--sort-fields` is given;
 - values are otherwise copied exactly, including line breaks inside them;
@@ -298,6 +299,7 @@ Every result is checked before anything is written: the file is parsed again and
 | `--sort-entries` | Sort entries by citation key (case-insensitive) |
 | `--keep-quotes` | Keep `"..."` values and bare numbers |
 | `--keep-months` | Do not turn months into macros |
+| `--keep-pages` | Do not turn page ranges into `--` ranges |
 | `--no-align` | Write `name = value` without aligning `=` |
 | `--indent N` | Field indent: number of spaces or `tab` (default: `2`) |
 | `--blank-lines N` | Blank lines between entries (default: `1`) |

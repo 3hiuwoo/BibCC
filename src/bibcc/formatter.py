@@ -11,8 +11,8 @@ The default style matches the survey bibliography::
     }
 
 Entry types and field names are lowercased, ``=`` signs are aligned, values
-are braced (``"..."`` and bare numbers), months become bare macros, and
-entries are separated by one blank line.  Field values are otherwise copied
+are braced (``"..."`` and bare numbers), months become bare macros, page
+ranges use ``--``, and entries are separated by one blank line.  Field values are otherwise copied
 verbatim.  Text between entries (``%`` comments, ``@string``/``@comment``
 blocks) is kept; only the blank lines around it are normalised.
 
@@ -45,7 +45,15 @@ import bibtexparser
 from bibtexparser.bibdatabase import BibDataString, BibDataStringExpression
 
 from bibcc.adder import FIELD_ORDER, month_macro
-from bibcc.bibedit import BibEditError, EntrySpan, read_bib, scan, unified_diff, write_bib
+from bibcc.bibedit import (
+    BibEditError,
+    EntrySpan,
+    page_range,
+    read_bib,
+    scan,
+    unified_diff,
+    write_bib,
+)
 from bibcc.logging_utils import (
     OUTPUT_DIR_NAME,
     SEPARATOR_THIN,
@@ -67,6 +75,7 @@ class FormatOptions:
     sort_entries: bool = False
     braces: bool = True  # "..." and bare numbers become {...}
     months: bool = True  # month values become bare macros (jun)
+    pages: bool = True  # page ranges use "--" (12-15 -> 12--15)
     align: bool = True
     indent: str = "  "
     blank_lines: int = 1
@@ -175,6 +184,8 @@ def _convert(name: str, raw: str, options: FormatOptions) -> str:
         macro = month_macro(_inner(token))
         if macro:
             return macro
+    if name == "pages" and options.pages and token[:1] in '{"':
+        token = token[0] + page_range(_inner(token)) + token[-1]
     if options.braces:
         if token.startswith('"') and _balanced(_inner(token)):
             return "{" + _inner(token) + "}"
@@ -401,6 +412,13 @@ def _verify(old: str, new: str, options: FormatOptions) -> None:
                 continue
             if name == "month" and _month_of(old_value) and _month_of(old_value) == _month_of(new_value):
                 continue
+            if (
+                name == "pages"
+                and options.pages
+                and isinstance(old_value, str)
+                and page_range(old_value) == _canon(new_value)
+            ):
+                continue
             raise BibEditError(f"formatting changed field '{name}' of '{key}'")
 
 
@@ -571,6 +589,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--sort-entries", action="store_true", help="Sort entries by citation key (case-insensitive).")
     parser.add_argument("--keep-quotes", action="store_true", help='Keep "..." values and bare numbers as they are.')
     parser.add_argument("--keep-months", action="store_true", help="Do not turn month values into macros (jun).")
+    parser.add_argument("--keep-pages", action="store_true", help="Do not turn page ranges like 12-15 into 12--15.")
     parser.add_argument("--no-align", action="store_true", help="Write 'name = value' without aligning '='.")
     parser.add_argument("--indent", type=_indent, default="2", help="Field indent: number of spaces or 'tab' (default: 2).")
     parser.add_argument("--blank-lines", type=_non_negative, default=1, help="Blank lines between entries (default: 1).")
@@ -594,6 +613,7 @@ def run(args: argparse.Namespace) -> None:
         sort_entries=args.sort_entries,
         braces=not args.keep_quotes,
         months=not args.keep_months,
+        pages=not args.keep_pages,
         align=not args.no_align,
         indent=args.indent,
         blank_lines=args.blank_lines,

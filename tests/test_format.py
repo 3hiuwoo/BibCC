@@ -72,6 +72,27 @@ def test_keep_quotes_and_months():
     assert "  month   = {June},\n" in out
 
 
+@pytest.mark.parametrize(
+    "raw, expected",
+    [
+        ("{12-15}", "{12--15}"),
+        ('"12 – 15"', "{12--15}"),
+        ("{S1-S9, 20-22}", "{S1--S9, 20--22}"),
+        ("{12--15}", "{12--15}"),
+        ("{e1234}", "{e1234}"),
+        ("{12---15}", "{12---15}"),
+    ],
+)
+def test_page_ranges_use_double_hyphens(raw, expected):
+    out = format_text(f"@misc{{k, pages = {raw}}}\n")
+    assert f"pages = {expected}\n" in out
+
+
+def test_keep_pages():
+    out = format_text("@misc{k, pages = {12-15}}\n", FormatOptions(pages=False))
+    assert "pages = {12-15}" in out
+
+
 def test_unrecognised_month_is_left_alone():
     out = format_text("@misc{k, month = {Summer}}\n")
     assert "month = {Summer}" in out
