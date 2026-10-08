@@ -30,7 +30,7 @@ import shutil
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
 
-from bibcc.logging_utils import SEPARATOR_THIN, SEPARATOR_WIDTH, Logger, get_repo_dir
+from bibcc.logging_utils import SEPARATOR_THIN, SEPARATOR_WIDTH, Logger, get_output_dir
 
 
 # ---------------------------------------------------------------------------
@@ -201,8 +201,7 @@ def cmd_missing(
     log(f"\n📚 Missing PDFs: {len(missing_keys)} entries")
 
     # Write report
-    repo_dir = get_repo_dir()
-    output_file = repo_dir / f"{bib_file.name}.missing_pdfs.txt"
+    output_file = get_output_dir(bib_file) / f"{bib_file.name}.missing_pdfs.txt"
     with open(output_file, "w", encoding="utf-8") as f:
         f.write(f"% Missing PDFs: {len(missing_keys)} / {len(bib_entries)} entries\n")
         f.write(f"% Library size: {len(library_keys)} PDFs\n\n")
@@ -235,8 +234,7 @@ def cmd_extra(
     log(f"\n📄 Extra PDFs (not in bib): {len(extra_keys)}")
 
     # Write report
-    repo_dir = get_repo_dir()
-    output_file = repo_dir / f"{bib_file.name}.extra_pdfs.txt"
+    output_file = get_output_dir(bib_file) / f"{bib_file.name}.extra_pdfs.txt"
     with open(output_file, "w", encoding="utf-8") as f:
         f.write(f"% PDFs in library but not in bib: {len(extra_keys)} entries\n\n")
         for key in sorted(extra_keys):
@@ -313,8 +311,7 @@ def cmd_rename(
         log(f"\n{prefix}No files were renamed. Remove --dry-run to apply.")
 
     # Write report
-    repo_dir = get_repo_dir()
-    output_file = repo_dir / f"{bib_file.name}.rename_report.txt"
+    output_file = get_output_dir(bib_file) / f"{bib_file.name}.rename_report.txt"
     with open(output_file, "w", encoding="utf-8") as f:
         f.write(
             f"% Rename report: {len(matched)} matched, " f"{len(unmatched)} unmatched\n"

@@ -229,16 +229,16 @@ Source path markers (`% === source: path/file.bib ===`) are inserted between fil
 
 ## 📂 Output Files
 
-All output files are auto-generated next to the input `.bib` file. Logs go to `logs/`.
+Reports are written to a `.bibcc/` folder next to the input `.bib` file, and logs to `.bibcc/logs/`. For example, checking `bib/refs.bib` writes `bib/.bibcc/refs.bib.title_case.txt`. `complete` and `scholar cite` accept `--log-dir` to choose another folder. Add `.bibcc/` to the `.gitignore` of your bibliography project to keep these files out of version control.
 
 | Command | Report Files | Log Files |
 | --- | --- | --- |
-| `check` | `.missing_fields.txt`, `.title_case.txt`, `.smart_protection.txt`, `.citation_keys.txt` | `logs/*.checker.log` |
-| `complete` | `.missing_templates.yaml`, `.missing_templates.txt`, `.conflicts.txt`, `.incomplete_entries.txt` | `logs/*.completer.log` |
-| `scholar cite` | `.scholar_urls.txt` | `logs/*.scholar.cite.log` |
-| `scholar titles` | `.title_report.txt` | `logs/*.scholar.titles.log` |
-| `librarian` | `.missing_pdfs.txt`, `.extra_pdfs.txt`, `.rename_report.txt` | `logs/*.librarian.log` |
-| `compose` | (composed `.bib` file) | `logs/*.composer.log` |
+| `check` | `.missing_fields.txt`, `.title_case.txt`, `.smart_protection.txt`, `.citation_keys.txt` | `.bibcc/logs/*.checker.log` |
+| `complete` | `.missing_templates.yaml`, `.missing_templates.txt`, `.conflicts.txt`, `.incomplete_entries.txt` | `.bibcc/logs/*.completer.log` |
+| `scholar cite` | `.scholar_urls.txt` | `.bibcc/logs/*.scholar.cite.log` |
+| `scholar titles` | `.title_report.txt` | `.bibcc/logs/*.scholar.titles.log` |
+| `librarian` | `.missing_pdfs.txt`, `.extra_pdfs.txt`, `.rename_report.txt` | `.bibcc/logs/*.librarian.log` |
+| `compose` | (composed `.bib` file) | `.bibcc/logs/*.composer.log` |
 
 ## 🗂️ Template System
 

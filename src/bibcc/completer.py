@@ -21,7 +21,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import bibtexparser
 
-from bibcc.logging_utils import Logger, get_repo_dir, write_report
+from bibcc.logging_utils import Logger, get_output_dir, write_report
 from bibcc.templates import JOURNAL_TEMPLATES, PROCEEDINGS_TEMPLATES
 
 
@@ -335,10 +335,7 @@ def main(
 
     log(f"  Identified {len(patches)} entries to patch.")
 
-    # Prepare log paths - always output to repo directory
-    repo_dir = get_repo_dir()
-    output_dir = Path(log_dir) if log_dir else repo_dir
-    output_dir.mkdir(parents=True, exist_ok=True)
+    output_dir = get_output_dir(input_path, log_dir)
     base = Path(input_path).name
     conflict_log = output_dir / f"{base}.conflicts.txt"
     missing_txt_log = output_dir / f"{base}.missing_templates.txt"
@@ -489,7 +486,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--log-dir",
         type=str,
         default="",
-        help="Directory to write logs (conflicts/missing). Default: current directory.",
+        help="Directory to write logs and reports. Default: .bibcc/ next to the input file.",
     )
     parser.add_argument(
         "--update-templates",
@@ -518,10 +515,9 @@ def run(args: argparse.Namespace) -> None:
         if args.update_templates:
             from bibcc.yaml2templates import yaml2templates as y2t
 
-            repo_dir = get_repo_dir()
             base = Path(args.input).name
-            yaml_path = repo_dir / f"{base}.missing_templates.yaml"
-            templates_path = repo_dir / "templates.py"
+            yaml_path = get_output_dir(args.input, log_dir) / f"{base}.missing_templates.yaml"
+            templates_path = Path(__file__).parent / "templates.py"
 
             if not yaml_path.exists():
                 logger.log("\nℹ️  No missing_templates.yaml found — nothing to update.")

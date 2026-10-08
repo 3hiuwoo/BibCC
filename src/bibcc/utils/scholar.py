@@ -35,7 +35,7 @@ from bibcc.logging_utils import (
     SEPARATOR_LIGHT,
     SEPARATOR_WIDTH,
     Logger,
-    get_repo_dir,
+    get_output_dir,
 )
 
 
@@ -275,9 +275,7 @@ def cmd_cite(
             log(f"        {url}")
     log(SEPARATOR_LIGHT * SEPARATOR_WIDTH)
 
-    repo_dir = get_repo_dir()
-    output_dir = Path(log_dir) if log_dir else repo_dir
-    output_dir.mkdir(parents=True, exist_ok=True)
+    output_dir = get_output_dir(input_path, log_dir)
     url_list_path = output_dir / f"{input_path.name}.scholar_urls.txt"
 
     with open(url_list_path, "w", encoding="utf-8") as f:
@@ -1126,9 +1124,8 @@ def cmd_titles(
     """Run title checking command flow."""
     log = log or print
 
-    repo_dir = get_repo_dir()
     base_name = bib_file.name
-    output_path = repo_dir / f"{base_name}.title_report.txt"
+    output_path = get_output_dir(bib_file) / f"{base_name}.title_report.txt"
 
     filter_ids: Optional[List[str]] = None
     retry_report_path: Optional[str] = None
@@ -1209,7 +1206,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--log-dir",
         type=str,
         default="",
-        help="Directory to write logs. Default: repo directory.",
+        help="Directory to write logs and reports. Default: .bibcc/ next to the input file.",
     )
 
     p_titles = subparsers.add_parser(

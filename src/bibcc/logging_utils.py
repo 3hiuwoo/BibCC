@@ -5,14 +5,14 @@ This module provides a consistent logging strategy across all tools:
 - Automatic log file generation (no manual --output needed)
 - Simultaneous stdout and file output
 - Consistent log file naming convention
-- All logs stored in logs/ subdirectory
+- Reports and logs stored in a ``.bibcc/`` folder next to the input file
 
 Usage:
     from bibcc.logging_utils import Logger
 
     # Create logger that auto-generates log file from input file
-    logger = Logger("checker", input_file="my.bib")
-    # -> Creates: logs/my.bib.checker.log
+    logger = Logger("checker", input_file="refs/my.bib")
+    # -> Creates: refs/.bibcc/logs/my.bib.checker.log
 
     # Log messages (goes to both stdout and file)
     logger.log("Processing...")
@@ -24,10 +24,9 @@ Usage:
 
 from __future__ import annotations
 
-import sys
 from datetime import datetime
 from pathlib import Path
-from typing import IO, List, Optional, TextIO
+from typing import IO, List, Optional
 
 # ---------------------------------------------------------------------------
 # Format constants — shared across all BibCC tools
@@ -46,16 +45,27 @@ SEPARATOR_THIN: str = "─"
 """Character for thin separators (summary lines)."""
 
 
-def get_repo_dir() -> Path:
-    """Get the repository directory (where this file is located)."""
-    return Path(__file__).parent.resolve()
+OUTPUT_DIR_NAME: str = ".bibcc"
+"""Name of the per-directory folder holding reports and logs."""
 
 
-def get_logs_dir() -> Path:
-    """Get the logs directory (repo_dir/logs/)."""
-    logs_dir = get_repo_dir() / "logs"
-    logs_dir.mkdir(parents=True, exist_ok=True)
-    return logs_dir
+def get_output_dir(
+    input_file: Optional[str | Path] = None,
+    override: Optional[str | Path] = None,
+) -> Path:
+    """Return (and create) the directory for reports about *input_file*.
+
+    Resolution order: *override* if given, else ``<input dir>/.bibcc/``, else
+    ``./.bibcc/`` when there is no input file.
+    """
+    if override:
+        out = Path(override)
+    elif input_file:
+        out = Path(input_file).resolve().parent / OUTPUT_DIR_NAME
+    else:
+        out = Path.cwd() / OUTPUT_DIR_NAME
+    out.mkdir(parents=True, exist_ok=True)
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -87,10 +97,10 @@ class Logger:
     Unified logger that writes to both stdout and a log file.
 
     The log file is automatically named based on the input file and tool name:
-        logs/<input_file>.<tool_name>.log
+        <input dir>/.bibcc/logs/<input_file>.<tool_name>.log
 
     If no input file is provided, uses:
-        logs/<tool_name>_<timestamp>.log
+        ./.bibcc/logs/<tool_name>_<timestamp>.log
     """
 
     def __init__(
@@ -107,7 +117,7 @@ class Logger:
         Args:
             tool_name: Name of the tool (e.g., "checker", "completer")
             input_file: Path to the input file being processed
-            log_dir: Directory for log files (default: repo_dir/logs/)
+            log_dir: Directory for log files (default: <input dir>/.bibcc/logs/)
             log_suffix: Suffix for log file (default: ".log")
             enabled: Whether file logging is enabled (default: True)
         """
@@ -120,8 +130,10 @@ class Logger:
         if not enabled:
             return
 
-        # Always use logs/ subdirectory (unless explicit log_dir)
-        log_dir_path = Path(log_dir) if log_dir else get_logs_dir()
+        if log_dir:
+            log_dir_path = Path(log_dir)
+        else:
+            log_dir_path = get_output_dir(input_file) / "logs"
         log_dir_path.mkdir(parents=True, exist_ok=True)
 
         # Determine log file path
@@ -219,52 +231,3 @@ class Logger:
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:
         self.close()
 
-
-class TeeWriter:
-    """
-    A writer that duplicates output to multiple destinations.
-
-    This can be used to redirect stdout to both console and file.
-    """
-
-    def __init__(self, *writers: TextIO):
-        self.writers = writers
-
-    def write(self, text: str) -> int:
-        for writer in self.writers:
-            writer.write(text)
-            writer.flush()
-        return len(text)
-
-    def flush(self) -> None:
-        for writer in self.writers:
-            writer.flush()
-
-
-def create_log_path(
-    input_file: str | Path,
-    tool_name: str,
-    suffix: str = ".log",
-    log_dir: Optional[str | Path] = None,
-) -> Path:
-    """
-    Create a standardized log file path.
-
-    Args:
-        input_file: The input file being processed
-        tool_name: Name of the tool
-        suffix: Log file suffix (default: ".log")
-        log_dir: Optional directory for log files
-
-    Returns:
-        Path to the log file
-    """
-    input_path = Path(input_file)
-    base_name = input_path.name
-
-    if log_dir:
-        log_dir_path = Path(log_dir)
-        log_dir_path.mkdir(parents=True, exist_ok=True)
-        return log_dir_path / f"{base_name}.{tool_name}{suffix}"
-    else:
-        return input_path.parent / f"{base_name}.{tool_name}{suffix}"

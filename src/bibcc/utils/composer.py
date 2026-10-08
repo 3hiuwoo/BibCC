@@ -23,7 +23,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Dict, List, Set, Tuple
 
-from bibcc.logging_utils import Logger, get_repo_dir
+from bibcc.logging_utils import Logger
 
 SOURCE_MARKER_PREFIX = "% === source:"
 SOURCE_MARKER_SUFFIX = "==="
@@ -162,15 +162,13 @@ def main() -> None:
     args = parser.parse_args()
 
     if args.command == "compose":
-        repo_dir = get_repo_dir()
         resolved_input = args.input_dir.resolve()
         resolved_output = args.output_file.resolve()
 
         if resolved_output.suffix.lower() != ".bib":
             parser.error("output_file must end with .bib")
 
-        with Logger("composer", input_file=str(resolved_input)) as logger:
-            logger.log(f"📁 Repository: {repo_dir}")
+        with Logger("composer", input_file=str(resolved_output)) as logger:
             compose_bibliographies(
                 input_dir=resolved_input,
                 output_file=resolved_output,

@@ -41,7 +41,7 @@ from bibcc.checkers import (
     parse_terms,
 )
 from bibcc.checkers.title_case import check_title_case, get_style
-from bibcc.logging_utils import Logger, get_repo_dir, write_report
+from bibcc.logging_utils import Logger, get_output_dir, write_report
 
 
 def parse_list_arg(raw: str) -> List[str]:
@@ -164,13 +164,12 @@ def build_parser() -> argparse.ArgumentParser:
 
 def run(args: argparse.Namespace) -> None:
     """Run checker with parsed arguments."""
-    # All outputs go to repo directory
-    repo_dir = get_repo_dir()
-    base_name = Path(args.input).name if args.input else "templates.py"
-
     # Template checking mode
     if args.check_templates:
-        with Logger("checker", input_file=args.templates_path) as logger:
+        log_dir = get_output_dir() / "logs"
+        with Logger(
+            "checker", input_file=args.templates_path, log_dir=log_dir
+        ) as logger:
             journal_fields = parse_list_arg(args.journal_fields)
             proceedings_fields = parse_list_arg(args.proceedings_fields)
             check_template_fields(
@@ -180,6 +179,12 @@ def run(args: argparse.Namespace) -> None:
                 log=logger.log,
             )
         return
+
+    if not args.input:
+        build_parser().error("an input .bib file is required unless --check-templates is used")
+
+    report_dir = get_output_dir(args.input)
+    base_name = Path(args.input).name
 
     # Create logger for bib file checking
     with Logger("checker", input_file=args.input) as logger:
@@ -195,7 +200,7 @@ def run(args: argparse.Namespace) -> None:
                 args.input, required_fields, entry_types, log=logger.log
             )
             if missing_rows:
-                report_path = repo_dir / f"{base_name}.missing_fields.txt"
+                report_path = report_dir / f"{base_name}.missing_fields.txt"
                 rows = [
                     f"{rid}\t{rtype}\t{ryear}\t{', '.join(rmiss)}"
                     for rid, rtype, ryear, rmiss in missing_rows
@@ -223,7 +228,7 @@ def run(args: argparse.Namespace) -> None:
                 log=logger.log,
             )
             if titlecase_rows and not args.title_apply and not args.title_interactive:
-                report_path = repo_dir / f"{base_name}.title_case.txt"
+                report_path = report_dir / f"{base_name}.title_case.txt"
                 rows = [
                     f"{eid}\t{current}\t{suggested}"
                     for eid, current, suggested in titlecase_rows
@@ -241,7 +246,7 @@ def run(args: argparse.Namespace) -> None:
             logger.log("\n")
             key_rows = check_citation_keys(args.input, log=logger.log)
             if key_rows:
-                report_path = repo_dir / f"{base_name}.citation_keys.txt"
+                report_path = report_dir / f"{base_name}.citation_keys.txt"
                 rows = [
                     f"{eid}\t{issue_type}\t{detail}"
                     for eid, issue_type, detail in key_rows
@@ -269,7 +274,7 @@ def run(args: argparse.Namespace) -> None:
                 log=logger.log,
             )
             if protection_rows:
-                report_path = repo_dir / f"{base_name}.smart_protection.txt"
+                report_path = report_dir / f"{base_name}.smart_protection.txt"
                 rows = [
                     f"{eid}\t{word}\t{reason}" for eid, word, reason in protection_rows
                 ]
