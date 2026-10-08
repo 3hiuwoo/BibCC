@@ -32,6 +32,7 @@ import bibtexparser
 from bibcc.bibedit import BibEditError, read_bib, scan, write_bib
 from bibcc.checkers.citation_keys import abbreviate_venue
 from bibcc.checkers.smart_protection import find_unprotected_terms, protect_terms
+from bibcc.completer import previous_edition
 from bibcc.logging_utils import Logger
 from bibcc.sources import (
     Record,
@@ -298,6 +299,22 @@ def polish(
                 f"venue '{venue_text}'{year} is not in the venue library; "
                 "run `bibcc complete` on the output to get a fill-in YAML"
             )
+            prior = (
+                previous_edition(library, venue_text, record.fields.get("year", ""))
+                if kind == PROCEEDINGS
+                else None
+            )
+            if prior:
+                taken = []
+                if prior.fields.get("publisher"):
+                    fields["publisher"] = prior.fields["publisher"]
+                    taken.append("publisher")
+                for name in ("issn", "series", "address"):
+                    if prior.fields.get(name) and not fields.get(name):
+                        fields[name] = prior.fields[name]
+                        taken.append(name)
+                if taken:
+                    notes.append(f"{', '.join(taken)} taken from the {prior.year} edition")
 
     title = fields.get("title", "").rstrip(".")
     if title:

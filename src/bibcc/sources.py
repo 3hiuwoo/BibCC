@@ -276,7 +276,10 @@ def record_from_crossref(msg: Dict[str, Any]) -> Record:
     series = [c for c in containers if _SERIES_TITLE.match(c)]
     books = [c for c in containers if not _SERIES_TITLE.match(c)]
 
-    if ctype == "journal-article":
+    if ctype == "journal-article" and containers and containers[0].lower().startswith("proceedings of"):
+        # AAAI, IJCAI, and PMLR register conference papers as journal articles.
+        entry_type = "inproceedings"
+    elif ctype == "journal-article":
         entry_type = "article"
     elif ctype == "proceedings-article":
         entry_type = "inproceedings"

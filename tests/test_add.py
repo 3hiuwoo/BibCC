@@ -94,6 +94,33 @@ def test_crossref_book_chapter_becomes_inproceedings():
     assert "\u00a0" not in record.fields["title"]
 
 
+def test_crossref_proceedings_journal_becomes_inproceedings(library):
+    import json
+
+    from bibcc.adder import polish
+
+    msg = json.loads(_fixture("crossref_tpami.json"))["message"]
+    msg.update({
+        "container-title": ["Proceedings of the AAAI Conference on Artificial Intelligence"],
+        "published-print": {"date-parts": [[2025, 4]]},
+    })
+    record = sources.record_from_crossref(msg)
+    assert record.entry_type == "inproceedings"
+    assert record.fields["booktitle"] == "Proceedings of the AAAI Conference on Artificial Intelligence"
+    assert "journal" not in record.fields and "issn" not in record.fields
+    fields, _ = polish(record, library)
+    assert fields["booktitle"] == "Proceedings of the {AAAI} Conference on Artificial Intelligence"
+    assert fields["publisher"] == "AAAI Press"  # AAAI 2025 record of the venue library
+
+    # An edition missing from the library borrows stable fields from the previous one.
+    msg["published-print"] = {"date-parts": [[2031, 3]]}
+    fields, notes = polish(sources.record_from_crossref(msg), library)
+    assert fields["publisher"] == "AAAI Press"
+    assert fields["address"] == "Washington, DC, USA"
+    assert "venue" not in fields  # the location changes every year
+    assert any("from the 2025 edition" in n for n in notes)
+
+
 def test_add_doi_uses_library_fields_and_survey_format(web, library, tmp_path):
     out = tmp_path / "added.bib"
     summary = add_papers(["10.1109/TPAMI.2024.3429383"], out, library, delay=0, log=lambda _: None)
