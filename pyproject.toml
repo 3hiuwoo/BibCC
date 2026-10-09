@@ -4,7 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "bibcc"
-version = "0.2.0"
+# The version lives in src/bibcc/__init__.py only (see [tool.hatch.version]).
+dynamic = ["version"]
 description = "BibTeX Check & Complete: quality checks, field completion, and PDF library alignment"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -22,6 +23,9 @@ dev = [
     "pytest>=8",
     "ruff>=0.16.10",
 ]
+
+[tool.hatch.version]
+path = "src/bibcc/__init__.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/bibcc"]
