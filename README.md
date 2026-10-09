@@ -2,13 +2,13 @@
 
 A CLI toolkit to auto-complete missing BibTeX fields, check formatting quality, manage a reusable venue library, and align your PDF library with your bibliography.
 
-> 👋 Thanks for attention!
+> 👋 Thanks for your attention!
 >
-> This is originally a small tool optimized for my own bibliography collecting workflow. And I am happy to see there are few stars on the project. I will start working on BibCC again ASAP to make it more universal, versatile and robust. Hope it can help anyone with the same demands as me.
+> BibCC started as a small tool for my own bibliography workflow, and I am happy to see a few stars on the project. Version 0.2 reworks it into a more universal, versatile, and robust toolkit: an editable venue library, minimal verified edits, fetching new papers, upgrading preprints, and whole-file formatting. I hope it helps anyone with the same needs. Issues and suggestions are welcome.
 
 ## 🚀 Quick Start
 
-BibCC is a Python package managed with [uv](https://docs.astral.sh/uv/).
+BibCC is a Python package (Python 3.10+) managed with [uv](https://docs.astral.sh/uv/).
 
 ```bash
 git clone https://github.com/3hiuwoo/BibCC.git && cd BibCC
@@ -21,7 +21,7 @@ bibcc --help
 
 The editable install keeps `bibcc` pointing at your checkout, so venue library updates and code changes apply immediately.
 
-Run the tests with `uv run pytest`.
+`add`, `upgrade`, and `scholar titles` query CrossRef, arXiv, OpenReview, and Semantic Scholar. The other commands work offline.
 
 ## 🧩 Commands
 
@@ -38,7 +38,26 @@ BibCC provides eight commands through a single entry point — `bibcc`:
 | `scholar` | Citation counts and title verification via external APIs |
 | `compose` | Merge per-folder `.bib` files into a single bibliography |
 
-Run `bibcc <command> -h` for command-specific help.
+Run `bibcc <command> -h` for command-specific help, and `bibcc --version` for the installed version.
+
+### Typical Workflow
+
+```bash
+# 1. fetch new papers into added.bib, then move the entries into your topic files
+bibcc add 2501.13198 "Some Paper Title" --against bib/
+# 2. fill venue fields from the library
+bibcc complete bib/topic.bib --in-place
+# 3. check titles, braces, keys, field typos, and duplicates
+bibcc check bib/topic.bib --title-case --quote --check-keys --check-fields --against bib/
+# 4. now and then: replace preprints with their published versions
+bibcc upgrade bib/topic.bib --in-place
+# 5. consistent layout across all files
+bibcc format bib/ --in-place
+# 6. one file for LaTeX
+bibcc compose compose bib/ references.bib
+```
+
+`complete`, `upgrade`, and `format` run as a dry run unless you pass `--output` or `--in-place`. A dry run writes a diff to `.bibcc/` so you can review the changes first. `add` only appends to its staging file (`--dry-run` prints instead), and `librarian rename` takes `--dry-run` to preview.
 
 ---
 
@@ -327,7 +346,20 @@ bibcc librarian rename input.bib ~/Downloads/papers --dry-run   # preview
 bibcc librarian rename input.bib ~/Downloads/papers             # apply
 ```
 
-**Rename workflow**: Export PDFs from Zotero (or similar) with full titles in the filename (e.g., `Author 等 - 2025 - Full Paper Title.pdf`). The tool extracts titles from filenames, normalises them, and matches against bib entries for exact renaming — no manual ordering required.
+**Library listing**: `missing` and `extra` expect PDFs named after citation keys (`ISPC_Wang_CVPR2024.pdf`). The listing file is any text file with one PDF name per line, for example `ls ~/papers > papers.txt`. Lines may contain other text (such as the dates and sizes from a Windows `dir` listing), and UTF-8 and UTF-16 files are both read.
+
+**Rename workflow**: Export PDFs from Zotero (or similar) with full titles in the filename (e.g., `Author 等 - 2025 - Full Paper Title.pdf`). The tool takes the text after the last ` - ` as the title, normalises it (ignoring case, braces, and punctuation), and renames the PDF to `<citation key>.pdf` when exactly that title is in the `.bib` file. Files are renamed in place, and existing files are never overwritten. No manual ordering is required.
+
+<details>
+<summary>All <code>librarian</code> options</summary>
+
+| Subcommand | Arguments | Report |
+| --- | --- | --- |
+| `missing` | `BIB_FILE PAPERS_FILE` | `.missing_pdfs.txt` |
+| `extra` | `BIB_FILE PAPERS_FILE` | `.extra_pdfs.txt` |
+| `rename` | `BIB_FILE PDF_FOLDER [--dry-run]` | `.rename_report.txt` |
+
+</details>
 
 ---
 
@@ -344,13 +376,24 @@ bibcc scholar cite input.bib --open --batch-size 10  # batch open in browser
 bibcc scholar cite input.bib -i --include-filled     # re-check filled entries
 ```
 
-**`titles`** — Verify paper titles against CrossRef, DBLP, Semantic Scholar, arXiv:
+`cite` writes Google Scholar search URLs to `.scholar_urls.txt`. In interactive mode it opens each paper's Google Scholar search in your browser (you can skip or quit at any entry), asks for the citation count, and stores it in a `citation` field (written back to the input unless `--output` is given). Only the `citation` fields change.
+
+**`titles`** — Verify paper titles against CrossRef, arXiv, and Semantic Scholar:
 
 ```bash
 bibcc scholar titles input.bib
-bibcc scholar titles input.bib --retry-errors report.txt  # retry failures
-bibcc scholar titles input.bib --ids ID1,ID2              # specific entries
+bibcc scholar titles input.bib --retry-errors bib/.bibcc/input.bib.title_report.txt  # retry failures
+bibcc scholar titles input.bib --ids ID1,ID2                                         # specific entries
 ```
+
+Each title is looked up in this order:
+
+1. Entries with a DOI are checked against CrossRef only.
+2. Entries with an arXiv ID are checked against arXiv.
+3. Otherwise, or when the arXiv title matches, Semantic Scholar is searched by title.
+4. If nothing has matched, a CrossRef title search is the last resort.
+
+A title only counts as found when it matches exactly (ignoring case and punctuation). The report (`.title_report.txt`) lists titles whose capitalisation differs from the published one, lookups that failed (network errors, rate limits), and titles no source knows. Pass that report to `--retry-errors` to re-check only the failed lookups; the report is updated in place. Semantic Scholar allows few requests without a key, so set `S2_API_KEY` for larger files. DBLP is not queried because its API is behind a bot challenge.
 
 <details>
 <summary>All <code>scholar</code> options</summary>
@@ -364,6 +407,7 @@ bibcc scholar titles input.bib --ids ID1,ID2              # specific entries
 | `--batch-size N` | URLs per batch (default: `5`) |
 | `--include-filled` | Include entries that already have citation values |
 | `--output`, `-o FILE` | Output file (omit for dry-run) |
+| `--log-dir DIR` | Directory for reports and logs (default: `.bibcc/` next to the input) |
 
 **titles:**
 
@@ -387,13 +431,13 @@ bibcc compose compose ./my-bibs combined.bib
 bibcc compose compose ./my-bibs combined.bib --no-dup-warning
 ```
 
-Source path markers (`% === source: path/file.bib ===`) are inserted between files. All original comments are preserved. Duplicate entry IDs are warned by default. The output file and anything under `.bibcc/` are skipped, so the output can live inside the input folder.
+Source path markers (`% === source: path/file.bib ===`) are inserted between files. All original comments are preserved. Duplicate entry IDs are warned by default (`--no-dup-warning` turns this off). The output file and anything under `.bibcc/` are skipped, so the output can live inside the input folder.
 
 ---
 
 ## 📂 Output Files
 
-Reports are written to a `.bibcc/` folder next to the input `.bib` file, and logs to `.bibcc/logs/`. For example, checking `bib/refs.bib` writes `bib/.bibcc/refs.bib.title_case.txt`. `complete` and `scholar cite` accept `--log-dir` to choose another folder. Add `.bibcc/` to the `.gitignore` of your bibliography project to keep these files out of version control.
+Reports are written to a `.bibcc/` folder next to the input `.bib` file, and logs to `.bibcc/logs/`. For example, checking `bib/refs.bib` writes `bib/.bibcc/refs.bib.title_case.txt`. `complete`, `add`, `upgrade`, `format`, and `scholar cite` accept `--log-dir` to choose another folder. `check --check-venues` has no input `.bib` file, so it writes its log to `.bibcc/logs/` in the current directory. Add `.bibcc/` to the `.gitignore` of your bibliography project to keep these files out of version control.
 
 | Command | Report Files | Log Files |
 | --- | --- | --- |
@@ -448,6 +492,16 @@ bibcc complete input.bib --output out.bib --update-venues
 
 Entries missing year or venue (e.g., arXiv preprints, misc entries) are reported in `*.incomplete_entries.txt` and skipped.
 
+## 🛠️ Development
+
+```bash
+uv sync               # install the package and dev tools
+uv run pytest         # run the tests (no network access; API responses are canned)
+uv run ruff check .   # lint
+```
+
+Code lives in `src/bibcc/`. Each command is one module (`checker.py`, `completer.py`, `adder.py`, `upgrader.py`, `formatter.py`, and `utils/` for `librarian`, `scholar`, and `compose`), registered in `cli.py`. Shared pieces are `bibedit.py` (minimal, verified edits), `sources.py` (CrossRef, arXiv, OpenReview, and Semantic Scholar lookups), `venues.py` (the venue library), and `logging_utils.py` (reports and logs). See [`CLAUDE.md`](CLAUDE.md) for code conventions.
+
 ## 🔗 Additional Resources
 
 Apart from `bibcc format`, BibCC keeps your existing formatting and only adds or replaces the fields it targets. Other formatters:
@@ -480,6 +534,7 @@ Apart from `bibcc format`, BibCC keeps your existing formatting and only adds or
   - [x] ~~Unified PDF library alignment (missing/extra/rename).~~ Done.
 - `scholar`:
   - [x] ~~Unified citation + title tool.~~ Done — `cite` and `titles` subcommands.
+  - [x] ~~Title verification without DBLP (bot challenge).~~ Done — Semantic Scholar plus a CrossRef title search fallback.
 - `compose`:
   - [x] ~~Folder-based .bib composition with comment preservation.~~ Done.
 - CLI & output:
