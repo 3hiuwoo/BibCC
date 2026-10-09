@@ -279,5 +279,7 @@ def check_smart_protection(
     log(SEPARATOR_LIGHT * SEPARATOR_WIDTH)
     if protection_rows:
         log(f"⚠️  Found {len(protection_rows)} terms to protect.")
+    else:
+        log(f"✅ No unprotected terms in {len(bib_db.entries)} entries.")
 
     return protection_rows

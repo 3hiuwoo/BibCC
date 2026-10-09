@@ -452,7 +452,8 @@ def _s2_headers() -> Dict[str, str]:
     return {"x-api-key": key} if key else {}
 
 
-def _s2_get(url: str) -> Tuple[Optional[Any], Optional[str]]:
+def s2_get(url: str) -> Tuple[Optional[Any], Optional[str]]:
+    """GET a Semantic Scholar API URL with the API key and retries; a 404 is not an error."""
     data, error = fetch_json(url, headers=_s2_headers(), retries=3)
     if error and error.startswith("HTTP 404"):
         return None, None
@@ -464,13 +465,13 @@ def _s2_get(url: str) -> Tuple[Optional[Any], Optional[str]]:
 
 def s2_paper(paper_id: str) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
     """Fetch a Semantic Scholar paper by ID (``arXiv:2501.13198``, ``DOI:10...``)."""
-    return _s2_get(f"{_S2_BASE}/{urllib.parse.quote(paper_id, safe=':/')}?fields={S2_FIELDS}")
+    return s2_get(f"{_S2_BASE}/{urllib.parse.quote(paper_id, safe=':/')}?fields={S2_FIELDS}")
 
 
 def s2_match(title: str) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
     """Best Semantic Scholar title match, accepted only if the titles agree."""
     query = urllib.parse.quote(clean_title_for_search(title))
-    data, error = _s2_get(f"{_S2_BASE}/search/match?query={query}&fields={S2_FIELDS}")
+    data, error = s2_get(f"{_S2_BASE}/search/match?query={query}&fields={S2_FIELDS}")
     if error:
         return None, error
     for paper in (data or {}).get("data") or []:

@@ -196,11 +196,13 @@ class BibIndex:
         self._arxiv: Dict[str, Tuple[str, str]] = {}
         self._title: Dict[str, Tuple[str, str]] = {}
         self.keys: Set[str] = set()
+        self.key_where: Dict[str, str] = {}
         self.files = 0
 
     def add(self, entry: Dict[str, str], where: str) -> None:
         key = entry.get("ID", "")
         self.keys.add(key.lower())
+        self.key_where.setdefault(key.lower(), where)
         loc = (key, where)
         doi = normalize_doi(entry.get("doi", "")).lower()
         if doi and not is_arxiv_doi(doi):

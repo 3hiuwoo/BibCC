@@ -6,7 +6,7 @@ as a subcommand so that the entire workflow can be driven from one entry point.
 
 Subcommands:
     check      Quality checks (missing fields, title case, term protection, …)
-    complete   Auto-fill missing BibTeX fields from templates
+    complete   Auto-fill missing BibTeX fields from the venue library
     add        Fetch papers by DOI, arXiv ID, or title into a staging .bib
     upgrade    Replace arXiv preprints with their published versions
     format     Reformat .bib files consistently (aligned fields, braces, month macros)
@@ -34,8 +34,8 @@ import sys
 from bibcc import __version__
 
 TOOLS = {
-    "check": "Quality checks: missing fields, title case, term protection, keys",
-    "complete": "Auto-fill missing BibTeX fields from templates",
+    "check": "Quality checks: missing fields, title case, term protection, keys, field typos",
+    "complete": "Auto-fill missing BibTeX fields from the venue library",
     "add": "Fetch papers by DOI, arXiv ID, or title into a staging .bib",
     "upgrade": "Replace arXiv preprints with their published versions",
     "format": "Reformat .bib files consistently (aligned fields, braces, month macros)",

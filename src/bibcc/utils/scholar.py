@@ -4,13 +4,13 @@ Scholar - Unified citation and title management for BibTeX files.
 
 Subcommands:
     cite    - Generate Google Scholar URLs and manage citation fields
-    titles  - Check titles against CrossRef, DBLP, Semantic Scholar, arXiv
+    titles  - Check titles against CrossRef, arXiv, and Semantic Scholar
 
 Usage:
-    python utils/scholar.py cite input.bib
-    python utils/scholar.py cite input.bib --interactive
-    python utils/scholar.py titles input.bib
-    python utils/scholar.py titles input.bib --retry-errors report.txt
+    bibcc scholar cite input.bib
+    bibcc scholar cite input.bib --interactive
+    bibcc scholar titles input.bib
+    bibcc scholar titles input.bib --retry-errors report.txt
 """
 
 from __future__ import annotations
@@ -38,9 +38,11 @@ from bibcc.sources import (
     ARXIV_MISSING,
     arxiv_record,
     clean_title_for_search,
+    crossref_search,
     entry_arxiv_id,
     fetch_json,
     normalize_doi,
+    s2_get,
     titles_match,
 )
 
@@ -370,26 +372,6 @@ def lookup_crossref(doi: str) -> LookupResult:
     return LookupResult(source=source)
 
 
-def lookup_dblp(title: str) -> LookupResult:
-    """Look up title via DBLP API."""
-    source = "DBLP"
-    if not title:
-        return LookupResult(source=source, searched=False)
-
-    query = urllib.parse.quote(clean_title_for_search(title))
-    data, error = fetch_json(f"https://dblp.org/search/publ/api?q={query}&format=json&h=5")
-    if error:
-        return LookupResult(source=source, error=error)
-    hits = _as_dict(_as_dict(_as_dict(data).get("result")).get("hits")).get("hit") or []
-    for hit in hits:
-        info = _as_dict(hit).get("info") or {}
-        dblp_title = info.get("title", "").rstrip(".")
-        if titles_match(title, dblp_title):
-            match = TitleMatch(source=source, original_title=dblp_title, url=info.get("url"))
-            return LookupResult(source=source, match=match)
-    return LookupResult(source=source)
-
-
 def lookup_semantic_scholar(title: str) -> LookupResult:
     """Look up title via Semantic Scholar API."""
     source = "Semantic Scholar"
@@ -397,7 +379,7 @@ def lookup_semantic_scholar(title: str) -> LookupResult:
         return LookupResult(source=source, searched=False)
 
     query = urllib.parse.quote(clean_title_for_search(title))
-    data, error = fetch_json(
+    data, error = s2_get(
         f"https://api.semanticscholar.org/graph/v1/paper/search?query={query}&limit=5&fields=title,url"
     )
     if error:
@@ -408,6 +390,22 @@ def lookup_semantic_scholar(title: str) -> LookupResult:
             match = TitleMatch(source=source, original_title=ss_title, url=paper.get("url"))
             return LookupResult(source=source, match=match)
     return LookupResult(source=source)
+
+
+def lookup_crossref_title(title: str) -> LookupResult:
+    """Look up title via a CrossRef bibliographic search (exact title match only)."""
+    source = "CrossRef (title)"
+    if not title:
+        return LookupResult(source=source, searched=False)
+
+    record, error = crossref_search(title)
+    if error:
+        return LookupResult(source=source, error=error)
+    if record is None:
+        return LookupResult(source=source)
+    url = f"https://doi.org/{record.doi}" if record.doi else None
+    match = TitleMatch(source=source, original_title=record.fields.get("title", ""), url=url)
+    return LookupResult(source=source, match=match)
 
 
 def lookup_arxiv(entry: Dict[str, Any]) -> LookupResult:
@@ -447,7 +445,12 @@ def _note_result(
 def find_original_title(
     entry: Dict[str, Any], delay: float = 0.3
 ) -> Tuple[List[TitleMatch], List[SourceStatus]]:
-    """Find original title from sources according to DOI/arXiv/DBLP/SS rules."""
+    """Find the original title: CrossRef for DOIs, else arXiv, then Semantic Scholar.
+
+    A DOI lookup is final.  An arXiv match that differs in case is final too;
+    otherwise Semantic Scholar is asked as a second opinion, and a CrossRef
+    title search is the last resort when nothing has matched.
+    """
     matches: List[TitleMatch] = []
     statuses: List[SourceStatus] = []
     current_title = entry.get("title", "")
@@ -464,14 +467,13 @@ def find_original_title(
         if match and case_differs(current_title, match.original_title):
             return matches, statuses
 
+    # DBLP is not queried: its API answers with a bot challenge (see bibcc.sources).
     if current_title:
-        match = _note_result(lookup_dblp(current_title), matches, statuses)
-        time.sleep(delay)
-        if match and case_differs(current_title, match.original_title):
-            return matches, statuses
-
-    if not matches and current_title:
         _note_result(lookup_semantic_scholar(current_title), matches, statuses)
+        time.sleep(delay)
+
+    if current_title and not matches:
+        _note_result(lookup_crossref_title(current_title), matches, statuses)
         time.sleep(delay)
 
     return matches, statuses
@@ -756,7 +758,8 @@ def check_titles(
 
     for i, entry in enumerate(entries_to_check, 1):
         entry_id = entry.get("ID", "unknown")
-        current_title = entry.get("title", "")
+        # Multi-line titles would break the report, which is parsed line by line.
+        current_title = " ".join(entry.get("title", "").split())
 
         if not current_title:
             continue

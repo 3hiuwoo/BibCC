@@ -124,7 +124,9 @@ def _duplicates(
     for entry in entries:
         key = entry["ID"]
         if key.lower() in index.keys:
-            issues.append((key, "duplicate_key", "citation key is used more than once"))
+            where = index.key_where[key.lower()]
+            where = "this file" if where == input_path else where
+            issues.append((key, "duplicate_key", f"citation key is already used ({where})"))
         dup = index.find(
             doi=entry.get("doi", ""),
             arxiv_id=entry_arxiv_id(entry) or "",

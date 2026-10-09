@@ -60,6 +60,15 @@ def test_title_apply_rewrites_only_title_values(sample_bib: Path):
     assert restored == original
 
 
+def test_title_case_report_keeps_multi_line_titles_on_one_line(sample_bib: Path):
+    main(["check", str(sample_bib), "--fields", "", "--title-case"])
+    report = (sample_bib.parent / ".bibcc" / "sample.bib.title_case.txt").read_text()
+    assert (
+        "DualPrompt_Wang_TPAMI2024\ta study of prompts for continual learning\t"
+        "A Study of Prompts for Continual Learning\n"
+    ) in report
+
+
 def test_scholar_cite_adds_empty_citation_fields_safely(sample_bib: Path, tmp_path: Path):
     from bibcc.utils.scholar import cmd_cite
 

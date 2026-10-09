@@ -460,8 +460,8 @@ def check_title_case(
             if interactive:
                 entry_id = entry.get("ID", "")
                 log(f"\n--- [{issues}] {entry_id} ---")
-                log(f"  Current:   {title}")
-                log(f"  Suggested: {suggestion}")
+                log(f"  Current:   {normalized_orig}")
+                log(f"  Suggested: {normalized_sugg}")
                 while True:
                     try:
                         choice = (
@@ -508,8 +508,9 @@ def check_title_case(
                 entry["title"] = suggestion
                 changed.append((entry.get("ID", ""), title, suggestion))
             else:
-                log(f"{entry.get('ID', ''):<40} | {title:<40} | {suggestion}")
-                changed.append((entry.get("ID", ""), title, suggestion))
+                # Multi-line titles would break the table and the TSV report.
+                log(f"{entry.get('ID', ''):<40} | {normalized_orig:<40} | {normalized_sugg}")
+                changed.append((entry.get("ID", ""), normalized_orig, normalized_sugg))
 
     # Apply changes to file (for apply or interactive mode with accepted changes)
     if apply or (interactive and changed):

@@ -89,6 +89,16 @@ def test_duplicates_against_other_files(tmp_path: Path):
     assert rows == [("New", "duplicate_paper", f"same arXiv ID 2501.13198 as Old ({other})")]
 
 
+def test_duplicate_key_names_where_it_is_used(tmp_path: Path):
+    other = tmp_path / "bib" / "other.bib"
+    other.parent.mkdir()
+    other.write_text("@misc{K, title = {X}}\n")
+    rows = _check(tmp_path, "@misc{K, title = {Y}}\n@misc{L, title = {Z}}\n@misc{L, title = {W}}\n",
+                  against=[tmp_path / "bib"])
+    assert ("K", "duplicate_key", f"citation key is already used ({other})") in rows
+    assert ("L", "duplicate_key", "citation key is already used (this file)") in rows
+
+
 def test_input_inside_against_dir_is_not_its_own_duplicate(tmp_path: Path):
     bib = tmp_path / "refs.bib"
     bib.write_text("@misc{K, title = {T}}\n")

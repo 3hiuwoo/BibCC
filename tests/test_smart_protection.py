@@ -49,6 +49,14 @@ def test_check_smart_protection_uses_min_length(tmp_path: Path):
     assert rows == [("k", "BERT", "Acronym")]
 
 
+def test_check_smart_protection_reports_clean_file(tmp_path: Path):
+    bib = tmp_path / "refs.bib"
+    bib.write_text("@article{k, title = {{BERT} for Everyone}}\n")
+    messages = []
+    assert check_smart_protection(str(bib), [], log=messages.append) == []
+    assert messages[-1] == "✅ No unprotected terms in 1 entries."
+
+
 def test_cli_checks_month_by_default(tmp_path: Path):
     bib = tmp_path / "refs.bib"
     bib.write_text("@article{k, title = {T}, year = {2024}}\n")
