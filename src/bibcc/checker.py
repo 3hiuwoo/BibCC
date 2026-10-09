@@ -45,6 +45,7 @@ from bibcc.checkers import (
     load_vocab_file,
     parse_terms,
 )
+from bibcc.checkers.smart_protection import MIN_TERM_LENGTH
 from bibcc.checkers.title_case import check_title_case, get_style
 from bibcc.logging_utils import Logger, get_output_dir, write_report
 from bibcc.venues import default_library_path
@@ -72,8 +73,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--fields",
         type=str,
-        default="",
-        help="Comma-separated required fields to enforce (default: month).",
+        default="month",
+        help="Comma-separated required fields to enforce (default: month; pass '' to skip).",
     )
     parser.add_argument(
         "--entry-types",
@@ -133,8 +134,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--protection-min-length",
         type=int,
-        default=3,
-        help="Minimum word length for mixed-case / acronym detection (default: 3).",
+        default=MIN_TERM_LENGTH,
+        help="Minimum length for mixed-case, acronym, and number-bearing terms "
+        f"(default: {MIN_TERM_LENGTH}).",
     )
     parser.add_argument(
         "--check-keys",
@@ -310,7 +312,9 @@ def run(args: argparse.Namespace) -> None:
             logger.log("\n")
             extra_vocab: List[str] = []
             if args.quote_vocab_file:
-                extra_vocab.extend(load_vocab_file(Path(args.quote_vocab_file)))
+                extra_vocab.extend(
+                    load_vocab_file(Path(args.quote_vocab_file), log=logger.log)
+                )
             extra_vocab.extend(parse_terms(args.quote_terms))
             protection_rows = check_smart_protection(
                 args.input,

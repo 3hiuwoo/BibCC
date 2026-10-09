@@ -46,10 +46,10 @@ Run `bibcc <command> -h` for command-specific help.
 
 Run one or more quality checks on a `.bib` file. All checks are independent and can be combined in a single invocation.
 
-**Missing fields** — detect entries lacking required fields:
+**Missing fields** — detect entries lacking required fields (`month` is checked by default; pass `--fields ""` to skip):
 
 ```bash
-bibcc check input.bib --fields month
+bibcc check input.bib
 bibcc check input.bib --fields month,publisher --entry-types inproceedings,article
 ```
 
@@ -118,7 +118,7 @@ bibcc check input.bib --fields month --title-case --quote --check-keys --check-f
 | `--quote-terms TERMS` | Extra terms to protect |
 | `--quote-vocab-file FILE` | Newline-delimited vocabulary file |
 | `--quote-no-default` | Disable built-in technical vocabulary |
-| `--protection-min-length N` | Minimum word length for acronym detection (default: `3`) |
+| `--protection-min-length N` | Minimum length for mixed-case, acronym, and number-bearing terms (default: `2`) |
 | `--check-keys` | Check citation key legibility |
 | `--check-fields` | Check field names, field values, and duplicates |
 | `--known-fields FIELDS` | Extra field names to accept with `--check-fields` |

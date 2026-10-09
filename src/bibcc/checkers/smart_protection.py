@@ -85,11 +85,9 @@ _ROMAN_NUMERALS = {
     "XXI",
 }
 
-# Minimum length for acronym detection to avoid single-letter false positives
-MIN_ACRONYM_LENGTH = 2
-
-# Minimum length for mixed-case detection
-MIN_MIXED_CASE_LENGTH = 3
+# Shortest mixed-case / acronym / number-bearing term to flag.  Two letters
+# still matter (AI, ML, dB, 3D); single letters ("A", "I") never do.
+MIN_TERM_LENGTH = 2
 
 
 def parse_terms(raw: str) -> List[str]:
@@ -135,29 +133,39 @@ def _extract_author_surnames(entry: Dict) -> Set[str]:
     return surnames
 
 
-def _is_pure_number(word: str) -> bool:
-    """Check if a word is a pure number (e.g., '3', '100')."""
-    return bool(re.fullmatch(r"\d+", word))
+_WORD = re.compile(r"[^\W_]+")
 
 
-# Mixed case: require a lowercase→uppercase transition (e.g., ResNet, iPhone)
-_REGEX_MIXED = r"\b(?:[a-z]+[A-Z][a-zA-Z]*)|(?:[A-Z][a-z]*[A-Z][a-zA-Z]*)\b"
-_REGEX_ALLCAPS = r"\b[A-Z]{2,}\b"
-# Numbers with letters (model names like ResNet50), but skip pure numbers
-_REGEX_NUMERIC = r"\b[A-Za-z]+\d+[A-Za-z0-9\-]*\b"
+def _classify_word(word: str, min_length: int) -> Optional[str]:
+    """Reason *word* needs braces, or None.
+
+    All-lowercase words are never at risk, since BibTeX styles only ever
+    lowercase.  Plain capitalized words are left to the vocabulary, except
+    identifiers mixing letters and digits (``V2``, ``Llama2``, ``3D``).
+    """
+    if len(word) < min_length or not any(c.isupper() for c in word):
+        return None
+    if any(c.isdigit() for c in word):
+        return "Contains Number"
+    if not any(c.isupper() for c in word[1:]):
+        return None
+    if word.isupper():
+        return None if word in _ROMAN_NUMERALS else "Acronym"
+    return "Mixed Case"
 
 
 def find_unprotected_terms(
     title: str,
     author: str = "",
     vocab_terms: Optional[Iterable[str]] = None,
-    min_length: int = MIN_MIXED_CASE_LENGTH,
+    min_length: int = MIN_TERM_LENGTH,
 ) -> List[Tuple[str, str]]:
     """Return ``(word, reason)`` pairs in *title* that should be brace-protected.
 
     Text already inside braces is ignored, and vocabulary terms that are
     author surnames are skipped.  Titles that are mostly upper case return
-    nothing (they are likely all-caps titles, not acronyms).
+    nothing (they are likely all-caps titles, not acronyms).  *min_length*
+    applies to mixed-case words, acronyms, and words containing numbers.
     """
     vocab = {t.lower() for t in (DEFAULT_VOCAB if vocab_terms is None else vocab_terms)}
     clean_title = re.sub(r"\{.*?\}", lambda x: " " * len(x.group()), title)
@@ -165,32 +173,27 @@ def find_unprotected_terms(
         return []
 
     author_surnames = _extract_author_surnames({"author": author})
-    found: List[Tuple[str, str]] = []
-    for match in re.finditer(_REGEX_MIXED, clean_title):
-        if len(match.group()) >= min_length:
-            found.append((match.group(), "Mixed Case"))
-    for match in re.finditer(_REGEX_ALLCAPS, clean_title):
-        word = match.group()
-        if word not in _ROMAN_NUMERALS and len(word) >= MIN_ACRONYM_LENGTH:
-            found.append((word, "Acronym"))
-    for match in re.finditer(_REGEX_NUMERIC, clean_title):
-        found.append((match.group(), "Contains Number"))
+    spans: List[Tuple[int, int, str]] = []  # (start, end, reason)
+    for match in _WORD.finditer(clean_title):
+        reason = _classify_word(match.group(), min_length)
+        if reason:
+            spans.append((match.start(), match.end(), reason))
     for term in vocab:
         pattern = re.compile(rf"(?<!\w){re.escape(term)}(?!\w)", re.IGNORECASE)
         for match in pattern.finditer(clean_title):
             if match.group().lower() not in author_surnames:
-                found.append((match.group(), "Vocabulary"))
+                spans.append((match.start(), match.end(), "Vocabulary"))
+
+    # Overlaps are resolved by position, longest first, so a standalone
+    # "BERT" is still reported when "RoBERTa" appears in the same title.
+    kept: List[Tuple[int, int, str]] = []
+    for start, end, reason in sorted(spans, key=lambda s: (s[0] - s[1], s[0])):
+        if all(end <= s or start >= e for s, e, _ in kept):
+            kept.append((start, end, reason))
 
     unique: Dict[str, str] = {}
-    for word, reason in found:
-        is_substring = False
-        for existing in list(unique):
-            if word in existing and word != existing:
-                is_substring = True
-            elif existing in word and existing != word:
-                del unique[existing]
-        if not is_substring:
-            unique[word] = reason
+    for start, end, reason in sorted(kept):
+        unique.setdefault(clean_title[start:end], reason)
     return list(unique.items())
 
 
@@ -234,7 +237,7 @@ def check_smart_protection(
     input_path: str,
     extra_vocab: Iterable[str],
     use_default_vocab: bool = True,
-    min_length: int = MIN_MIXED_CASE_LENGTH,
+    min_length: int = MIN_TERM_LENGTH,
     log: Optional[Callable[[str], None]] = None,
 ) -> List[Tuple[str, str, str]]:
     """Check for unprotected terms and return the results.
@@ -243,7 +246,7 @@ def check_smart_protection(
         input_path: Path to the BibTeX file.
         extra_vocab: Additional vocabulary terms to protect.
         use_default_vocab: Whether to include ``DEFAULT_VOCAB``.
-        min_length: Minimum word length for mixed-case / acronym detection.
+        min_length: Minimum length for mixed-case, acronym, and number-bearing terms.
         log: Optional logging callback; falls back to ``print``.
 
     Returns:
