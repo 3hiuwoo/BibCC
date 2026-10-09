@@ -500,7 +500,7 @@ uv run pytest         # run the tests (no network access; API responses are cann
 uv run ruff check .   # lint
 ```
 
-Code lives in `src/bibcc/`. Each command is one module (`checker.py`, `completer.py`, `adder.py`, `upgrader.py`, `formatter.py`, and `utils/` for `librarian`, `scholar`, and `compose`), registered in `cli.py`. Shared pieces are `bibedit.py` (minimal, verified edits), `sources.py` (CrossRef, arXiv, OpenReview, and Semantic Scholar lookups), `venues.py` (the venue library), and `logging_utils.py` (reports and logs). See [`CLAUDE.md`](CLAUDE.md) for code conventions.
+Code lives in `src/bibcc/`. Each command is one module (`checker.py`, `completer.py`, `adder.py`, `upgrader.py`, `formatter.py`, and `utils/` for `librarian`, `scholar`, and `compose`), registered in `cli.py`. Shared pieces are `bibedit.py` (minimal, verified edits), `sources.py` (CrossRef, arXiv, OpenReview, and Semantic Scholar lookups), `venues.py` (the venue library), and `logging_utils.py` (reports and logs). See [`CLAUDE.md`](CLAUDE.md) for code conventions and [`CHANGELOG.md`](CHANGELOG.md) for the changes in each version.
 
 ## 🔗 Additional Resources
 
