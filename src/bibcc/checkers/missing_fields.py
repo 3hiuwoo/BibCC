@@ -16,6 +16,8 @@ from typing import Callable, List, Optional, Sequence, Tuple
 
 import bibtexparser
 
+from bibcc.logging_utils import SEPARATOR_LIGHT, SEPARATOR_WIDTH
+
 DEFAULT_ENTRY_TYPES = ["inproceedings", "article", "proceedings", "conference"]
 
 
@@ -55,7 +57,7 @@ def check_missing_fields(
     missing_rows: List[Tuple[str, str, str, List[str]]] = []
 
     log(f"{'ID':<40} | {'Type':<15} | {'Year':<6} | Missing")
-    log("-" * 95)
+    log(SEPARATOR_LIGHT * SEPARATOR_WIDTH)
 
     for entry in bib_db.entries:
         entry_type = entry.get("ENTRYTYPE", "").lower()
@@ -74,7 +76,7 @@ def check_missing_fields(
         rid, rtype, ryear, rmiss = row
         log(f"{rid:<40} | {rtype:<15} | {ryear:<6} | {', '.join(rmiss)}")
 
-    log("-" * 95)
+    log(SEPARATOR_LIGHT * SEPARATOR_WIDTH)
     if not missing_rows:
         log("✅ Perfect! All target entries contain the required fields.")
     else:

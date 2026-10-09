@@ -18,6 +18,7 @@ import re
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
+from bibcc.logging_utils import SEPARATOR_LIGHT, SEPARATOR_WIDTH
 from bibcc.venues import VenueLibrary
 
 DEFAULT_JOURNAL_FIELDS = ["publisher", "issn"]
@@ -92,7 +93,7 @@ def check_template_fields(
     journal_issues = []
     if journal_fields:
         log(f"{'Journal Name':<60} | Missing Fields")
-        log("-" * 90)
+        log(SEPARATOR_LIGHT * SEPARATOR_WIDTH)
 
         for name, fields in sorted(journal_templates.items()):
             missing = [f for f in journal_fields if f not in fields or not fields[f]]
@@ -100,7 +101,7 @@ def check_template_fields(
                 journal_issues.append((name, missing))
                 log(f"{name[:60]:<60} | {', '.join(missing)}")
 
-        log("-" * 90)
+        log(SEPARATOR_LIGHT * SEPARATOR_WIDTH)
         if journal_issues:
             log(
                 f"⚠️  {len(journal_issues)}/{len(journal_templates)} journals have missing fields"
@@ -114,7 +115,7 @@ def check_template_fields(
     proceedings_issues = []
     if proceedings_fields:
         log(f"{'Proceedings (Venue, Year)':<70} | Missing Fields")
-        log("-" * 100)
+        log(SEPARATOR_LIGHT * SEPARATOR_WIDTH)
 
         # Sort by year descending
         sorted_procs = sorted(
@@ -137,7 +138,7 @@ def check_template_fields(
                 extra_note = f" [+{', '.join(extras)}]" if extras else ""
                 log(f"{display:<70} | {', '.join(missing)}{extra_note}")
 
-        log("-" * 100)
+        log(SEPARATOR_LIGHT * SEPARATOR_WIDTH)
         if proceedings_issues:
             log(
                 f"⚠️  {len(proceedings_issues)}/{len(proceedings_templates)} proceedings have missing fields"
@@ -148,22 +149,16 @@ def check_template_fields(
     # Summary by field
     log("\n📊 Summary by field:")
 
-    if journal_fields:
-        log("\n  Journals:")
-        for field in journal_fields:
-            count = sum(
-                1
-                for _, fields in journal_templates.items()
-                if field not in fields or not fields[field]
-            )
-            log(f"    {field}: {count} missing")
-
-    if proceedings_fields:
-        log("\n  Proceedings:")
-        for field in proceedings_fields:
-            count = sum(
-                1
-                for _, fields in proceedings_templates.items()
-                if field not in fields or not fields[field]
-            )
+    for label, checked, issues in (
+        ("Journals", journal_fields, journal_issues),
+        ("Proceedings", proceedings_fields, proceedings_issues),
+    ):
+        if not checked:
+            continue
+        counts: Dict[str, int] = {f: 0 for f in checked}
+        for _, missing in issues:
+            for f in missing:
+                counts[f] = counts.get(f, 0) + 1
+        log(f"\n  {label}:")
+        for field, count in counts.items():
             log(f"    {field}: {count} missing")

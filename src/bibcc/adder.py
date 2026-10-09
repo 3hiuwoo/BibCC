@@ -32,8 +32,7 @@ import bibtexparser
 from bibcc.bibedit import BibEditError, month_macro, read_bib, scan, write_bib
 from bibcc.checkers.citation_keys import abbreviate_venue
 from bibcc.checkers.smart_protection import find_unprotected_terms, protect_terms
-from bibcc.completer import previous_edition
-from bibcc.logging_utils import Logger
+from bibcc.logging_utils import SEPARATOR_THIN, SEPARATOR_WIDTH, Logger
 from bibcc.sources import (
     Record,
     clean_title_for_search,
@@ -45,7 +44,14 @@ from bibcc.sources import (
     resolve,
 )
 from bibcc.titlecases import APA_STOPWORDS, suggest_title_case
-from bibcc.venues import JOURNAL, PROCEEDINGS, VenueLibrary, default_library_path, normalize_venue
+from bibcc.venues import (
+    PROCEEDINGS,
+    VenueLibrary,
+    default_library_path,
+    normalize_venue,
+    previous_edition,
+    venue_kind,
+)
 
 DEFAULT_OUTPUT = "added.bib"
 
@@ -256,14 +262,6 @@ class BibIndex:
 # ---------------------------------------------------------------- polish
 
 
-def _venue_kind(entry_type: str) -> Optional[str]:
-    if entry_type == "article":
-        return JOURNAL
-    if entry_type == "inproceedings":
-        return PROCEEDINGS
-    return None
-
-
 def polish(
     record: Record, library: VenueLibrary, keep_title: bool = False
 ) -> Tuple[Dict[str, str], List[str]]:
@@ -271,9 +269,9 @@ def polish(
     fields = {k: _texify(v) if k in _TEXT_FIELDS else v for k, v in record.fields.items() if v}
     notes: List[str] = []
 
-    kind = _venue_kind(record.entry_type)
+    kind = venue_kind(record.entry_type, fields)
     venue_text = fields.get("journal") or fields.get("booktitle") or ""
-    if kind and venue_text:
+    if venue_text:
         result = library.lookup(venue_text, record.fields.get("year"), kind, issn=record.fields.get("issn"))
         if result.venue:
             for name, value in result.venue.fields.items():
@@ -427,7 +425,7 @@ def add_papers(
         output.parent.mkdir(parents=True, exist_ok=True)
         write_bib(output, new_text)
 
-    log(f"\n{'─' * 40}")
+    log(f"\n{SEPARATOR_THIN * SEPARATOR_WIDTH}")
     target = "(dry run, nothing written)" if dry_run else f"to {output}"
     log(f"Added {len(added)} {target}; {len(duplicates)} already present; {len(failed)} failed.")
     if added and not dry_run:

@@ -190,7 +190,9 @@ def test_add_arxiv_published_via_dblp_keeps_arxiv_author_names(web, library, tmp
     import json
 
     web.routes["paper/arXiv:2603.03818"] = (json.dumps({
-        "title": "Pretrained Vision-Language-Action Models are Surprisingly Resistant to Forgetting in Continual Learning",
+        "title": (
+            "Pretrained Vision-Language-Action Models are Surprisingly Resistant to Forgetting in Continual Learning"
+        ),
         "externalIds": {"DBLP": "conf/iclr/LiuKLLZ25", "ArXiv": "2603.03818"},
         "authors": [{"name": "H. Liu"}],
     }), None)

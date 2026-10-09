@@ -25,13 +25,14 @@ Output files (auto-generated in repo directory):
 from __future__ import annotations
 
 import argparse
+import codecs
 import re
 import shutil
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
 
+from bibcc.bibedit import BibEditError, read_bib, scan, unwrap
 from bibcc.logging_utils import SEPARATOR_THIN, SEPARATOR_WIDTH, Logger, get_output_dir
-
 
 # ---------------------------------------------------------------------------
 # Text normalisation
@@ -67,47 +68,17 @@ def parse_bib_entries(bib_file: Path) -> Dict[str, Dict[str, str]]:
     Each value is a dict with at least ``"raw"`` (the full entry text) and
     ``"title"`` (the normalised title extracted from the entry).
     """
-    content = bib_file.read_text(encoding="utf-8")
+    content = read_bib(bib_file)
 
     entries: Dict[str, Dict[str, str]] = {}
-    # Match @type{key,
-    header_pattern = re.compile(r"@\w+\s*\{\s*([^,]+),")
-    # Match title = {…} or title = "…" (greedy within braces, handles nesting)
-    title_pattern = re.compile(
-        r"^\s*title\s*=\s*\{(.+?)\}\s*[,}]?\s*$",
-        re.IGNORECASE | re.MULTILINE | re.DOTALL,
-    )
-
-    for header_match in header_pattern.finditer(content):
-        key = header_match.group(1).strip()
-        start = header_match.start()
-
-        # Walk to find the matching closing brace for the entry
-        brace_count = 0
-        end = start
-        for i, char in enumerate(content[start:], start):
-            if char == "{":
-                brace_count += 1
-            elif char == "}":
-                brace_count -= 1
-                if brace_count == 0:
-                    end = i + 1
-                    break
-
-        raw = content[start:end]
-
-        # Extract title field from the raw entry
-        title_raw = ""
-        title_match = title_pattern.search(raw)
-        if title_match:
-            title_raw = title_match.group(1).strip()
-
-        entries[key] = {
-            "raw": raw,
+    for span in scan(content):
+        title = span.fields.get("title")
+        title_raw = unwrap(content[title.value_start : title.value_end]).strip() if title else ""
+        entries[span.key] = {
+            "raw": content[span.start : span.end],
             "title_raw": title_raw,
             "title_norm": normalize_title(title_raw),
         }
-
     return entries
 
 
@@ -116,18 +87,23 @@ def parse_bib_entries(bib_file: Path) -> Dict[str, Dict[str, str]]:
 # ---------------------------------------------------------------------------
 
 
+def _decode_listing(data: bytes) -> str:
+    if data.startswith((codecs.BOM_UTF16_LE, codecs.BOM_UTF16_BE)):
+        return data.decode("utf-16")
+    # Without a BOM, ASCII-range UTF-16 text has a NUL in every other byte.
+    if b"\x00" in data[:2]:
+        return data.decode("utf-16-be" if data[0] == 0 else "utf-16-le")
+    return data.decode("utf-8-sig")
+
+
 def parse_library(papers_file: Path) -> Set[str]:
     """Return the set of PDF base names (without .pdf) from a library listing.
 
-    The file may be UTF-16 (e.g. Windows ``dir`` redirect) or UTF-8/ASCII.
-    Auto-detects encoding by trying UTF-16 first, then falling back to UTF-8.
+    The file may be UTF-16 (e.g. a Windows ``dir`` redirect) or UTF-8/ASCII,
+    with or without a byte-order mark.
     """
     keys: Set[str] = set()
-    try:
-        text = papers_file.read_text(encoding="utf-16")
-    except (UnicodeError, UnicodeDecodeError):
-        text = papers_file.read_text(encoding="utf-8")
-    for line in text.splitlines():
+    for line in _decode_listing(papers_file.read_bytes()).splitlines():
         line = line.strip()
         m = re.search(r"(\S+)\.pdf\b", line, re.IGNORECASE)
         if m:
@@ -279,7 +255,7 @@ def cmd_rename(
         if key is None:
             unmatched.append(pdf.name)
             log(f"  ✗ {pdf.name}")
-            log(f"       No match found")
+            log("       No match found")
             continue
 
         new_name = f"{key}.pdf"
@@ -290,7 +266,7 @@ def cmd_rename(
 
         if not dry_run:
             if new_path.exists() and new_path != pdf:
-                log(f"       ⚠️  Target already exists, skipping")
+                log("       ⚠️  Target already exists, skipping")
                 continue
             shutil.move(str(pdf), str(new_path))
 
@@ -303,7 +279,7 @@ def cmd_rename(
     log(f"  Unmatched : {len(unmatched)}")
 
     if unmatched:
-        log(f"\nUnmatched files:")
+        log("\nUnmatched files:")
         for name in unmatched:
             log(f"  - {name}")
 
@@ -381,12 +357,15 @@ def main() -> None:
     args = parser.parse_args()
 
     with Logger("librarian", input_file=args.bib_file) as logger:
-        if args.command == "missing":
-            cmd_missing(args.bib_file, args.papers_file, logger)
-        elif args.command == "extra":
-            cmd_extra(args.bib_file, args.papers_file, logger)
-        elif args.command == "rename":
-            cmd_rename(args.bib_file, args.pdf_folder, args.dry_run, logger)
+        try:
+            if args.command == "missing":
+                cmd_missing(args.bib_file, args.papers_file, logger)
+            elif args.command == "extra":
+                cmd_extra(args.bib_file, args.papers_file, logger)
+            elif args.command == "rename":
+                cmd_rename(args.bib_file, args.pdf_folder, args.dry_run, logger)
+        except BibEditError as e:
+            logger.log(f"❌ Cannot read {args.bib_file}: {e}")
 
 
 if __name__ == "__main__":

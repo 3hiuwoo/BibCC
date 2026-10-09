@@ -18,6 +18,8 @@ from typing import Callable, Dict, Iterable, List, Optional, Set, Tuple
 
 import bibtexparser
 
+from bibcc.logging_utils import SEPARATOR_LIGHT, SEPARATOR_WIDTH
+
 DEFAULT_VOCAB: Set[str] = {
     "gaussian",
     "bayesian",
@@ -88,13 +90,6 @@ _ROMAN_NUMERALS = {
 # Shortest mixed-case / acronym / number-bearing term to flag.  Two letters
 # still matter (AI, ML, dB, 3D); single letters ("A", "I") never do.
 MIN_TERM_LENGTH = 2
-
-
-def parse_terms(raw: str) -> List[str]:
-    """Parse a comma-separated string of terms into a list."""
-    if not raw:
-        return []
-    return [t.strip() for t in raw.split(",") if t.strip()]
 
 
 def load_vocab_file(
@@ -266,7 +261,7 @@ def check_smart_protection(
     protection_rows: List[Tuple[str, str, str]] = []  # (entry_id, word, reason)
 
     log(f"{'ID':<30} | {'Suspicious Word':<20} | {'Reason'}")
-    log("-" * 75)
+    log(SEPARATOR_LIGHT * SEPARATOR_WIDTH)
 
     vocab_terms = set(DEFAULT_VOCAB) if use_default_vocab else set()
     vocab_terms.update([t.lower() for t in extra_vocab])
@@ -281,7 +276,7 @@ def check_smart_protection(
             log(f"{entry['ID']:<30} | {word:<20} | {reason}")
             protection_rows.append((entry["ID"], word, reason))
 
-    log("-" * 75)
+    log(SEPARATOR_LIGHT * SEPARATOR_WIDTH)
     if protection_rows:
         log(f"⚠️  Found {len(protection_rows)} terms to protect.")
 

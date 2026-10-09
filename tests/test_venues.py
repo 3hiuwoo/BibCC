@@ -3,7 +3,8 @@ from pathlib import Path
 import pytest
 import yaml
 
-from bibcc.completer import compute_completion, main as complete_main, previous_edition
+from bibcc.completer import compute_completion
+from bibcc.completer import main as complete_main
 from bibcc.venues import (
     DEFAULT_LIBRARY_PATH,
     JOURNAL,
@@ -12,6 +13,7 @@ from bibcc.venues import (
     VenueLibrary,
     merge_missing_venues,
     normalize_venue,
+    previous_edition,
 )
 
 

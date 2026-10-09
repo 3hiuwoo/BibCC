@@ -21,9 +21,9 @@ import argparse
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Dict, List, Set, Tuple
+from typing import Callable, Dict, List, Optional, Set
 
-from bibcc.logging_utils import Logger
+from bibcc.logging_utils import OUTPUT_DIR_NAME, Logger
 
 SOURCE_MARKER_PREFIX = "% === source:"
 SOURCE_MARKER_SUFFIX = "==="
@@ -45,9 +45,20 @@ def _extract_entry_ids(raw_text: str) -> List[str]:
     ]
 
 
-def _discover_bib_files(input_dir: Path) -> List[Path]:
-    """Discover `.bib` files recursively in deterministic order."""
-    files = [p for p in input_dir.rglob("*.bib") if p.is_file()]
+def _discover_bib_files(input_dir: Path, exclude: Optional[Path] = None) -> List[Path]:
+    """Discover `.bib` files recursively in deterministic order.
+
+    Files under ``.bibcc/`` folders and *exclude* (the output file, which may
+    sit inside *input_dir* from an earlier run) are skipped.
+    """
+    skip = exclude.resolve() if exclude else None
+    files = [
+        p
+        for p in input_dir.rglob("*.bib")
+        if p.is_file()
+        and OUTPUT_DIR_NAME not in p.relative_to(input_dir).parts
+        and p.resolve() != skip
+    ]
     return sorted(files, key=lambda p: str(p).lower())
 
 
@@ -61,7 +72,7 @@ def compose_bibliographies(
     if not input_dir.exists() or not input_dir.is_dir():
         raise FileNotFoundError(f"Input directory does not exist: {input_dir}")
 
-    bib_files = _discover_bib_files(input_dir)
+    bib_files = _discover_bib_files(input_dir, exclude=output_file)
     if not bib_files:
         raise ValueError(f"No .bib files found under: {input_dir}")
 

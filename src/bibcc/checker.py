@@ -37,16 +37,16 @@ from bibcc.checkers import (
     DEFAULT_ENTRY_TYPES,
     DEFAULT_JOURNAL_FIELDS,
     DEFAULT_PROCEEDINGS_FIELDS,
+    MIN_TERM_LENGTH,
     check_citation_keys,
     check_field_issues,
     check_missing_fields,
     check_smart_protection,
     check_template_fields,
+    check_title_case,
+    get_style,
     load_vocab_file,
-    parse_terms,
 )
-from bibcc.checkers.smart_protection import MIN_TERM_LENGTH
-from bibcc.checkers.title_case import check_title_case, get_style
 from bibcc.logging_utils import Logger, get_output_dir, write_report
 from bibcc.venues import default_library_path
 
@@ -186,7 +186,10 @@ def build_parser() -> argparse.ArgumentParser:
         "--proceedings-fields",
         type=str,
         default=",".join(DEFAULT_PROCEEDINGS_FIELDS),
-        help=f"Comma-separated fields to check in proceedings records (default: {','.join(DEFAULT_PROCEEDINGS_FIELDS)}).",
+        help=(
+            "Comma-separated fields to check in proceedings records "
+            f"(default: {','.join(DEFAULT_PROCEEDINGS_FIELDS)})."
+        ),
     )
 
     return parser
@@ -315,7 +318,7 @@ def run(args: argparse.Namespace) -> None:
                 extra_vocab.extend(
                     load_vocab_file(Path(args.quote_vocab_file), log=logger.log)
                 )
-            extra_vocab.extend(parse_terms(args.quote_terms))
+            extra_vocab.extend(parse_list_arg(args.quote_terms))
             protection_rows = check_smart_protection(
                 args.input,
                 extra_vocab,

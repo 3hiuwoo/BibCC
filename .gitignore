@@ -12,3 +12,5 @@ __pycache__/
 .pytest_cache/
 dist/
 .bibcc/
+.vscode/
+.ruff_cache/

@@ -43,6 +43,8 @@ S2_API_KEY_ENV = "S2_API_KEY"
 S2_FIELDS = "title,year,venue,externalIds,authors,publicationVenue,publicationDate"
 _S2_BASE = "https://api.semanticscholar.org/graph/v1/paper"
 _ARXIV_API = "https://export.arxiv.org/api/query"
+# Error prefix from arxiv_record() when arXiv answered but has no such paper.
+ARXIV_MISSING = "arXiv has no paper"
 _ATOM = {"atom": "http://www.w3.org/2005/Atom", "arxiv": "http://arxiv.org/schemas/atom"}
 
 # DBLP conference stream names whose key abbreviation differs from upper-casing.
@@ -68,7 +70,6 @@ class Resolution:
 
     record: Optional[Record] = None
     error: Optional[str] = None
-    notes: List[str] = field(default_factory=list)
 
 
 # --------------------------------------------------------------------- HTTP
@@ -416,7 +417,7 @@ def arxiv_record(arxiv_id: str) -> Tuple[Optional[Record], Optional[str]]:
     for record in records:
         if record.arxiv_id == arxiv_id:
             return record, None
-    return None, f"arXiv has no paper {arxiv_id}"
+    return None, f"{ARXIV_MISSING} {arxiv_id}"
 
 
 def arxiv_search(title: str) -> Tuple[Optional[Record], Optional[str]]:
@@ -606,9 +607,14 @@ def openreview_search(
     booktitle = library_booktitle(library, abbrev, year)
     if booktitle is None:
         booktitle = f"{abbrev} {year}"
-        notes.append(f"booktitle '{booktitle}' is a placeholder; the venue library has no single {abbrev} {year} record")
+        notes.append(
+            f"booktitle '{booktitle}' is a placeholder; the venue library has no single {abbrev} {year} record"
+        )
     html_url = str(_note_value(content, "html") or "")
-    url = html_url if "openreview.net/forum" in html_url else f"https://openreview.net/forum?id={note.get('forum') or note.get('id')}"
+    if "openreview.net/forum" in html_url:
+        url = html_url
+    else:
+        url = f"https://openreview.net/forum?id={note.get('forum') or note.get('id')}"
     authors = [clean_text(a) for a in _note_value(content, "authors") or []]
     fields = {
         "title": clean_text(_note_value(content, "title")),
@@ -650,14 +656,28 @@ def _published_for_arxiv(
             return record, None
     title = preprint.fields.get("title", "") if preprint else ""
     if title:
-        if not (paper and dblp_venue((paper.get("externalIds") or {}).get("DBLP"))[0]):
-            record, _ = openreview_search(title, library)
-            if record:
-                return record, None
-        record, _ = crossref_search(title)
-        if record and record.entry_type != "misc":
-            record.source = "CrossRef (title search)"
+        known_venue = bool(paper and dblp_venue((paper.get("externalIds") or {}).get("DBLP"))[0])
+        record, _ = find_published_by_title(title, library, skip_openreview=known_venue)
+        if record:
             return record, None
+    return None, error
+
+
+def find_published_by_title(
+    title: str, library: VenueLibrary, skip_openreview: bool = False
+) -> Tuple[Optional[Record], Optional[str]]:
+    """Accepted OpenReview paper or non-preprint CrossRef record with exactly *title*.
+
+    Returns ``(record_or_None, crossref_error_or_None)``.
+    """
+    if not skip_openreview:
+        record, _ = openreview_search(title, library)
+        if record:
+            return record, None
+    record, error = crossref_search(title)
+    if record and record.entry_type != "misc":
+        record.source = "CrossRef (title search)"
+        return record, None
     return None, error
 
 
@@ -684,6 +704,40 @@ def find_published(
     return record, error
 
 
+@dataclass
+class ArxivResolution:
+    """Outcome of looking up an arXiv paper and its published version."""
+
+    published: Optional[Record] = None
+    preprint: Optional[Record] = None
+    # arXiv's error when there is no preprint, else the published-version search error.
+    error: Optional[str] = None
+    notes: List[str] = field(default_factory=list)
+
+
+def resolve_arxiv(
+    arxiv_id: str, library: VenueLibrary, fallback_title: Optional[str] = None
+) -> ArxivResolution:
+    """Fetch arXiv paper *arxiv_id* and look for its published version.
+
+    When arXiv cannot be reached and *fallback_title* is given, a stand-in
+    preprint with that title is used so title searches still run.  ``notes``
+    explains a missing published version (e.g. an arXiv journal-ref).
+    """
+    preprint, error = arxiv_record(arxiv_id)
+    if preprint is None and fallback_title is not None:
+        preprint = Record("misc", {"title": fallback_title}, source="bib", arxiv_id=arxiv_id)
+    published, pub_error = find_published(arxiv_id, library, preprint)
+    if published:
+        return ArxivResolution(published=published, preprint=preprint)
+    note = acceptance_note(preprint)
+    return ArxivResolution(
+        preprint=preprint,
+        error=pub_error if preprint else error,
+        notes=[note] if note else [],
+    )
+
+
 def resolve(
     identifier: str,
     library: VenueLibrary,
@@ -706,22 +760,20 @@ def resolve(
         return Resolution(record=record, error=error)
 
     if kind == "arxiv":
-        preprint, error = arxiv_record(value)
         if not prefer_published:
+            preprint, error = arxiv_record(value)
             return Resolution(record=preprint, error=error)
         log("   checking for a published version...")
-        published, pub_error = find_published(value, library, preprint)
-        if published:
-            published.notes.append(f"published version of arXiv:{value}")
-            return Resolution(record=published)
-        if preprint is None:
-            return Resolution(error=error)
-        if pub_error:
-            preprint.notes.append(f"could not check for a published version: {pub_error}")
-        note = acceptance_note(preprint)
-        if note:
-            preprint.notes.append(note)
-        return Resolution(record=preprint)
+        found = resolve_arxiv(value, library)
+        if found.published:
+            found.published.notes.append(f"published version of arXiv:{value}")
+            return Resolution(record=found.published)
+        if found.preprint is None:
+            return Resolution(error=found.error)
+        if found.error:
+            found.preprint.notes.append(f"could not check for a published version: {found.error}")
+        found.preprint.notes.extend(found.notes)
+        return Resolution(record=found.preprint)
 
     errors: List[str] = []
     paper, error = s2_match(value)

@@ -25,6 +25,8 @@ from typing import Callable, Dict, List, Optional, Set, Tuple
 
 import bibtexparser
 
+from bibcc.logging_utils import SEPARATOR_LIGHT, SEPARATOR_WIDTH
+
 # Regex for expected citation key format: [PREFIX:]METHOD_AUTHOR_VENUEYEAR
 # PREFIX: optional grouping label such as ``Survey:``
 # METHOD: alphanumeric + hyphens + plus (at least 1 char)
@@ -187,7 +189,7 @@ def check_citation_keys(
     issues: List[Tuple[str, str, str]] = []
 
     log(f"{'ID':<45} | {'Issue':<18} | Detail")
-    log("-" * 110)
+    log(SEPARATOR_LIGHT * SEPARATOR_WIDTH)
 
     for entry in bib_db.entries:
         entry_id = entry.get("ID", "")
@@ -216,7 +218,7 @@ def check_citation_keys(
             log(f"{entry_id:<45} | {'venue_mismatch':<18} | {venue_issue}")
             issues.append((entry_id, "venue_mismatch", venue_issue))
 
-    log("-" * 110)
+    log(SEPARATOR_LIGHT * SEPARATOR_WIDTH)
     total = len(bib_db.entries)
     if not issues:
         log(f"✅ All {total} citation keys follow the convention.")

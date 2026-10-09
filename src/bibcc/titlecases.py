@@ -27,6 +27,7 @@ from typing import Callable, Dict, List, Optional, Set, Tuple
 import bibtexparser
 
 from bibcc.bibedit import BibEditError, read_bib, set_fields, write_bib
+from bibcc.logging_utils import SEPARATOR_LIGHT, SEPARATOR_WIDTH
 
 
 @dataclass
@@ -90,7 +91,8 @@ STYLES: Dict[str, TitleCaseStyle] = {
         min_length_capitalize=4,
         capitalize_last_word=False,
         hyphen_capitalize_all_parts=True,
-        subtitle_delimiters={":", "—", "–", "—"},
+        # "--" also matches "---", the LaTeX spelling of an em dash.
+        subtitle_delimiters={":", "—", "–", "--"},
     ),
     # Placeholder for future styles; extend as needed.
 }
@@ -102,9 +104,6 @@ def get_style(name: Optional[str]) -> TitleCaseStyle:
         return STYLES["apa"]
     return STYLES.get(name.lower(), STYLES["apa"])
 
-
-# Backward-compat exposed default stopwords (APA)
-DEFAULT_STOPWORDS = APA_STOPWORDS
 
 # Common lowercase prefixes in hyphenated words that should stay lowercase
 # unless they are at the start of the title / subtitle.
@@ -181,15 +180,6 @@ def _has_internal_capitals(word: str) -> bool:
     # Skip first character, check if any lowercase→uppercase transition exists
     for i in range(1, len(word)):
         if word[i].isupper() and i > 0 and word[i - 1].islower():
-            return True
-    return False
-
-
-def _is_known_mixed_case(word: str) -> bool:
-    """Check if word is a known mixed-case term (case-insensitive lookup)."""
-    lower = word.lower()
-    for known in KNOWN_MIXED_CASE:
-        if known.lower() == lower:
             return True
     return False
 
@@ -444,7 +434,7 @@ def check_title_case(
     if not apply and not interactive:
         log(f"📝 Checking Title Case for {input_path}\n")
         log(f"{'ID':<40} | {'Issue':<40} | Suggestion")
-        log("-" * 95)
+        log(SEPARATOR_LIGHT * SEPARATOR_WIDTH)
 
     issues = 0
     changed: List[Tuple[str, str, str]] = []  # (ID, old, new)
@@ -552,7 +542,7 @@ def check_title_case(
                 f"✏️  Applied title-case suggestions to {input_path} ({replacements} titles updated)."
             )
     elif not interactive:
-        log("-" * 95)
+        log(SEPARATOR_LIGHT * SEPARATOR_WIDTH)
         if issues == 0:
             log(
                 "✅ All titles already appear to be in Title Case (with stopword handling)."

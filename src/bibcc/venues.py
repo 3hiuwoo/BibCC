@@ -32,7 +32,7 @@ import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Mapping, Optional
 
 import yaml
 
@@ -249,6 +249,52 @@ class VenueLibrary:
         existing.fields = merged
         existing.aliases = aliases
         return "updated"
+
+
+def venue_kind(entry_type: str, fields: Mapping[str, str]) -> str:
+    """``JOURNAL`` or ``PROCEEDINGS`` for an entry, by type, then by venue field."""
+    entry_type = (entry_type or "").lower()
+    if entry_type == "article":
+        return JOURNAL
+    if entry_type in ("inproceedings", "proceedings", "conference"):
+        return PROCEEDINGS
+    if fields.get("journal"):
+        return JOURNAL
+    return PROCEEDINGS
+
+
+_ORDINAL_WORDS = (
+    r"\b(first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|"
+    r"eleventh|twelfth|thirteenth|fourteenth|fifteenth|sixteenth|seventeenth|"
+    r"eighteenth|nineteenth|twentieth|thirtieth|fortieth)\b"
+)
+
+# Fields that usually stay the same from one conference edition to the next.
+EDITION_STABLE_FIELDS = ["publisher", "issn", "month", "series", "address"]
+
+
+def edition_key(name: str) -> str:
+    """Venue name with years and ordinals removed, to relate editions."""
+    text = normalize_venue(name)
+    text = re.sub(r"\b(19|20)\d{2}\b", "#", text)
+    text = re.sub(r"\b\d+(st|nd|rd|th)\b", "#", text)
+    text = re.sub(_ORDINAL_WORDS, "#", text)
+    text = re.sub(r"\b(twenty|thirty|forty)-#", "#", text)
+    return " ".join(text.split())
+
+
+def previous_edition(library: VenueLibrary, name: str, year: str) -> Optional[Venue]:
+    """Most recent earlier proceedings record of the same conference series."""
+    key = edition_key(name)
+    best: Optional[Venue] = None
+    for venue in library.proceedings:
+        if edition_key(venue.name) != key or not str(venue.year).isdigit():
+            continue
+        if year.isdigit() and int(venue.year) >= int(year):
+            continue
+        if best is None or int(venue.year) > int(best.year):
+            best = venue
+    return best
 
 
 def _venue_from_dict(raw: Dict, kind: str, where: str) -> Venue:

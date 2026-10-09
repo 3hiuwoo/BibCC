@@ -33,19 +33,16 @@ import bibtexparser
 
 from bibcc.adder import format_entry, polish, suggest_key
 from bibcc.bibedit import BibEditError, read_bib, replace_entry, unified_diff, write_bib
-from bibcc.logging_utils import Logger, get_output_dir, write_report
+from bibcc.logging_utils import SEPARATOR_THIN, SEPARATOR_WIDTH, Logger, get_output_dir, write_report
 from bibcc.sources import (
     Record,
-    acceptance_note,
-    arxiv_record,
     clean_title_for_search,
-    crossref_search,
     entry_arxiv_id,
-    find_published,
+    find_published_by_title,
     is_arxiv_doi,
     normalize_arxiv_id,
-    openreview_search,
     published_from_s2,
+    resolve_arxiv,
     s2_match,
     titles_match,
 )
@@ -79,32 +76,21 @@ def find_upgrade(
     """
     title = clean_title_for_search(entry.get("title", ""))
     arxiv_id = entry_arxiv_id(entry)
-    notes: List[str] = []
     if arxiv_id:
-        preprint, _ = arxiv_record(arxiv_id)
-        if preprint is None:
-            preprint = Record("misc", {"title": title}, source="bib", arxiv_id=arxiv_id)
-        record, error = find_published(arxiv_id, library, preprint)
-        if record is None:
-            note = acceptance_note(preprint)
-            if note:
-                notes.append(note)
-        return record, error, notes
+        found = resolve_arxiv(arxiv_id, library, fallback_title=title)
+        return found.published, found.error, found.notes
 
     if not title:
-        return None, "entry has neither an arXiv ID nor a title", notes
+        return None, "entry has neither an arXiv ID nor a title", []
     paper, error = s2_match(title)
     if paper:
         record, _ = published_from_s2(paper, library)
         if record:
-            return record, None, notes
-    record, _ = openreview_search(title, library)
+            return record, None, []
+    record, cr_error = find_published_by_title(title, library)
     if record:
-        return record, None, notes
-    record, cr_error = crossref_search(title)
-    if record and record.entry_type != "misc":
-        return record, None, notes
-    return None, error or cr_error, notes
+        return record, None, []
+    return None, error or cr_error, []
 
 
 def _carried_over(entry: Dict[str, str]) -> Dict[str, str]:
@@ -211,7 +197,7 @@ def upgrade_bib(
     rows += [f"{k}\tfailed\t{e}" for k, e in failed]
     write_report(report, "upgrade: entry_id\tstatus\tdetail", rows)
 
-    log(f"\n{'─' * 40}")
+    log(f"\n{SEPARATOR_THIN * SEPARATOR_WIDTH}")
     log(f"Upgraded {len(upgraded)}; {len(unchanged)} still preprints; {len(failed)} failed.")
     if output_path is None:
         diff = unified_diff(text, new_text, input_path)

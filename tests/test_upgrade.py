@@ -8,7 +8,6 @@ from bibcc import sources
 from bibcc.cli import main
 from bibcc.upgrader import is_preprint, upgrade_bib
 from bibcc.venues import VenueLibrary
-
 from test_add import FakeWeb, _fixture
 
 PANDA_TITLE = (

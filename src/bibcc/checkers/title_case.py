@@ -12,10 +12,9 @@ Usage:
 
 from __future__ import annotations
 
-from bibcc.titlecases import DEFAULT_STOPWORDS, check_title_case, get_style
+from bibcc.titlecases import check_title_case, get_style
 
 __all__ = [
-    "DEFAULT_STOPWORDS",
     "check_title_case",
     "get_style",
 ]

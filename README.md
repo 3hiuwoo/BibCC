@@ -387,7 +387,7 @@ bibcc compose compose ./my-bibs combined.bib
 bibcc compose compose ./my-bibs combined.bib --no-dup-warning
 ```
 
-Source path markers (`% === source: path/file.bib ===`) are inserted between files. All original comments are preserved. Duplicate entry IDs are warned by default.
+Source path markers (`% === source: path/file.bib ===`) are inserted between files. All original comments are preserved. Duplicate entry IDs are warned by default. The output file and anything under `.bibcc/` are skipped, so the output can live inside the input folder.
 
 ---
 

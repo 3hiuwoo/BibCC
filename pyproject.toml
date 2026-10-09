@@ -18,10 +18,26 @@ dependencies = [
 bibcc = "bibcc.cli:main"
 
 [dependency-groups]
-dev = ["pytest>=8"]
+dev = [
+    "pytest>=8",
+    "ruff>=0.16.10",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/bibcc"]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 120
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B"]
+# zip(strict=...) adds noise where lengths are checked just before.
+ignore = ["B905"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["bibcc"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

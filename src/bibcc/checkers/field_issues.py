@@ -28,7 +28,8 @@ from typing import Callable, Iterable, List, Optional, Sequence, Set, Tuple
 
 import bibtexparser
 
-from bibcc.bibedit import BibEditError, month_macro, page_range, read_bib, scan
+from bibcc.bibedit import BibEditError, month_macro, page_range, read_bib, scan, unwrap, value_tokens
+from bibcc.logging_utils import SEPARATOR_LIGHT, SEPARATOR_WIDTH
 
 # Standard BibTeX fields, biblatex fields, and fields that CrossRef, DBLP,
 # ACM, IEEE, Zotero, and BibCC itself commonly write.
@@ -61,28 +62,6 @@ _DOI_PREFIX = re.compile(r"^(https?://(dx\.)?doi\.org/|doi:\s*)", re.IGNORECASE)
 Issue = Tuple[str, str, str]  # (entry_id, issue_type, detail)
 
 
-def _concatenated(raw: str) -> bool:
-    """True if *raw* joins several parts with a top-level ``#``."""
-    depth, quoted = 0, False
-    for ch in raw:
-        if ch == "{":
-            depth += 1
-        elif ch == "}":
-            depth -= 1
-        elif ch == '"' and depth == 0:
-            quoted = not quoted
-        elif ch == "#" and depth == 0 and not quoted:
-            return True
-    return False
-
-
-def _inner(raw: str) -> str:
-    raw = raw.strip()
-    if len(raw) >= 2 and (raw[0], raw[-1]) in (("{", "}"), ('"', '"')):
-        return raw[1:-1]
-    return raw
-
-
 def suggest_field(name: str, known: Iterable[str] = KNOWN_FIELDS) -> Optional[str]:
     """Closest known field name, e.g. ``volume`` for ``volumn``."""
     matches = difflib.get_close_matches(name, sorted(known), n=1, cutoff=0.75)
@@ -92,9 +71,9 @@ def suggest_field(name: str, known: Iterable[str] = KNOWN_FIELDS) -> Optional[st
 def value_issues(name: str, raw: str) -> List[Tuple[str, str]]:
     """``(issue_type, detail)`` problems with one raw field value."""
     issues: List[Tuple[str, str]] = []
-    if _concatenated(raw):
+    if len(value_tokens(raw)) > 1:
         return issues
-    value = _inner(raw).strip()
+    value = unwrap(raw).strip()
     bare = not raw.strip().startswith(("{", '"'))
 
     if not value:
@@ -202,10 +181,10 @@ def check_field_issues(
     issues.extend(_duplicates(text, str(input_path), against, log))
 
     log(f"{'ID':<45} | {'Issue':<16} | Detail")
-    log("-" * 110)
+    log(SEPARATOR_LIGHT * SEPARATOR_WIDTH)
     for entry_id, kind, detail in issues:
         log(f"{entry_id:<45} | {kind:<16} | {detail}")
-    log("-" * 110)
+    log(SEPARATOR_LIGHT * SEPARATOR_WIDTH)
     if issues:
         counts: dict = {}
         for _, kind, _ in issues:

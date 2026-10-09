@@ -44,14 +44,18 @@ from typing import Callable, Dict, List, Optional, Sequence, Set, Tuple
 import bibtexparser
 from bibtexparser.bibdatabase import BibDataString, BibDataStringExpression
 
-from bibcc.adder import FIELD_ORDER, month_macro
+from bibcc.adder import FIELD_ORDER
 from bibcc.bibedit import (
     BibEditError,
     EntrySpan,
+    balanced,
+    month_macro,
     page_range,
     read_bib,
     scan,
     unified_diff,
+    unwrap,
+    value_tokens,
     write_bib,
 )
 from bibcc.logging_utils import (
@@ -117,78 +121,26 @@ class _Block:
 # ----------------------------------------------------------------- values
 
 
-def _match_group(raw: str, i: int) -> int:
-    """End of the ``{...}`` or ``"..."`` token starting at ``raw[i]``."""
-    closer = "}" if raw[i] == "{" else '"'
-    depth = 1 if closer == "}" else 0
-    for j in range(i + 1, len(raw)):
-        ch = raw[j]
-        if ch == "{":
-            depth += 1
-        elif ch == "}":
-            depth -= 1
-            if closer == "}" and depth == 0:
-                return j + 1
-        elif ch == '"' and closer == '"' and depth == 0:
-            return j + 1
-    return len(raw)
-
-
-def _tokens(raw: str) -> List[str]:
-    """Top-level tokens of a value; more than one means ``#`` concatenation."""
-    tokens: List[str] = []
-    i = 0
-    while i < len(raw):
-        if raw[i].isspace() or raw[i] == "#":
-            i += 1
-            continue
-        if raw[i] in '{"':
-            end = _match_group(raw, i)
-        else:
-            end = i
-            while end < len(raw) and not raw[end].isspace() and raw[end] != "#":
-                end += 1
-        tokens.append(raw[i:end])
-        i = end
-    return tokens
-
-
-def _balanced(text: str) -> bool:
-    depth = 0
-    for ch in text:
-        if ch == "{":
-            depth += 1
-        elif ch == "}":
-            depth -= 1
-            if depth < 0:
-                return False
-    return depth == 0
-
-
-def _inner(token: str) -> str:
-    return token[1:-1] if token[:1] in '{"' else token
-
-
 def _is_empty(raw: str) -> bool:
-    tokens = _tokens(raw)
-    return len(tokens) == 1 and tokens[0][:1] in '{"' and not _inner(tokens[0]).strip()
+    tokens = value_tokens(raw)
+    return len(tokens) == 1 and tokens[0][:1] in '{"' and not unwrap(tokens[0]).strip()
 
 
 def _convert(name: str, raw: str, options: FormatOptions) -> str:
     """Return the formatted value text for field *name* with raw value *raw*."""
-    tokens = _tokens(raw)
+    tokens = value_tokens(raw)
     if len(tokens) != 1:
         return raw
     token = tokens[0]
     if name == "month" and options.months:
-        macro = month_macro(_inner(token))
+        macro = month_macro(unwrap(token))
         if macro:
             return macro
     if name == "pages" and options.pages and token[:1] in '{"':
-        token = token[0] + page_range(_inner(token)) + token[-1]
+        token = token[0] + page_range(unwrap(token)) + token[-1]
     if options.braces:
-        if token.startswith('"') and _balanced(_inner(token)):
-            return "{" + _inner(token) + "}"
+        if token.startswith('"') and balanced(unwrap(token)):
+            return "{" + unwrap(token) + "}"
         if token.isascii() and token.isdigit():
             return "{" + token + "}"
     return token
@@ -591,8 +543,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--keep-months", action="store_true", help="Do not turn month values into macros (jun).")
     parser.add_argument("--keep-pages", action="store_true", help="Do not turn page ranges like 12-15 into 12--15.")
     parser.add_argument("--no-align", action="store_true", help="Write 'name = value' without aligning '='.")
-    parser.add_argument("--indent", type=_indent, default="2", help="Field indent: number of spaces or 'tab' (default: 2).")
-    parser.add_argument("--blank-lines", type=_non_negative, default=1, help="Blank lines between entries (default: 1).")
+    parser.add_argument(
+        "--indent", type=_indent, default="2", help="Field indent: number of spaces or 'tab' (default: 2)."
+    )
+    parser.add_argument(
+        "--blank-lines", type=_non_negative, default=1, help="Blank lines between entries (default: 1)."
+    )
     parser.add_argument("--trailing-comma", action="store_true", help="Put a comma after the last field.")
     parser.add_argument("--drop-empty", action="store_true", help="Remove fields with empty values ({} or \"\").")
     parser.add_argument(

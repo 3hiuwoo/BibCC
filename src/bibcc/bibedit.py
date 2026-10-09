@@ -172,6 +172,48 @@ def _scan_value(text: str, i: int) -> int:
         return i
 
 
+def value_tokens(raw: str) -> List[str]:
+    """Top-level tokens of a raw field value; more than one means ``#`` concatenation."""
+    tokens: List[str] = []
+    i = 0
+    while i < len(raw):
+        if raw[i].isspace() or raw[i] == "#":
+            i += 1
+            continue
+        if raw[i] == "{":
+            end = _match_braces(raw, i)
+        elif raw[i] == '"':
+            end = _match_quote(raw, i)
+        else:
+            end = i
+            while end < len(raw) and not raw[end].isspace() and raw[end] != "#":
+                end += 1
+        tokens.append(raw[i:end])
+        i = end
+    return tokens
+
+
+def unwrap(token: str) -> str:
+    """*token* without one pair of enclosing ``{...}`` or ``"..."``."""
+    token = token.strip()
+    if len(token) >= 2 and (token[0], token[-1]) in (("{", "}"), ('"', '"')):
+        return token[1:-1]
+    return token
+
+
+def balanced(text: str) -> bool:
+    """True if every ``{`` in *text* has a matching ``}``."""
+    depth = 0
+    for ch in text:
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth < 0:
+                return False
+    return depth == 0
+
+
 def _in_comment_line(text: str, pos: int) -> bool:
     line_start = text.rfind("\n", 0, pos) + 1
     return text[line_start:pos].lstrip().startswith("%")
@@ -243,15 +285,7 @@ def scan(text: str) -> List[EntrySpan]:
 
 
 def _check_value(value: str) -> None:
-    depth = 0
-    for ch in value:
-        if ch == "{":
-            depth += 1
-        elif ch == "}":
-            depth -= 1
-            if depth < 0:
-                break
-    if depth != 0:
+    if not balanced(value):
         raise BibEditError(f"value has unbalanced braces: {value!r}")
 
 
@@ -416,7 +450,7 @@ def replace_entry(text: str, key: str, new_entry: str) -> str:
 
 def _apply(text: str, patches: List[Tuple[int, int, str]]) -> str:
     ordered = sorted(patches, key=lambda p: (p[0], p[1]))
-    for (s1, e1, _), (s2, _, _) in zip(ordered, ordered[1:]):
+    for (_, e1, _), (s2, _, _) in zip(ordered, ordered[1:]):
         if s2 < e1:
             raise BibEditError("overlapping edits")
     out = text

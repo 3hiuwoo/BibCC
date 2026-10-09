@@ -18,6 +18,7 @@ Workflow for venues missing from the library:
 from __future__ import annotations
 
 import argparse
+import functools
 import json
 import re
 import sys
@@ -30,6 +31,7 @@ import bibtexparser
 from bibcc.bibedit import BibEditError, month_macro, read_bib, set_fields, unified_diff, write_bib
 from bibcc.logging_utils import Logger, get_output_dir, write_report
 from bibcc.venues import (
+    EDITION_STABLE_FIELDS,
     JOURNAL,
     PROCEEDINGS,
     Venue,
@@ -37,6 +39,8 @@ from bibcc.venues import (
     default_library_path,
     merge_missing_venues,
     normalize_venue,
+    previous_edition,
+    venue_kind,
 )
 
 
@@ -103,10 +107,6 @@ _PROCEEDINGS_COLLECT_FIELDS = [
     "address",
 ]
 
-# Fields that usually stay the same from one conference edition to the next.
-_EDITION_STABLE_FIELDS = ["publisher", "issn", "month", "series", "address"]
-
-
 def _guess_publisher(venue: str) -> str:
     """Infer publisher from venue name patterns. Returns empty string if unknown."""
     lower = venue.lower()
@@ -125,39 +125,29 @@ def _guess_month(venue: str) -> str:
     return ""
 
 
-def _edition_key(name: str) -> str:
-    """Venue name with years and ordinals removed, to relate editions."""
-    text = normalize_venue(name)
-    text = re.sub(r"\b(19|20)\d{2}\b", "#", text)
-    text = re.sub(r"\b\d+(st|nd|rd|th)\b", "#", text)
-    text = re.sub(
-        r"\b(first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|"
-        r"eleventh|twelfth|thirteenth|fourteenth|fifteenth|sixteenth|seventeenth|"
-        r"eighteenth|nineteenth|twentieth|thirtieth|fortieth)\b",
-        "#",
-        text,
-    )
-    text = re.sub(r"\b(twenty|thirty|forty)-#", "#", text)
-    return " ".join(text.split())
-
-
-def previous_edition(library: VenueLibrary, name: str, year: str) -> Optional[Venue]:
-    """Most recent earlier proceedings record of the same conference series."""
-    key = _edition_key(name)
-    best: Optional[Venue] = None
-    for venue in library.proceedings:
-        if _edition_key(venue.name) != key or not str(venue.year).isdigit():
-            continue
-        if year.isdigit() and int(venue.year) >= int(year):
-            continue
-        if best is None or int(venue.year) > int(best.year):
-            best = venue
-    return best
-
-
 def _yaml_str(value: str) -> str:
     """Quote a string as a YAML double-quoted scalar (JSON escaping is valid YAML)."""
     return json.dumps(value, ensure_ascii=False)
+
+
+def _yaml_field(
+    name: str,
+    collected: Dict[str, str],
+    prior: Optional[Venue],
+    guessed: str = "",
+    hint: str = "",
+    optional: bool = False,
+) -> str:
+    """One ``name: value  # source`` line of a missing-venue record."""
+    value, comment = "", f"  {hint}" if hint else ""
+    if collected.get(name):
+        value, comment = collected[name], "  # from bib"
+    elif prior and name in EDITION_STABLE_FIELDS and prior.fields.get(name):
+        value, comment = prior.fields[name], f"  # from {prior.year} edition"
+    elif guessed:
+        value, comment = guessed, "  # auto-guessed"
+    prefix = "# " if optional and not value else ""
+    return f"      {prefix}{name}: {_yaml_str(value)}{comment}"
 
 
 def _write_yaml_missing_venues(
@@ -189,28 +179,18 @@ def _write_yaml_missing_venues(
         lines.append("    # aliases: []  # other spellings of this venue")
         lines.append("    fields:")
 
-        def resolve(name: str, guessed: str = "", hint: str = "", optional: bool = False) -> None:
-            value, comment = "", f"  {hint}" if hint else ""
-            if collected.get(name):
-                value, comment = collected[name], "  # from bib"
-            elif prior and name in _EDITION_STABLE_FIELDS and prior.fields.get(name):
-                value, comment = prior.fields[name], f"  # from {prior.year} edition"
-            elif guessed:
-                value, comment = guessed, "  # auto-guessed"
-            prefix = "# " if optional and not value else ""
-            lines.append(f"      {prefix}{name}: {_yaml_str(value)}{comment}")
-
+        field_line = functools.partial(_yaml_field, collected=collected, prior=prior)
         guessed_publisher = _guess_publisher(venue_raw)
         if entry_type == JOURNAL:
-            resolve("publisher", guessed_publisher, "# e.g., IEEE, Elsevier, Springer")
-            resolve("issn")
-            resolve("address", hint="# optional, e.g., New York, NY, USA", optional=True)
+            lines.append(field_line("publisher", guessed=guessed_publisher, hint="# e.g., IEEE, Elsevier, Springer"))
+            lines.append(field_line("issn"))
+            lines.append(field_line("address", hint="# optional, e.g., New York, NY, USA", optional=True))
         else:
-            resolve("venue", hint="# e.g., City, Country")
-            resolve("publisher", guessed_publisher)
-            resolve("month", _guess_month(venue_raw), "# e.g., June, October")
+            lines.append(field_line("venue", hint="# e.g., City, Country"))
+            lines.append(field_line("publisher", guessed=guessed_publisher))
+            lines.append(field_line("month", guessed=_guess_month(venue_raw), hint="# e.g., June, October"))
             for name in ("isbn", "issn", "editor", "series", "address"):
-                resolve(name, optional=True)
+                lines.append(field_line(name, optional=True))
         lines.append("")
 
     out = [
@@ -230,23 +210,6 @@ def _write_yaml_missing_venues(
             out.extend(sections[kind])
 
     path.write_text("\n".join(out), encoding="utf-8")
-
-
-def _detect_entry_type(entry: Dict[str, Any]) -> str:
-    """Detect if an entry is a journal article or proceedings."""
-    entry_type = entry.get("ENTRYTYPE", "").lower()
-
-    if entry_type == "article":
-        return JOURNAL
-    if entry_type in ("inproceedings", "proceedings", "conference"):
-        return PROCEEDINGS
-
-    if entry.get("journal"):
-        return JOURNAL
-    if entry.get("booktitle"):
-        return PROCEEDINGS
-
-    return PROCEEDINGS
 
 
 def compute_completion(
@@ -274,7 +237,7 @@ def compute_completion(
         entry_id = entry["ID"]
         year = entry.get("year", "")
         venue_raw = entry.get("booktitle") or entry.get("journal") or ""
-        entry_type = _detect_entry_type(entry)
+        entry_type = venue_kind(entry.get("ENTRYTYPE", ""), entry)
 
         if not year or not venue_raw:
             incomplete.append((entry_id, venue_raw, year))

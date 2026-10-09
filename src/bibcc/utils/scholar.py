@@ -16,14 +16,10 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import json
 import re
 import time
-import urllib.error
 import urllib.parse
-import urllib.request
 import webbrowser
-import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
@@ -39,12 +35,14 @@ from bibcc.logging_utils import (
     get_output_dir,
 )
 from bibcc.sources import (
+    ARXIV_MISSING,
+    arxiv_record,
     clean_title_for_search,
-    fetch_url,
-    looks_like_html,
+    entry_arxiv_id,
+    fetch_json,
+    normalize_doi,
     titles_match,
 )
-
 
 # =========================
 # Citation command helpers
@@ -119,9 +117,6 @@ def interactive_fill(
         elif citation_input == "":
             log("   ⏭️  Skipped")
             continue
-        elif citation_input.isdigit():
-            patches[entry_id] = citation_input
-            log(f"   ✅ Set citation = {citation_input}")
         else:
             patches[entry_id] = citation_input
             log(f"   ✅ Set citation = {citation_input}")
@@ -322,7 +317,6 @@ class TitleMatch:
 
     source: str
     original_title: str
-    confidence: str  # "high", "medium", "low"
     url: Optional[str] = None
 
 
@@ -341,7 +335,7 @@ class SourceStatus:
     """Status of a lookup attempt."""
 
     source: str
-    status: str  # "found", "no_match", "error", "skipped"
+    status: str  # "found", "no_match", "error"
     error: Optional[str] = None
 
 
@@ -354,42 +348,26 @@ def case_differs(title1: str, title2: str) -> bool:
     return t1 != t2
 
 
+def _as_dict(data: Any) -> Dict[str, Any]:
+    return data if isinstance(data, dict) else {}
+
+
 def lookup_crossref(doi: str) -> LookupResult:
     """Look up title via CrossRef API using DOI."""
     source = "CrossRef (DOI)"
+    doi = normalize_doi(doi) or (doi or "").strip()
     if not doi:
         return LookupResult(source=source, searched=False)
 
-    doi = doi.strip()
-    if doi.startswith("http"):
-        doi = re.sub(r"https?://doi\.org/", "", doi)
-
-    url = f"https://api.crossref.org/works/{urllib.parse.quote(doi, safe='')}"
-    content, error = fetch_url(url)
-
+    data, error = fetch_json(f"https://api.crossref.org/works/{urllib.parse.quote(doi, safe='')}")
     if error:
         return LookupResult(source=source, error=error)
-    if not content:
-        return LookupResult(source=source, error="Empty response")
-
-    try:
-        data = json.loads(content)
-        if data.get("status") == "ok":
-            work = data.get("message", {})
-            titles = work.get("title", [])
-            if titles:
-                return LookupResult(
-                    source=source,
-                    match=TitleMatch(
-                        source=source,
-                        original_title=titles[0],
-                        confidence="high",
-                        url=f"https://doi.org/{doi}",
-                    ),
-                )
-        return LookupResult(source=source)
-    except json.JSONDecodeError as e:
-        return LookupResult(source=source, error=f"JSON parse error: {e}")
+    data = _as_dict(data)
+    titles = _as_dict(data.get("message")).get("title") or []
+    if data.get("status") == "ok" and titles:
+        match = TitleMatch(source=source, original_title=titles[0], url=f"https://doi.org/{doi}")
+        return LookupResult(source=source, match=match)
+    return LookupResult(source=source)
 
 
 def lookup_dblp(title: str) -> LookupResult:
@@ -398,38 +376,18 @@ def lookup_dblp(title: str) -> LookupResult:
     if not title:
         return LookupResult(source=source, searched=False)
 
-    search_title = clean_title_for_search(title)
-    query = urllib.parse.quote(search_title)
-    url = f"https://dblp.org/search/publ/api?q={query}&format=json&h=5"
-
-    content, error = fetch_url(url)
+    query = urllib.parse.quote(clean_title_for_search(title))
+    data, error = fetch_json(f"https://dblp.org/search/publ/api?q={query}&format=json&h=5")
     if error:
         return LookupResult(source=source, error=error)
-    if not content:
-        return LookupResult(source=source, error="Empty response")
-    if looks_like_html(content):
-        return LookupResult(source=source, error="DBLP returned an HTML page (bot protection)")
-
-    try:
-        data = json.loads(content)
-        hits = data.get("result", {}).get("hits", {}).get("hit", [])
-
-        for hit in hits:
-            info = hit.get("info", {})
-            dblp_title = info.get("title", "").rstrip(".")
-            if titles_match(title, dblp_title):
-                return LookupResult(
-                    source=source,
-                    match=TitleMatch(
-                        source=source,
-                        original_title=dblp_title,
-                        confidence="high",
-                        url=info.get("url"),
-                    ),
-                )
-        return LookupResult(source=source)
-    except json.JSONDecodeError as e:
-        return LookupResult(source=source, error=f"JSON parse error: {e}")
+    hits = _as_dict(_as_dict(_as_dict(data).get("result")).get("hits")).get("hit") or []
+    for hit in hits:
+        info = _as_dict(hit).get("info") or {}
+        dblp_title = info.get("title", "").rstrip(".")
+        if titles_match(title, dblp_title):
+            match = TitleMatch(source=source, original_title=dblp_title, url=info.get("url"))
+            return LookupResult(source=source, match=match)
+    return LookupResult(source=source)
 
 
 def lookup_semantic_scholar(title: str) -> LookupResult:
@@ -438,89 +396,52 @@ def lookup_semantic_scholar(title: str) -> LookupResult:
     if not title:
         return LookupResult(source=source, searched=False)
 
-    search_title = clean_title_for_search(title)
-    query = urllib.parse.quote(search_title)
-    url = (
-        "https://api.semanticscholar.org/graph/v1/paper/search?"
-        f"query={query}&limit=5&fields=title,url"
+    query = urllib.parse.quote(clean_title_for_search(title))
+    data, error = fetch_json(
+        f"https://api.semanticscholar.org/graph/v1/paper/search?query={query}&limit=5&fields=title,url"
     )
-
-    content, error = fetch_url(url)
     if error:
         return LookupResult(source=source, error=error)
-    if not content:
-        return LookupResult(source=source, error="Empty response")
-
-    try:
-        data = json.loads(content)
-        papers = data.get("data", [])
-
-        for paper in papers:
-            ss_title = paper.get("title", "")
-            if titles_match(title, ss_title):
-                return LookupResult(
-                    source=source,
-                    match=TitleMatch(
-                        source=source,
-                        original_title=ss_title,
-                        confidence="high",
-                        url=paper.get("url"),
-                    ),
-                )
-        return LookupResult(source=source)
-    except json.JSONDecodeError as e:
-        return LookupResult(source=source, error=f"JSON parse error: {e}")
+    for paper in _as_dict(data).get("data") or []:
+        ss_title = _as_dict(paper).get("title", "")
+        if titles_match(title, ss_title):
+            match = TitleMatch(source=source, original_title=ss_title, url=paper.get("url"))
+            return LookupResult(source=source, match=match)
+    return LookupResult(source=source)
 
 
 def lookup_arxiv(entry: Dict[str, Any]) -> LookupResult:
-    """Look up title via arXiv API using eprint or URL."""
+    """Look up title via arXiv API using the entry's eprint, URL, or DOI."""
     source = "arXiv"
-    arxiv_id: Optional[str] = None
-
-    eprint = entry.get("eprint", "")
-    if eprint and (
-        "arxiv" in entry.get("archiveprefix", "").lower()
-        or re.match(r"\d{4}\.\d+", eprint)
-    ):
-        arxiv_id = eprint
-
-    if not arxiv_id:
-        url = entry.get("url", "")
-        match = re.search(r"arxiv\.org/abs/(\d{4}\.\d+)", url)
-        if match:
-            arxiv_id = match.group(1)
-
+    arxiv_id = entry_arxiv_id(entry)
     if not arxiv_id:
         return LookupResult(source=source, searched=False)
 
-    api_url = f"http://export.arxiv.org/api/query?id_list={arxiv_id}"
-    content, error = fetch_url(api_url)
-
-    if error:
+    record, error = arxiv_record(arxiv_id)
+    if record is None:
+        if error and error.startswith(ARXIV_MISSING):
+            return LookupResult(source=source)
         return LookupResult(source=source, error=error)
-    if not content:
-        return LookupResult(source=source, error="Empty response")
+    match = TitleMatch(
+        source=source,
+        original_title=record.fields.get("title", ""),
+        url=f"https://arxiv.org/abs/{arxiv_id}",
+    )
+    return LookupResult(source=source, match=match)
 
-    try:
-        root = ET.fromstring(content)
-        ns = {"atom": "http://www.w3.org/2005/Atom"}
 
-        for entry_elem in root.findall("atom:entry", ns):
-            title_elem = entry_elem.find("atom:title", ns)
-            if title_elem is not None and title_elem.text:
-                arxiv_title = re.sub(r"\s+", " ", title_elem.text).strip()
-                return LookupResult(
-                    source=source,
-                    match=TitleMatch(
-                        source=source,
-                        original_title=arxiv_title,
-                        confidence="high",
-                        url=f"https://arxiv.org/abs/{arxiv_id}",
-                    ),
-                )
-        return LookupResult(source=source)
-    except ET.ParseError as e:
-        return LookupResult(source=source, error=f"XML parse error: {e}")
+def _note_result(
+    result: LookupResult, matches: List[TitleMatch], statuses: List[SourceStatus]
+) -> Optional[TitleMatch]:
+    """Record *result* in *matches* / *statuses* and return its match, if any."""
+    if result.error:
+        statuses.append(SourceStatus(result.source, "error", result.error))
+    elif result.match:
+        matches.append(result.match)
+        statuses.append(SourceStatus(result.source, "found"))
+    else:
+        statuses.append(SourceStatus(result.source, "no_match"))
+    return result.match
 
 
 def find_original_title(
@@ -528,80 +449,43 @@ def find_original_title(
 ) -> Tuple[List[TitleMatch], List[SourceStatus]]:
     """Find original title from sources according to DOI/arXiv/DBLP/SS rules."""
     matches: List[TitleMatch] = []
-    source_statuses: List[SourceStatus] = []
+    statuses: List[SourceStatus] = []
     current_title = entry.get("title", "")
-    doi = entry.get("doi", "")
 
-    if doi:
-        result = lookup_crossref(doi)
-        if result.error:
-            source_statuses.append(SourceStatus(result.source, "error", result.error))
-        elif result.match:
-            matches.append(result.match)
-            source_statuses.append(SourceStatus(result.source, "found"))
-        else:
-            source_statuses.append(SourceStatus(result.source, "no_match"))
+    if entry.get("doi"):
+        _note_result(lookup_crossref(entry["doi"]), matches, statuses)
         time.sleep(delay)
-        return matches, source_statuses
+        return matches, statuses
 
     result = lookup_arxiv(entry)
     if result.searched:
-        if result.error:
-            source_statuses.append(SourceStatus(result.source, "error", result.error))
-        elif result.match:
-            matches.append(result.match)
-            source_statuses.append(SourceStatus(result.source, "found"))
-            if case_differs(current_title, result.match.original_title):
-                return matches, source_statuses
-        else:
-            source_statuses.append(SourceStatus(result.source, "no_match"))
+        match = _note_result(result, matches, statuses)
         time.sleep(delay)
+        if match and case_differs(current_title, match.original_title):
+            return matches, statuses
 
     if current_title:
-        result = lookup_dblp(current_title)
-        if result.error:
-            source_statuses.append(SourceStatus(result.source, "error", result.error))
-        elif result.match:
-            matches.append(result.match)
-            source_statuses.append(SourceStatus(result.source, "found"))
-            if case_differs(current_title, result.match.original_title):
-                return matches, source_statuses
-        else:
-            source_statuses.append(SourceStatus(result.source, "no_match"))
+        match = _note_result(lookup_dblp(current_title), matches, statuses)
         time.sleep(delay)
+        if match and case_differs(current_title, match.original_title):
+            return matches, statuses
 
     if not matches and current_title:
-        result = lookup_semantic_scholar(current_title)
-        if result.error:
-            source_statuses.append(SourceStatus(result.source, "error", result.error))
-        elif result.match:
-            matches.append(result.match)
-            source_statuses.append(SourceStatus(result.source, "found"))
-        else:
-            source_statuses.append(SourceStatus(result.source, "no_match"))
+        _note_result(lookup_semantic_scholar(current_title), matches, statuses)
         time.sleep(delay)
 
-    return matches, source_statuses
+    return matches, statuses
 
 
 def highlight_case_diff(current: str, original: str) -> str:
     """Create a visual diff highlighting case differences."""
-    current_clean = re.sub(r"[{}]", "", current)
-    original_clean = re.sub(r"[{}]", "", original)
-
-    current_words = current_clean.split()
-    original_words = original_clean.split()
+    current_words = re.sub(r"[{}]", "", current).split()
+    original_words = re.sub(r"[{}]", "", original).split()
 
     if len(current_words) != len(original_words):
         return f"  Current:  {current}\n  Original: {original}"
 
-    diff_words: List[str] = []
-    for cw, ow in zip(current_words, original_words):
-        if cw.lower() == ow.lower() and cw != ow:
-            diff_words.append(f"[{cw} → {ow}]")
-        elif cw != ow:
-            diff_words.append(f"[{cw} → {ow}]")
-
+    diff_words = [f"[{cw} → {ow}]" for cw, ow in zip(current_words, original_words) if cw != ow]
     if diff_words:
         return f"  Differences: {' '.join(diff_words)}"
     return ""
@@ -715,6 +599,80 @@ def parse_full_report(
     return case_diffs, with_errors, no_match, metadata
 
 
+def _split_results(
+    results: List[Dict[str, Any]],
+) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]]]:
+    """Split results into ``(case_diffs, with_errors, no_match)``."""
+    case_diffs = [r for r in results if not r.get("not_found")]
+    with_errors: List[Dict[str, Any]] = []
+    no_match: List[Dict[str, Any]] = []
+    for r in results:
+        if r.get("not_found"):
+            has_error = any(ss.status == "error" for ss in r.get("source_statuses", []))
+            (with_errors if has_error else no_match).append(r)
+    return case_diffs, with_errors, no_match
+
+
+def _write_title_report(
+    path: str,
+    bib_path: str,
+    total: int,
+    case_diffs: List[Dict[str, Any]],
+    with_errors: List[Dict[str, Any]],
+    no_match: List[Dict[str, Any]],
+) -> None:
+    """Write the title report in the format :func:`parse_full_report` reads back."""
+    sep = SEPARATOR_HEAVY * SEPARATOR_WIDTH
+    with open(path, "w", encoding="utf-8") as f:
+        f.write("TITLE CHECK REPORT\n")
+        f.write(f"Generated from: {bib_path}\n")
+        f.write(sep + "\n\n")
+        f.write(f"Total entries checked: {total}\n")
+        f.write(f"Entries with case differences: {len(case_diffs)}\n")
+        f.write(f"Entries with lookup errors: {len(with_errors)}\n")
+        f.write(f"Entries with no match found: {len(no_match)}\n\n")
+
+        if case_diffs:
+            f.write(sep + "\n")
+            f.write("CASE DIFFERENCES FOUND:\n")
+            f.write(sep + "\n\n")
+            for r in case_diffs:
+                f.write(f"ID: {r['id']}\n")
+                f.write(f"Source: {r.get('source') or 'unknown'}\n")
+                f.write(f"Current:  {r.get('current_title', '')}\n")
+                f.write(f"Original: {r.get('original_title', '')}\n")
+                if r.get("url"):
+                    f.write(f"URL: {r['url']}\n")
+                f.write("\n")
+
+        if with_errors or no_match:
+            f.write(sep + "\n")
+            f.write("NOT FOUND IN ANY SOURCE (need manual check):\n")
+            f.write(sep + "\n\n")
+
+        if with_errors:
+            f.write("--- LOOKUP ERRORS (network/API failures) ---\n\n")
+            for r in with_errors:
+                f.write(f"ID: {r['id']}\n")
+                f.write(f"Title: {r.get('current_title', '')}\n")
+                for ss in r.get("source_statuses", []):
+                    if ss.status == "error":
+                        f.write(f"  ERROR {ss.source}: {ss.error}\n")
+                    elif ss.status == "no_match":
+                        f.write(f"  OK {ss.source}: no match\n")
+                f.write("\n")
+
+        if no_match:
+            f.write("--- NO MATCH FOUND (searched successfully) ---\n\n")
+            for r in no_match:
+                f.write(f"ID: {r['id']}\n")
+                f.write(f"Title: {r.get('current_title', '')}\n")
+                searched = r.get("searched") or ", ".join(ss.source for ss in r.get("source_statuses", []))
+                if searched:
+                    f.write(f"Searched: {searched}\n")
+                f.write("\n")
+
+
 def merge_and_write_report(
     report_path: str,
     new_results: List[Dict[str, Any]],
@@ -724,90 +682,44 @@ def merge_and_write_report(
     log: Callable[[str], None] = print,
 ) -> None:
     """Merge new retry results into an existing report file."""
-    old_case_diffs, old_with_errors, old_no_match, metadata = parse_full_report(
-        report_path, log=log
-    )
+    old_case_diffs, old_with_errors, old_no_match, metadata = parse_full_report(report_path, log=log)
 
     retried_set = set(retried_ids)
     old_with_errors = [e for e in old_with_errors if e.get("id") not in retried_set]
     old_no_match = [e for e in old_no_match if e.get("id") not in retried_set]
-
-    new_case_diffs = [r for r in new_results if not r.get("not_found")]
-    new_not_found = [r for r in new_results if r.get("not_found")]
-    new_with_errors = [
-        r
-        for r in new_not_found
-        if any(ss.status == "error" for ss in r.get("source_statuses", []))
-    ]
-    new_no_match = [r for r in new_not_found if r not in new_with_errors]
+    new_case_diffs, new_with_errors, new_no_match = _split_results(new_results)
 
     all_case_diffs = old_case_diffs + new_case_diffs
     all_with_errors = old_with_errors + new_with_errors
     all_no_match = old_no_match + new_no_match
 
-    if metadata.get("bib_path"):
-        bib_path = metadata["bib_path"]
-    if metadata.get("total"):
-        total_entries = metadata["total"]
-
-    sep = SEPARATOR_HEAVY * SEPARATOR_WIDTH
-    with open(report_path, "w", encoding="utf-8") as f:
-        f.write("TITLE CHECK REPORT\n")
-        f.write(f"Generated from: {bib_path}\n")
-        f.write(sep + "\n\n")
-        f.write(f"Total entries checked: {total_entries}\n")
-        f.write(f"Entries with case differences: {len(all_case_diffs)}\n")
-        f.write(f"Entries with lookup errors: {len(all_with_errors)}\n")
-        f.write(f"Entries with no match found: {len(all_no_match)}\n\n")
-
-        if all_case_diffs:
-            f.write(sep + "\n")
-            f.write("CASE DIFFERENCES FOUND:\n")
-            f.write(sep + "\n\n")
-            for r in all_case_diffs:
-                f.write(f"ID: {r.get('id', r.get('ID', 'unknown'))}\n")
-                f.write(f"Source: {r.get('source', 'unknown')}\n")
-                f.write(f"Current:  {r.get('current_title', '')}\n")
-                f.write(f"Original: {r.get('original_title', '')}\n")
-                if r.get("url"):
-                    f.write(f"URL: {r['url']}\n")
-                f.write("\n")
-
-        if all_with_errors or all_no_match:
-            f.write(sep + "\n")
-            f.write("NOT FOUND IN ANY SOURCE (need manual check):\n")
-            f.write(sep + "\n\n")
-
-            if all_with_errors:
-                f.write("--- LOOKUP ERRORS (network/API failures) ---\n\n")
-                for r in all_with_errors:
-                    f.write(f"ID: {r.get('id', r.get('ID', 'unknown'))}\n")
-                    f.write(f"Title: {r.get('current_title', '')}\n")
-                    for ss in r.get("source_statuses", []):
-                        if ss.status == "error":
-                            f.write(f"  ERROR {ss.source}: {ss.error}\n")
-                        elif ss.status == "no_match":
-                            f.write(f"  OK {ss.source}: no match\n")
-                    f.write("\n")
-
-            if all_no_match:
-                f.write("--- NO MATCH FOUND (searched successfully) ---\n\n")
-                for r in all_no_match:
-                    f.write(f"ID: {r.get('id', r.get('ID', 'unknown'))}\n")
-                    f.write(f"Title: {r.get('current_title', '')}\n")
-                    sources = r.get("searched", "")
-                    if not sources and r.get("source_statuses"):
-                        sources = ", ".join(
-                            ss.source for ss in r.get("source_statuses", [])
-                        )
-                    if sources:
-                        f.write(f"Searched: {sources}\n")
-                    f.write("\n")
+    _write_title_report(
+        report_path,
+        metadata.get("bib_path") or bib_path,
+        metadata.get("total") or total_entries,
+        all_case_diffs,
+        all_with_errors,
+        all_no_match,
+    )
 
     log(f"\n📝 Report updated: {report_path}")
     log(f"   Case differences: {len(all_case_diffs)}")
     log(f"   Lookup errors: {len(all_with_errors)}")
     log(f"   No match found: {len(all_no_match)}")
+
+
+def _not_found_reason(source_statuses: List[SourceStatus]) -> str:
+    if not source_statuses:
+        return "No DOI, arXiv ID, or title to search"
+    errors = [ss for ss in source_statuses if ss.status == "error"]
+    if not errors:
+        return "Tried: " + ", ".join(ss.source for ss in source_statuses) + " - no match found"
+    parts = [
+        f"{ss.source}: ⚠️ {ss.error}" if ss.status == "error" else f"{ss.source}: no match"
+        for ss in source_statuses
+        if ss.status in ("error", "no_match")
+    ]
+    return "Errors encountered:\n    " + "\n    ".join(parts)
 
 
 def check_titles(
@@ -821,7 +733,7 @@ def check_titles(
     """Check all titles in a bib file against external sources."""
     log = log or print
 
-    with open(bib_path, "r", encoding="utf-8") as f:
+    with open(bib_path, encoding="utf-8") as f:
         parser = bibtexparser.bparser.BibTexParser(common_strings=True)
         bib_db = bibtexparser.load(f, parser=parser)
 
@@ -832,9 +744,7 @@ def check_titles(
         if len(entries_to_check) < len(filter_ids):
             found_ids = {e.get("ID") for e in entries_to_check}
             missing = filter_set - found_ids
-            log(
-                f"⚠️  Warning: {len(missing)} IDs not found in bib file: {', '.join(list(missing)[:5])}..."
-            )
+            log(f"⚠️  Warning: {len(missing)} IDs not found in bib file: {', '.join(list(missing)[:5])}...")
     else:
         entries_to_check = bib_db.entries
         log(f"🔍 Checking {len(entries_to_check)} entries in {bib_path}")
@@ -858,38 +768,15 @@ def check_titles(
         matches, source_statuses = find_original_title(entry, delay)
 
         if not matches:
-            if not source_statuses:
-                reason = "No DOI, arXiv ID, or title to search"
-            else:
-                status_parts: List[str] = []
-                has_errors = False
-                for ss in source_statuses:
-                    if ss.status == "error":
-                        status_parts.append(f"{ss.source}: ⚠️ {ss.error}")
-                        has_errors = True
-                    elif ss.status == "no_match":
-                        status_parts.append(f"{ss.source}: no match")
-
-                if has_errors:
-                    reason = "Errors encountered:\n    " + "\n    ".join(status_parts)
-                else:
-                    reason = (
-                        "Tried: "
-                        + ", ".join(ss.source for ss in source_statuses)
-                        + " - no match found"
-                    )
-
             results.append(
                 {
                     "id": entry_id,
                     "current_title": current_title,
                     "original_title": None,
                     "source": None,
-                    "confidence": None,
                     "url": None,
                     "not_found": True,
-                    "reason": reason,
-                    "has_doi": bool(entry.get("doi")),
+                    "reason": _not_found_reason(source_statuses),
                     "source_statuses": source_statuses,
                 }
             )
@@ -903,7 +790,6 @@ def check_titles(
                         "current_title": current_title,
                         "original_title": match.original_title,
                         "source": match.source,
-                        "confidence": match.confidence,
                         "url": match.url,
                         "not_found": False,
                     }
@@ -913,15 +799,7 @@ def check_titles(
     if verbose:
         log("")
 
-    not_found = [r for r in results if r.get("not_found")]
-    case_diffs = [r for r in results if not r.get("not_found")]
-
-    with_errors = [
-        r
-        for r in not_found
-        if any(ss.status == "error" for ss in r.get("source_statuses", []))
-    ]
-    no_match = [r for r in not_found if r not in with_errors]
+    case_diffs, with_errors, no_match = _split_results(results)
 
     log("\n📋 TITLE CHECK REPORT")
     log(SEPARATOR_HEAVY * SEPARATOR_WIDTH)
@@ -946,7 +824,7 @@ def check_titles(
                 log(f"  URL: {r['url']}")
             log("")
 
-    if not_found:
+    if with_errors or no_match:
         log("❓ NOT FOUND IN ANY SOURCE (need manual check):")
         log(SEPARATOR_LIGHT * SEPARATOR_WIDTH)
 
@@ -974,59 +852,11 @@ def check_titles(
                     log(f"  Reason: {r.get('reason', 'Unknown')}")
                 log("")
 
-    if not case_diffs and not not_found:
+    if not results:
         log("✅ All titles verified - no issues found!")
 
-    sep = SEPARATOR_HEAVY * SEPARATOR_WIDTH
     if output_path:
-        with open(output_path, "w", encoding="utf-8") as f:
-            f.write("TITLE CHECK REPORT\n")
-            f.write(f"Generated from: {bib_path}\n")
-            f.write(sep + "\n\n")
-            f.write(f"Total entries checked: {total}\n")
-            f.write(f"Entries with case differences: {len(case_diffs)}\n")
-            f.write(f"Entries not found in any source: {len(not_found)}\n\n")
-
-            if case_diffs:
-                f.write(sep + "\n")
-                f.write("CASE DIFFERENCES FOUND:\n")
-                f.write(sep + "\n\n")
-                for r in case_diffs:
-                    f.write(f"ID: {r['id']}\n")
-                    f.write(f"Source: {r['source']}\n")
-                    f.write(f"Current:  {r['current_title']}\n")
-                    f.write(f"Original: {r['original_title']}\n")
-                    if r["url"]:
-                        f.write(f"URL: {r['url']}\n")
-                    f.write("\n")
-
-            if not_found:
-                f.write(sep + "\n")
-                f.write("NOT FOUND IN ANY SOURCE (need manual check):\n")
-                f.write(sep + "\n\n")
-
-                if with_errors:
-                    f.write("--- LOOKUP ERRORS (network/API failures) ---\n\n")
-                    for r in with_errors:
-                        f.write(f"ID: {r['id']}\n")
-                        f.write(f"Title: {r['current_title']}\n")
-                        for ss in r.get("source_statuses", []):
-                            if ss.status == "error":
-                                f.write(f"  ERROR {ss.source}: {ss.error}\n")
-                            elif ss.status == "no_match":
-                                f.write(f"  OK {ss.source}: no match\n")
-                        f.write("\n")
-
-                if no_match:
-                    f.write("--- NO MATCH FOUND (searched successfully) ---\n\n")
-                    for r in no_match:
-                        f.write(f"ID: {r['id']}\n")
-                        f.write(f"Title: {r['current_title']}\n")
-                        sources = [ss.source for ss in r.get("source_statuses", [])]
-                        if sources:
-                            f.write(f"Searched: {', '.join(sources)}\n")
-                        f.write("\n")
-
+        _write_title_report(output_path, bib_path, total, case_diffs, with_errors, no_match)
         log(f"📝 Report saved to: {output_path}")
 
     return results
