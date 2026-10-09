@@ -102,6 +102,9 @@ VENUE_ABBREVIATIONS: Dict[str, Set[str]] = {
 }
 
 
+_ABBREVIATIONS_BY_LOWER: Dict[str, str] = {a.lower(): a for a in VENUE_ABBREVIATIONS}
+
+
 def _keyword_in(keyword: str, text: str) -> bool:
     return re.search(rf"(?<!\w){re.escape(keyword)}(?!\w)", text) is not None
 
@@ -150,15 +153,16 @@ def _match_venue_abbreviation(
     if not venue_text:
         return None  # Can't verify without venue info
 
-    known = VENUE_ABBREVIATIONS.get(abbrev)
-    if known is None:
+    canonical = _ABBREVIATIONS_BY_LOWER.get(abbrev.lower())
+    if canonical is None:
         return None  # Unknown abbreviation — can't verify
 
-    for keyword in known:
-        if keyword in venue_text:
-            return None  # Match found
     venue_display = (booktitle or journal or "")[:60]
-    return f"abbreviation '{abbrev}' does not match venue '{venue_display}'"
+    if not any(_keyword_in(keyword, venue_text) for keyword in VENUE_ABBREVIATIONS[canonical]):
+        return f"abbreviation '{abbrev}' does not match venue '{venue_display}'"
+    if abbrev != canonical:
+        return f"write '{canonical}' instead of '{abbrev}'"
+    return None
 
 
 def check_citation_keys(

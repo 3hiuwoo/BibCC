@@ -132,7 +132,13 @@ def fetch_json(
 # ------------------------------------------------------------- identifiers
 
 _ARXIV_NEW = re.compile(r"^(\d{4}\.\d{4,5})(?:v\d+)?$")
-_ARXIV_OLD = re.compile(r"^([a-z\-]+(?:\.[A-Za-z]{2})?/\d{7})(?:v\d+)?$", re.IGNORECASE)
+# Pre-2007 IDs: archive, optional subject class (not part of the ID), YYMMNNN.
+_ARXIV_OLD = re.compile(r"^([a-z\-]+)(?:\.[A-Za-z]{2})?/(\d{7})(?:v\d+)?$", re.IGNORECASE)
+_ARXIV_IN_TEXT = re.compile(
+    r"\barxiv(?:\s+preprint)?[:\s/]*(?:arxiv:\s*)?"
+    r"(\d{4}\.\d{4,5}|[a-z\-]+(?:\.[A-Za-z]{2})?/\d{7})(?:v\d+)?(?!\d)",
+    re.IGNORECASE,
+)
 _DOI_PREFIX = re.compile(r"^(?:doi:\s*|https?://(?:dx\.)?doi\.org/)", re.IGNORECASE)
 _ARXIV_DOI = re.compile(r"^10\.48550/arxiv\.(.+)$", re.IGNORECASE)
 
@@ -154,10 +160,12 @@ def normalize_arxiv_id(text: Optional[str]) -> str:
     m = _ARXIV_DOI.match(normalize_doi(t) or t)
     if m:
         t = m.group(1)
-    for pattern in (_ARXIV_NEW, _ARXIV_OLD):
-        m = pattern.match(t)
-        if m:
-            return m.group(1)
+    m = _ARXIV_NEW.match(t)
+    if m:
+        return m.group(1)
+    m = _ARXIV_OLD.match(t)
+    if m:
+        return f"{m.group(1).lower()}/{m.group(2)}"
     return ""
 
 
@@ -182,9 +190,8 @@ def parse_identifier(text: str) -> Tuple[str, str]:
 def entry_arxiv_id(entry: Dict[str, str]) -> str:
     """arXiv ID referenced by a parsed BibTeX entry, if any."""
     eprint = entry.get("eprint", "")
-    if eprint and (
-        "arxiv" in entry.get("archiveprefix", "").lower() or _ARXIV_NEW.match(eprint.strip())
-    ):
+    prefix = entry.get("archiveprefix", "").lower()
+    if eprint and (not prefix or "arxiv" in prefix or _ARXIV_NEW.match(eprint.strip())):
         found = normalize_arxiv_id(eprint)
         if found:
             return found
@@ -193,9 +200,9 @@ def entry_arxiv_id(entry: Dict[str, str]) -> str:
         if found:
             return found
     for name in ("journal", "note", "howpublished", "booktitle"):
-        m = re.search(r"arxiv[:\s/]*(\d{4}\.\d{4,5})", entry.get(name, ""), re.IGNORECASE)
+        m = _ARXIV_IN_TEXT.search(entry.get(name, ""))
         if m:
-            return m.group(1)
+            return normalize_arxiv_id(m.group(1))
     return ""
 
 

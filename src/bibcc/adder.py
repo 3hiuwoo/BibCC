@@ -105,7 +105,7 @@ def format_entry(entry_type: str, key: str, fields: Dict[str, str]) -> str:
     """Format an entry in the survey's style: aligned ``=``, months as macros."""
     names = [n for n in FIELD_ORDER if fields.get(n)]
     names += [n for n in fields if n not in FIELD_ORDER and fields[n]]
-    width = max(len(n) for n in names)
+    width = max((len(n) for n in names), default=0)
     lines = [f"@{entry_type}{{{key},"]
     for i, name in enumerate(names):
         macro = month_macro(fields[name]) if name == "month" else None

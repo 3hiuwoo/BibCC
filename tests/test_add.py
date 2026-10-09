@@ -73,12 +73,32 @@ def _entries(path: Path):
         ("arXiv:2501.13198v3", ("arxiv", "2501.13198")),
         ("https://arxiv.org/pdf/2501.13198v2.pdf", ("arxiv", "2501.13198")),
         ("10.48550/arXiv.2501.13198", ("arxiv", "2501.13198")),
+        ("hep-th/9901001v2", ("arxiv", "hep-th/9901001")),
+        ("arXiv:math.GT/0309136", ("arxiv", "math/0309136")),
+        ("https://arxiv.org/abs/cs/0112017v1", ("arxiv", "cs/0112017")),
         ("https://openreview.net/forum?id=x", ("url", "https://openreview.net/forum?id=x")),
         ("Three Scenarios for Continual Learning", ("title", "Three Scenarios for Continual Learning")),
     ],
 )
 def test_parse_identifier(text, expected):
     assert sources.parse_identifier(text) == expected
+
+
+@pytest.mark.parametrize(
+    "entry,expected",
+    [
+        ({"eprint": "hep-th/9901001"}, "hep-th/9901001"),
+        ({"eprint": "2501.13198", "archiveprefix": "arXiv"}, "2501.13198"),
+        ({"eprint": "hep-th/9901001", "archiveprefix": "PubMed"}, ""),
+        ({"journal": "arXiv preprint hep-th/9901001"}, "hep-th/9901001"),
+        ({"note": "arXiv:cs.LG/0112017v2"}, "cs/0112017"),
+        ({"journal": "arXiv preprint arXiv:2501.13198"}, "2501.13198"),
+        ({"journal": "arXiv preprint 2501.131981"}, ""),
+        ({"journal": "Pattern Recognition"}, ""),
+    ],
+)
+def test_entry_arxiv_id(entry, expected):
+    assert sources.entry_arxiv_id(entry) == expected
 
 
 def test_crossref_book_chapter_becomes_inproceedings():
@@ -326,6 +346,20 @@ def test_key_venue_check_ignores_braces():
     assert _match_venue_abbreviation("TIP", None, "Pattern Recognition") is not None
 
 
+def test_key_venue_check_matches_whole_words_and_any_case():
+    from bibcc.checkers.citation_keys import _match_venue_abbreviation
+
+    # "acl" inside "Oracle" and "pattern recognition" inside a longer name are not matches.
+    assert _match_venue_abbreviation("ACL", "Proceedings of the Oracle Workshop", None) is not None
+    assert _match_venue_abbreviation("PR", None, "Pattern Recognitionology") is not None
+    assert _match_venue_abbreviation("PR", None, "Pattern Recognition Letters") is None
+    # Wrong-case abbreviations are verified and the canonical spelling suggested.
+    assert _match_venue_abbreviation("Neurips", "Advances in Neural Information Processing Systems", None) == (
+        "write 'NeurIPS' instead of 'Neurips'"
+    )
+    assert _match_venue_abbreviation("cvpr", "International Conference on Machine Learning", None) is not None
+
+
 def test_key_pattern_accepts_arxiv_and_prefixes():
     assert _KEY_PATTERN.match("PretrainedVLA_Liu_arXiv2026")
     assert _KEY_PATTERN.match("Survey:CIL_Zhou_TPAMI2024")
@@ -360,3 +394,5 @@ def test_latex_escape_and_format_entry():
         "@misc{K_A_arXiv2020,\n  title  = {T},\n  year   = {2020},\n"
         "  month  = jun,\n  eprint = {1}\n}"
     )
+    assert format_entry("misc", "K", {}) == "@misc{K,\n}"
+    assert format_entry("misc", "K", {"title": ""}) == "@misc{K,\n}"
