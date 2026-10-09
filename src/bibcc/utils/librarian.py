@@ -32,7 +32,14 @@ from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
 
 from bibcc.bibedit import BibEditError, read_bib, scan, unwrap
+from bibcc.helptext import HelpFormatter, epilog
 from bibcc.logging_utils import SEPARATOR_THIN, SEPARATOR_WIDTH, Logger, get_output_dir
+
+_LISTING_HELP = """\
+The library LISTING is a text file with one PDF name per line, such as the
+output of 'ls ~/papers > papers.txt'. Other text on a line (the dates and
+sizes of a Windows 'dir' listing) is ignored, and UTF-8 and UTF-16 files
+are both read. PDF names must not contain spaces."""
 
 # ---------------------------------------------------------------------------
 # Text normalisation
@@ -316,37 +323,91 @@ def cmd_rename(
 def build_parser() -> argparse.ArgumentParser:
     """Build the argument parser with subcommands."""
     parser = argparse.ArgumentParser(
-        description="Librarian: align PDF library with BibTeX bibliography.",
+        description=f"""\
+Keep a folder of PDFs named after citation keys (ISPC_Wang_CVPR2024.pdf) in
+step with a .bib file. Run 'bibcc librarian <subcommand> -h' for details.
+
+{_LISTING_HELP}""",
+        epilog=epilog(
+            examples=[
+                ("which entries have no PDF yet", "bibcc librarian missing refs.bib papers.txt"),
+                ("which PDFs have no entry", "bibcc librarian extra refs.bib papers.txt"),
+                ("rename downloaded PDFs to their citation keys (preview first)",
+                 "bibcc librarian rename refs.bib ~/Downloads/papers --dry-run"),
+            ],
+        ),
+        formatter_class=HelpFormatter,
     )
-    subparsers = parser.add_subparsers(dest="command", required=True)
+    subparsers = parser.add_subparsers(dest="command", required=True, metavar="SUBCOMMAND")
 
     # --- missing ---
     p_missing = subparsers.add_parser(
         "missing",
-        help="Find bib entries whose PDFs are not in the library.",
+        help="List bib entries whose PDF is not in the library.",
+        description=f"List the entries of BIB_FILE that have no <key>.pdf in the library.\n\n{_LISTING_HELP}",
+        epilog=epilog(
+            examples=[("list entries without a PDF", "ls ~/papers > papers.txt\n"
+                       "  bibcc librarian missing refs.bib papers.txt")],
+            outputs=[
+                (".bibcc/<bib>.missing_pdfs.txt", "the full BibTeX entries without a PDF"),
+                (".bibcc/logs/<bib>.librarian.log", "everything printed to the terminal"),
+            ],
+        ),
+        formatter_class=HelpFormatter,
     )
-    p_missing.add_argument("bib_file", type=Path, help="Path to the .bib file")
-    p_missing.add_argument("papers_file", type=Path, help="Library listing (.txt)")
+    p_missing.add_argument("bib_file", type=Path, metavar="BIB_FILE", help="The .bib file.")
+    p_missing.add_argument("papers_file", type=Path, metavar="LISTING", help="Text file listing the library's PDFs.")
 
     # --- extra ---
     p_extra = subparsers.add_parser(
         "extra",
-        help="Find PDFs in the library that are not in the bib.",
+        help="List library PDFs that have no bib entry.",
+        description=f"List the PDFs in the library whose name is not a key in BIB_FILE.\n\n{_LISTING_HELP}",
+        epilog=epilog(
+            examples=[("list PDFs without an entry", "ls ~/papers > papers.txt\n"
+                       "  bibcc librarian extra refs.bib papers.txt")],
+            outputs=[
+                (".bibcc/<bib>.extra_pdfs.txt", "PDF names without an entry"),
+                (".bibcc/logs/<bib>.librarian.log", "everything printed to the terminal"),
+            ],
+        ),
+        formatter_class=HelpFormatter,
     )
-    p_extra.add_argument("bib_file", type=Path, help="Path to the .bib file")
-    p_extra.add_argument("papers_file", type=Path, help="Library listing (.txt)")
+    p_extra.add_argument("bib_file", type=Path, metavar="BIB_FILE", help="The .bib file.")
+    p_extra.add_argument("papers_file", type=Path, metavar="LISTING", help="Text file listing the library's PDFs.")
 
     # --- rename ---
     p_rename = subparsers.add_parser(
         "rename",
-        help="Rename new PDFs to bib-key names via title matching.",
+        help="Rename downloaded PDFs to <citation key>.pdf by matching titles.",
+        description="""\
+Rename the PDFs in PDF_FOLDER to <citation key>.pdf by matching the title in
+each file name against the titles in BIB_FILE.
+
+File names are expected to end with the full title, as Zotero and similar
+tools export them: 'Author et al. - 2025 - Full Paper Title.pdf'. The text
+after the last ' - ' is taken as the title. Titles are compared ignoring
+case, braces, and punctuation, and must otherwise match exactly. Files are
+renamed in place; an existing <key>.pdf is never overwritten, and files
+without a match are listed and left alone.""",
+        epilog=epilog(
+            examples=[
+                ("preview the renames", "bibcc librarian rename refs.bib ~/Downloads/papers --dry-run"),
+                ("rename", "bibcc librarian rename refs.bib ~/Downloads/papers"),
+            ],
+            outputs=[
+                (".bibcc/<bib>.rename_report.txt", "old and new names, and unmatched files"),
+                (".bibcc/logs/<bib>.librarian.log", "everything printed to the terminal"),
+            ],
+        ),
+        formatter_class=HelpFormatter,
     )
-    p_rename.add_argument("bib_file", type=Path, help="Path to the .bib file")
-    p_rename.add_argument("pdf_folder", type=Path, help="Folder with new PDFs")
+    p_rename.add_argument("bib_file", type=Path, metavar="BIB_FILE", help="The .bib file.")
+    p_rename.add_argument("pdf_folder", type=Path, metavar="PDF_FOLDER", help="Folder with the downloaded PDFs.")
     p_rename.add_argument(
         "--dry-run",
         action="store_true",
-        help="Preview renames without actually renaming",
+        help="Show the renames without renaming anything.",
     )
 
     return parser

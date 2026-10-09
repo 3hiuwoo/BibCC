@@ -29,6 +29,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 import bibtexparser
 
 from bibcc.bibedit import BibEditError, month_macro, read_bib, set_fields, unified_diff, write_bib
+from bibcc.helptext import ENV_VENUES, VENUES_HELP, HelpFormatter, epilog
 from bibcc.logging_utils import Logger, get_output_dir, write_report
 from bibcc.venues import (
     EDITION_STABLE_FIELDS,
@@ -36,7 +37,6 @@ from bibcc.venues import (
     PROCEEDINGS,
     Venue,
     VenueLibrary,
-    default_library_path,
     merge_missing_venues,
     normalize_venue,
     previous_edition,
@@ -416,15 +416,48 @@ def main(
 def build_parser() -> argparse.ArgumentParser:
     """Build argument parser for BibTeX completer."""
     parser = argparse.ArgumentParser(
-        description="Enhance a BibTeX (.bib) file by adding missing metadata fields "
-        "from the venue library."
+        description="""\
+Fill missing venue fields (publisher, ISSN, venue location, month, ISBN,
+series, ...) in a .bib file from the venue library. Journals are matched by
+name, alias, or ISSN; proceedings by name or alias and the entry's year.
+
+Existing fields are never overwritten; a different value is reported as a
+conflict. Only the new fields are inserted, and the rest of the file stays
+byte for byte. Without --output or --in-place this is a dry run that writes
+the would-be changes as a diff.
+
+Venues that are not in the library are written to a fill-in YAML file,
+pre-filled from other entries of the same venue and from the previous
+edition of a conference. Fill in the rest, then rerun with --update-venues
+to add them to the library and complete the file in one step.""",
+        epilog=epilog(
+            examples=[
+                ("preview the changes (writes .bibcc/refs.bib.complete.diff)", "bibcc complete refs.bib"),
+                ("write the completed file elsewhere", "bibcc complete refs.bib --output out.bib"),
+                ("complete the file itself", "bibcc complete refs.bib --in-place"),
+                ("after filling in .bibcc/refs.bib.missing_venues.yaml: add those venues, then complete",
+                 "bibcc complete refs.bib --in-place --update-venues"),
+            ],
+            outputs=[
+                (".bibcc/<input>.complete.diff", "dry run: the changes that would be made"),
+                (".bibcc/<input>.missing_venues.yaml", "fill-in records for venues not in the library"),
+                (".bibcc/<input>.missing_venues.txt", "entries whose venue is not in the library"),
+                (".bibcc/<input>.conflicts.txt", "fields whose value differs from the library"),
+                (".bibcc/<input>.incomplete_entries.txt", "entries without a year or venue (skipped)"),
+                (".bibcc/logs/<input>.completer.log", "everything printed to the terminal"),
+            ],
+            exit_status="0 on success, 1 if the edits could not be verified (nothing is written), 2 on usage errors.",
+            env=[ENV_VENUES],
+        ),
+        formatter_class=HelpFormatter,
     )
-    parser.add_argument("input", type=str, help="Path to the input BibTeX (.bib) file")
+    parser.add_argument("input", type=str, help="The .bib file to complete.")
     parser.add_argument(
         "--output",
         type=str,
         default="",
-        help="Path to save the output enhanced BibTeX (.bib) file (omit for dry-run).",
+        metavar="FILE",
+        help="Write the completed file here (omit both --output and --in-place for a dry run).",
     )
     parser.add_argument(
         "--in-place",
@@ -435,21 +468,23 @@ def build_parser() -> argparse.ArgumentParser:
         "--log-dir",
         type=str,
         default="",
-        help="Directory to write logs and reports. Default: .bibcc/ next to the input file.",
+        metavar="DIR",
+        help="Directory for reports and logs (default: .bibcc/ next to the input file).",
     )
     parser.add_argument(
         "--venues",
         type=str,
         default="",
-        help=f"Venue library YAML (default: $BIBCC_VENUES or {default_library_path()}).",
+        metavar="FILE",
+        help=VENUES_HELP,
     )
     parser.add_argument(
         "--update-venues",
         "--update-templates",
         dest="update_venues",
         action="store_true",
-        help="Merge the filled-in *.missing_venues.yaml into the venue library "
-        "before completing.",
+        help="First merge the filled-in .bibcc/<input>.missing_venues.yaml into the venue "
+        "library (records with no field filled in are skipped), then complete.",
     )
     return parser
 

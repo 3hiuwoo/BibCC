@@ -12,7 +12,7 @@ Features:
 - Optional duplicate entry-id warnings
 
 Usage:
-    python utils/composer.py compose ./my-bibs combined.bib
+    bibcc compose compose ./my-bibs combined.bib
 """
 
 from __future__ import annotations
@@ -23,6 +23,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Set
 
+from bibcc.helptext import HelpFormatter, epilog
 from bibcc.logging_utils import OUTPUT_DIR_NAME, Logger
 
 SOURCE_MARKER_PREFIX = "% === source:"
@@ -139,29 +140,58 @@ def compose_bibliographies(
 
 def build_parser() -> argparse.ArgumentParser:
     """Build parser with composer subcommands."""
-    parser = argparse.ArgumentParser(
-        description="Composer: compose .bib files from folders into one file.",
+    compose_description = """\
+Merge every .bib file under INPUT_DIR (searched recursively, in path order)
+into OUTPUT_FILE, for example to give LaTeX one bibliography made from
+per-topic files.
+
+Each file is copied unchanged, comments included, after a marker line:
+  % === source: path/file.bib ===
+Citation keys used in more than one file are reported. Files under .bibcc/
+folders and OUTPUT_FILE itself are skipped, so the output may live inside
+INPUT_DIR. OUTPUT_FILE is overwritten."""
+    compose_epilog = epilog(
+        examples=[
+            ("merge bib/ into one file", "bibcc compose compose bib/ references.bib"),
+            ("the same, without the duplicate-key report",
+             "bibcc compose compose bib/ references.bib --no-dup-warning"),
+        ],
+        outputs=[
+            ("OUTPUT_FILE", "the merged bibliography"),
+            (".bibcc/logs/<output>.composer.log", "everything printed (next to OUTPUT_FILE)"),
+        ],
     )
-    subparsers = parser.add_subparsers(dest="command", required=True)
+    parser = argparse.ArgumentParser(
+        description="Merge the .bib files of a folder tree into one file.\n"
+        "Run 'bibcc compose compose -h' for details.",
+        epilog=compose_epilog,
+        formatter_class=HelpFormatter,
+    )
+    subparsers = parser.add_subparsers(dest="command", required=True, metavar="SUBCOMMAND")
 
     p_compose = subparsers.add_parser(
         "compose",
-        help="Recursively compose .bib files into one output file.",
+        help="Merge all .bib files under a folder into one file.",
+        description=compose_description,
+        epilog=compose_epilog,
+        formatter_class=HelpFormatter,
     )
     p_compose.add_argument(
         "input_dir",
         type=Path,
-        help="Root directory containing .bib files (recursive).",
+        metavar="INPUT_DIR",
+        help="Folder containing the .bib files (searched recursively).",
     )
     p_compose.add_argument(
         "output_file",
         type=Path,
-        help="Output composed .bib file.",
+        metavar="OUTPUT_FILE",
+        help="The merged .bib file to write (must end in .bib).",
     )
     p_compose.add_argument(
         "--no-dup-warning",
         action="store_true",
-        help="Disable duplicate entry-id warning.",
+        help="Do not report citation keys used in more than one file.",
     )
 
     return parser

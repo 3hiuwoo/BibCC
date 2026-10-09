@@ -58,6 +58,7 @@ from bibcc.bibedit import (
     value_tokens,
     write_bib,
 )
+from bibcc.helptext import HelpFormatter, epilog
 from bibcc.logging_utils import (
     OUTPUT_DIR_NAME,
     SEPARATOR_THIN,
@@ -523,38 +524,102 @@ def _non_negative(value: str) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Reformat .bib files consistently (aligned fields, braced values, "
-        "month macros). Dry run by default."
+        description="""\
+Reformat whole .bib files in one consistent style. Unlike the other commands,
+which only touch the fields they change, format rewrites the layout of every
+entry. The default style:
+
+  @inproceedings{GKEAL_Zhuang_CVPR2023,
+    title     = {{GKEAL}: {Gaussian} Kernel Embedded Analytic Learning ...},
+    year      = {2023},
+    month     = jun,
+    booktitle = {2023 {IEEE/CVF} Conference on Computer Vision ...}
+  }
+
+- lowercase entry types and field names, two-space indent, aligned '='
+- "..." values and bare numbers become {...}; # concatenations and macros
+  such as @string names are kept
+- months become macros ({June}, "6", Jun. -> jun)
+- page ranges use a double hyphen (12-15 -> 12--15)
+- one blank line between entries, one newline at the end of the file
+- field order, values (including line breaks inside them), % comments, and
+  @string/@comment/@preamble blocks are kept
+
+Every result is parsed again and must contain the same entries, types,
+fields, and values, and formatting it a second time must change nothing.
+Files that fail this check, cannot be parsed, or have duplicate keys are
+reported and skipped. Without --in-place, --output, or --check this is a dry
+run that writes one diff per changed file.""",
+        epilog=epilog(
+            examples=[
+                ("preview every .bib file under bib/ (diffs in .bibcc/)", "bibcc format bib/"),
+                ("format them in place", "bibcc format bib/ --in-place"),
+                ("format one file into another", "bibcc format refs.bib --output tidy.bib"),
+                ("in CI: fail if a file is not formatted", "bibcc format bib/ --check"),
+                ("also sort fields and entries, and indent with tabs",
+                 "bibcc format refs.bib --in-place --sort-fields --sort-entries --indent tab"),
+            ],
+            outputs=[
+                (".bibcc/<file>.format.diff", "dry run: the changes for each changed file"),
+                (".bibcc/logs/<path>.formatter.log", "everything printed (not written with --check)"),
+            ],
+            exit_status="0 on success, 1 if a file failed (or, with --check, would change),\n"
+            "2 on usage errors.",
+        ),
+        formatter_class=HelpFormatter,
     )
-    parser.add_argument("paths", nargs="+", metavar="PATH", help=".bib files or directories (searched recursively)")
-    mode = parser.add_mutually_exclusive_group()
-    mode.add_argument("--in-place", action="store_true", help="Write the formatted text back to each file.")
-    mode.add_argument("-o", "--output", default="", help="Write the formatted file here (single input file only).")
-    mode.add_argument("--check", action="store_true", help="Write nothing; exit 1 if any file would change.")
-    parser.add_argument("--sort-fields", action="store_true", help="Reorder fields using --field-order.")
     parser.add_argument(
+        "paths",
+        nargs="+",
+        metavar="PATH",
+        help=".bib files or directories (searched recursively; .bibcc/ folders are skipped).",
+    )
+    mode = parser.add_argument_group("what to write (pick one; default: dry run)").add_mutually_exclusive_group()
+    mode.add_argument("--in-place", action="store_true", help="Write the formatted text back to each file.")
+    mode.add_argument(
+        "-o", "--output", default="", metavar="FILE", help="Write the formatted file here (one input file only)."
+    )
+    mode.add_argument("--check", action="store_true", help="Write nothing; exit 1 if any file would change.")
+    style = parser.add_argument_group("style")
+    style.add_argument("--sort-fields", action="store_true", help="Reorder fields using --field-order.")
+    style.add_argument(
         "--field-order",
         default=",".join(FIELD_ORDER),
+        metavar="FIELDS",
         help="Comma-separated field order for --sort-fields; other fields follow in "
-        "source order (default: the order used by 'bibcc add').",
+        f"source order (default: {', '.join(FIELD_ORDER)}).",
     )
-    parser.add_argument("--sort-entries", action="store_true", help="Sort entries by citation key (case-insensitive).")
-    parser.add_argument("--keep-quotes", action="store_true", help='Keep "..." values and bare numbers as they are.')
-    parser.add_argument("--keep-months", action="store_true", help="Do not turn month values into macros (jun).")
-    parser.add_argument("--keep-pages", action="store_true", help="Do not turn page ranges like 12-15 into 12--15.")
-    parser.add_argument("--no-align", action="store_true", help="Write 'name = value' without aligning '='.")
-    parser.add_argument(
-        "--indent", type=_indent, default="2", help="Field indent: number of spaces or 'tab' (default: 2)."
+    style.add_argument(
+        "--sort-entries",
+        action="store_true",
+        help="Sort entries by citation key (case-insensitive). A comment directly above an "
+        "entry moves with it; @string and @preamble blocks stay at the top.",
     )
-    parser.add_argument(
-        "--blank-lines", type=_non_negative, default=1, help="Blank lines between entries (default: 1)."
+    style.add_argument("--keep-quotes", action="store_true", help='Keep "..." values and bare numbers as they are.')
+    style.add_argument("--keep-months", action="store_true", help="Do not turn month values into macros (jun).")
+    style.add_argument("--keep-pages", action="store_true", help="Do not turn page ranges like 12-15 into 12--15.")
+    style.add_argument("--no-align", action="store_true", help="Write 'name = value' without aligning '='.")
+    style.add_argument(
+        "--indent",
+        type=_indent,
+        default="2",
+        metavar="N",
+        help="Field indent: a number of spaces, or 'tab' (default: 2).",
     )
-    parser.add_argument("--trailing-comma", action="store_true", help="Put a comma after the last field.")
-    parser.add_argument("--drop-empty", action="store_true", help="Remove fields with empty values ({} or \"\").")
+    style.add_argument(
+        "--blank-lines",
+        type=_non_negative,
+        default=1,
+        metavar="N",
+        help="Blank lines between entries (default: 1).",
+    )
+    style.add_argument("--trailing-comma", action="store_true", help="Put a comma after the last field.")
+    style.add_argument("--drop-empty", action="store_true", help="Remove fields with empty values ({} or \"\").")
     parser.add_argument(
         "--log-dir",
         default="",
-        help="Directory for diffs and logs. Default: .bibcc/ next to each input file.",
+        metavar="DIR",
+        help="Directory for diffs and logs (default: .bibcc/ next to each input file).",
     )
     return parser
 

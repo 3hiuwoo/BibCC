@@ -27,6 +27,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 import bibtexparser
 
 from bibcc.bibedit import BibEditError, read_bib, set_fields, write_bib
+from bibcc.helptext import ENV_S2, HelpFormatter, epilog
 from bibcc.logging_utils import (
     SEPARATOR_HEAVY,
     SEPARATOR_LIGHT,
@@ -921,66 +922,145 @@ def cmd_titles(
 def build_parser() -> argparse.ArgumentParser:
     """Build argument parser with scholar subcommands."""
     parser = argparse.ArgumentParser(
-        description="Scholar: citation and title management for BibTeX files.",
+        description="""\
+Citation counts and title verification for a .bib file. Run
+'bibcc scholar <subcommand> -h' for details.""",
+        epilog=epilog(
+            examples=[
+                ("fill citation counts, one paper at a time", "bibcc scholar cite refs.bib -i"),
+                ("check titles against the published ones", "bibcc scholar titles refs.bib"),
+            ],
+            env=[ENV_S2],
+        ),
+        formatter_class=HelpFormatter,
     )
-    subparsers = parser.add_subparsers(dest="command", required=True)
+    subparsers = parser.add_subparsers(dest="command", required=True, metavar="SUBCOMMAND")
 
     p_cite = subparsers.add_parser(
-        "cite", help="Google Scholar URLs and citation fields"
+        "cite",
+        help="Look up citation counts on Google Scholar and store them in a 'citation' field.",
+        description="""\
+Help record citation counts from Google Scholar in a 'citation' field.
+Entries that already have a non-empty citation field are skipped unless
+--include-filled is given.
+
+Modes:
+  default        list a Google Scholar search URL for each entry and save
+                 them to .bibcc/<input>.scholar_urls.txt; with --output, also
+                 add an empty 'citation = {}' field to fill in by hand
+  --open         also open the URLs in the browser, --batch-size at a time
+  --interactive  for each entry, open its search page (you can skip or quit),
+                 ask for the count, and write the counts to the input file
+                 (or to --output); quitting keeps the counts entered so far
+
+Only citation fields are added or changed; the rest of the file stays byte
+for byte.""",
+        epilog=epilog(
+            examples=[
+                ("list the search URLs", "bibcc scholar cite refs.bib"),
+                ("open them in the browser, ten at a time", "bibcc scholar cite refs.bib --open --batch-size 10"),
+                ("enter the counts interactively", "bibcc scholar cite refs.bib -i"),
+                ("update counts that are already filled in", "bibcc scholar cite refs.bib -i --include-filled"),
+            ],
+            outputs=[
+                (".bibcc/<input>.scholar_urls.txt", "entry keys, titles, and Google Scholar URLs"),
+                (".bibcc/logs/<input>.scholar.cite.log", "everything printed to the terminal"),
+            ],
+        ),
+        formatter_class=HelpFormatter,
     )
-    p_cite.add_argument("bib_file", type=Path, help="Path to .bib file")
+    p_cite.add_argument("bib_file", type=Path, metavar="BIB_FILE", help="The .bib file.")
     p_cite.add_argument(
         "--output",
         "-o",
         type=str,
         default="",
-        help="Output file (omit for dry-run)",
+        metavar="FILE",
+        help="Write the file with citation fields here. Without it, the default mode is a "
+        "dry run and --interactive writes to the input file.",
     )
-    p_cite.add_argument("--open", action="store_true", help="Open URLs in browser")
+    p_cite.add_argument("--open", action="store_true", help="Open the search URLs in the browser.")
     p_cite.add_argument(
         "--interactive",
         "-i",
         action="store_true",
-        help="Interactive citation fill",
+        help="Ask for each entry's citation count and store it.",
     )
     p_cite.add_argument(
         "--include-filled",
         action="store_true",
-        help="Include entries with citations",
+        help="Also process entries that already have a citation count.",
     )
     p_cite.add_argument(
         "--batch-size",
         type=int,
         default=5,
-        help="URLs per batch (default: 5)",
+        metavar="N",
+        help="With --open, URLs to open before waiting for Enter (default: 5).",
     )
     p_cite.add_argument(
         "--log-dir",
         type=str,
         default="",
-        help="Directory to write logs and reports. Default: .bibcc/ next to the input file.",
+        metavar="DIR",
+        help="Directory for reports and logs (default: .bibcc/ next to the input file).",
     )
 
     p_titles = subparsers.add_parser(
-        "titles", help="Check titles against external sources"
+        "titles",
+        help="Compare titles with the published ones (CrossRef, arXiv, Semantic Scholar).",
+        description="""\
+Compare each title in a .bib file with the published title, to catch
+capitalisation that differs from the original. Nothing in the .bib file is
+changed.
+
+Lookup order for each entry:
+  1. entries with a DOI are checked against CrossRef only
+  2. entries with an arXiv ID are checked against arXiv
+  3. otherwise, or when the arXiv title matches, Semantic Scholar is
+     searched by title
+  4. if nothing has matched, a CrossRef title search is the last resort
+
+A title only counts as found when it matches exactly (ignoring case and
+punctuation). The report lists case differences, failed lookups (network
+errors and rate limits), and titles no source knows. Pass that report to
+--retry-errors to re-check only the failed lookups; the report is then
+updated in place. DBLP is not queried because its API is behind a bot
+challenge.""",
+        epilog=epilog(
+            examples=[
+                ("check every title", "bibcc scholar titles refs.bib"),
+                ("re-check the lookups that failed last time",
+                 "bibcc scholar titles refs.bib --retry-errors .bibcc/refs.bib.title_report.txt"),
+                ("check two entries only", "bibcc scholar titles refs.bib --ids KeyA,KeyB"),
+            ],
+            outputs=[
+                (".bibcc/<input>.title_report.txt", "case differences, failed lookups, unknown titles"),
+                (".bibcc/logs/<input>.scholar.titles.log", "everything printed to the terminal"),
+            ],
+            env=[ENV_S2],
+        ),
+        formatter_class=HelpFormatter,
     )
-    p_titles.add_argument("bib_file", type=Path, help="Path to .bib file")
+    p_titles.add_argument("bib_file", type=Path, metavar="BIB_FILE", help="The .bib file.")
     p_titles.add_argument(
         "--delay",
         "-d",
         type=float,
         default=0.5,
-        help="API delay in seconds",
+        metavar="SECONDS",
+        help="Seconds to wait after each API request (default: 0.5).",
     )
     p_titles.add_argument(
-        "--quiet", "-q", action="store_true", help="Suppress progress"
+        "--quiet", "-q", action="store_true", help="Do not print per-entry progress."
     )
     p_titles.add_argument(
         "--retry-errors",
         metavar="REPORT",
-        help="Re-check error entries from report",
+        help="Re-check only the entries whose lookup failed in this earlier report, "
+        "and update it.",
     )
-    p_titles.add_argument("--ids", help="Comma-separated entry IDs to check")
+    p_titles.add_argument("--ids", metavar="KEYS", help="Comma-separated citation keys to check (default: all).")
 
     return parser
 

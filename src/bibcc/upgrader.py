@@ -33,6 +33,7 @@ import bibtexparser
 
 from bibcc.adder import format_entry, polish, suggest_key
 from bibcc.bibedit import BibEditError, read_bib, replace_entry, unified_diff, write_bib
+from bibcc.helptext import ENV_S2, ENV_VENUES, VENUES_HELP, HelpFormatter, epilog
 from bibcc.logging_utils import SEPARATOR_THIN, SEPARATOR_WIDTH, Logger, get_output_dir, write_report
 from bibcc.sources import (
     Record,
@@ -46,7 +47,7 @@ from bibcc.sources import (
     s2_match,
     titles_match,
 )
-from bibcc.venues import VenueLibrary, default_library_path
+from bibcc.venues import VenueLibrary
 
 _PREPRINT_TYPES = {"misc", "unpublished", "techreport", "online", "preprint"}
 _PREPRINT_VENUE = re.compile(r"\b(arxiv|corr|preprint)\b", re.IGNORECASE)
@@ -215,28 +216,69 @@ def upgrade_bib(
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Replace arXiv preprint entries with their published versions, "
-        "keeping citation keys."
+        description="""\
+Find arXiv preprints in a .bib file that have since been published, and
+replace them with the published entry. Preprints are @misc, @unpublished,
+@techreport, @online, and @preprint entries without a venue, and any entry
+whose journal or booktitle is arXiv, CoRR, or a preprint.
+
+The published version is looked up the same way as in 'bibcc add': the DOI
+linked from arXiv or known to Semantic Scholar, an accepted OpenReview paper,
+the DBLP key Semantic Scholar reports, or a CrossRef record with the same
+title. The replacement keeps the citation key (so \\cite commands keep
+working), keeps your title when it matches the published one, keeps custom
+fields such as citation, drops arXiv-only fields (eprint, archiveprefix,
+primaryclass, the arXiv url), and fills venue fields from the venue library.
+The rest of the file stays byte for byte.
+
+Without --output or --in-place this is a dry run that writes the would-be
+changes as a diff. Preprints without a published version are listed as
+unchanged, with the arXiv comment when it says the paper was accepted.""",
+        epilog=epilog(
+            examples=[
+                ("preview: report and diff in .bibcc/", "bibcc upgrade refs.bib"),
+                ("replace the preprints in the file itself", "bibcc upgrade refs.bib --in-place"),
+                ("only some entries, written to another file",
+                 "bibcc upgrade refs.bib --ids KeyA,KeyB --output out.bib"),
+            ],
+            outputs=[
+                (".bibcc/<input>.upgrade.txt", "upgraded, unchanged, and failed preprints"),
+                (".bibcc/<input>.upgrade.diff", "dry run: the changes that would be made"),
+                (".bibcc/logs/<input>.upgrader.log", "everything printed to the terminal"),
+            ],
+            exit_status="0 on success, 1 if any lookup failed (for example rate limits; run\n"
+            "again later or set S2_API_KEY), 2 on usage errors.",
+            env=[ENV_S2, ENV_VENUES],
+        ),
+        formatter_class=HelpFormatter,
     )
-    parser.add_argument("input", help="Path to the input BibTeX (.bib) file")
-    parser.add_argument("--output", default="", help="Write the upgraded file here (omit for dry-run).")
-    parser.add_argument("--in-place", action="store_true", help="Write back to the input file.")
-    parser.add_argument("--ids", default="", help="Comma-separated citation keys to upgrade (default: all preprints).")
+    parser.add_argument("input", help="The .bib file to upgrade.")
     parser.add_argument(
-        "--venues",
+        "--output",
         default="",
-        help=f"Venue library YAML (default: $BIBCC_VENUES or {default_library_path()}).",
+        metavar="FILE",
+        help="Write the upgraded file here (omit both --output and --in-place for a dry run).",
     )
+    parser.add_argument("--in-place", action="store_true", help="Write back to the input file.")
+    parser.add_argument(
+        "--ids",
+        default="",
+        metavar="KEYS",
+        help="Comma-separated citation keys to upgrade (default: all preprints).",
+    )
+    parser.add_argument("--venues", default="", metavar="FILE", help=VENUES_HELP)
     parser.add_argument(
         "--delay",
         type=float,
         default=1.0,
+        metavar="SECONDS",
         help="Seconds to wait between entries, to respect API rate limits (default: 1).",
     )
     parser.add_argument(
         "--log-dir",
         default="",
-        help="Directory for reports and logs. Default: .bibcc/ next to the input file.",
+        metavar="DIR",
+        help="Directory for reports and logs (default: .bibcc/ next to the input file).",
     )
     return parser
 

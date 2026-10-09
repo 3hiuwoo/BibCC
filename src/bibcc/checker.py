@@ -47,7 +47,9 @@ from bibcc.checkers import (
     get_style,
     load_vocab_file,
 )
+from bibcc.helptext import ENV_VENUES, VENUES_HELP, HelpFormatter, epilog
 from bibcc.logging_utils import Logger, get_output_dir, write_report
+from bibcc.titlecases import STYLES
 from bibcc.venues import default_library_path
 
 
@@ -58,138 +60,211 @@ def parse_list_arg(raw: str) -> List[str]:
     return [item.strip() for item in raw.split(",") if item.strip()]
 
 
+DESCRIPTION = """\
+Run quality checks on a .bib file. Each check has its own option, and any
+number of checks can be combined in one run. Only the missing-fields check
+(for month) runs by default.
+
+The file is never changed, except by --title-apply and --title-interactive,
+which rewrite only the title values. Reports are written to .bibcc/ next to
+the input (only for checks that find something), and the log to
+.bibcc/logs/.
+
+With --check-venues, the venue library is checked instead, and no input file
+is needed."""
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Build argument parser for BibTeX checker."""
     parser = argparse.ArgumentParser(
-        description="Unified checker for BibTeX: missing fields, title case, and smart protection."
+        description=DESCRIPTION,
+        epilog=epilog(
+            examples=[
+                ("report entries without a month (the default check)", "bibcc check refs.bib"),
+                ("require other fields, in articles only",
+                 "bibcc check refs.bib --fields month,publisher --entry-types article"),
+                ("suggest Title Case, then review the suggestions one by one",
+                 "bibcc check refs.bib --title-case --title-interactive"),
+                ("suggest {braces} for acronyms and names, with extra terms",
+                 "bibcc check refs.bib --quote --quote-terms Transformer,Adam"),
+                ("field typos and malformed values, plus duplicates in bib/",
+                 "bibcc check refs.bib --check-fields --against bib/"),
+                ("run every check on the file at once",
+                 "bibcc check refs.bib --title-case --quote --check-keys --check-fields"),
+                ("check the venue library itself", "bibcc check --check-venues"),
+            ],
+            outputs=[
+                (".bibcc/<input>.missing_fields.txt", "entries missing a required field"),
+                (".bibcc/<input>.title_case.txt", "current and suggested titles"),
+                (".bibcc/<input>.smart_protection.txt", "words that need {braces}"),
+                (".bibcc/<input>.citation_keys.txt", "keys not following METHOD_AUTHOR_VENUEYEAR"),
+                (".bibcc/<input>.field_issues.txt", "unknown fields, bad values, duplicates"),
+                (".bibcc/logs/<input>.checker.log", "everything printed to the terminal"),
+            ],
+            env=[ENV_VENUES],
+        ),
+        formatter_class=HelpFormatter,
     )
     parser.add_argument(
         "input",
         type=str,
         nargs="?",  # Make optional for --check-venues mode
         default="",
-        help="Path to the input BibTeX (.bib) file",
+        help="The .bib file to check (not needed with --check-venues).",
     )
-    parser.add_argument(
+
+    missing = parser.add_argument_group("missing fields (runs by default)")
+    missing.add_argument(
         "--fields",
         type=str,
         default="month",
-        help="Comma-separated required fields to enforce (default: month; pass '' to skip).",
+        metavar="FIELDS",
+        help="Comma-separated fields every checked entry must have (default: month). "
+        "Pass --fields '' to skip this check.",
     )
-    parser.add_argument(
+    missing.add_argument(
         "--entry-types",
         type=str,
         default=",".join(DEFAULT_ENTRY_TYPES),
-        help="Comma-separated ENTRYTYPEs to check (default: inproceedings,article,proceedings,conference).",
+        metavar="TYPES",
+        help=f"Comma-separated entry types to check (default: {','.join(DEFAULT_ENTRY_TYPES)}).",
     )
-    parser.add_argument(
+
+    title = parser.add_argument_group("title case")
+    title.add_argument(
         "--title-case",
         action="store_true",
-        help="Check that titles are in Title Case (APA by default).",
+        help="Suggest APA Title Case: words of four or more letters and all other "
+        "major words capitalized, short articles, conjunctions, and prepositions "
+        "lowercase, the first word and the word after a colon or dash capitalized, "
+        "both parts of hyphenated words capitalized, and text in {braces} left alone.",
     )
-    parser.add_argument(
+    title.add_argument(
         "--title-apply",
         action="store_true",
-        help="Apply Title Case suggestions in-place (implies --title-case).",
+        help="Apply all suggestions to the input file (implies --title-case).",
     )
-    parser.add_argument(
+    title.add_argument(
         "--title-interactive",
         action="store_true",
-        help="Interactive mode: review each suggestion one-by-one (implies --title-case).",
+        help="Review each suggestion: accept, skip, edit, or quit; accepted changes are "
+        "written to the input file (implies --title-case).",
     )
-    parser.add_argument(
+    title.add_argument(
         "--title-style",
         type=str,
         default="apa",
-        help="Title case style to apply (default: apa).",
+        choices=sorted(STYLES),
+        help="Title case rules to use (default: apa).",
     )
-    parser.add_argument(
+    title.add_argument(
         "--extra-stopwords",
         type=str,
         default="",
-        help="Comma-separated additional stopwords to keep lowercase in title-case suggestions.",
+        metavar="WORDS",
+        help="Comma-separated extra words to keep lowercase.",
     )
-    parser.add_argument(
+
+    quote = parser.add_argument_group(
+        "term protection",
+        "BibTeX styles may lowercase titles. Words whose capitals matter (acronyms,\n"
+        "mixed case such as LoRA, words with digits, names such as Gaussian) must be\n"
+        "wrapped in {braces}.",
+    )
+    quote.add_argument(
         "--quote",
         action="store_true",
-        help="Run smart protection to suggest curly braces for technical terms (merged quoter).",
+        help="Report words that should be protected with {braces}.",
     )
-    parser.add_argument(
+    quote.add_argument(
         "--quote-terms",
         type=str,
         default="",
-        help="Comma-separated extra terms to protect (in addition to default vocab).",
+        metavar="TERMS",
+        help="Comma-separated extra terms to protect, in addition to the built-in vocabulary.",
     )
-    parser.add_argument(
+    quote.add_argument(
         "--quote-vocab-file",
         type=str,
         default=None,
-        help="Optional path to newline-delimited vocabulary file of technical terms to protect.",
+        metavar="FILE",
+        help="Text file with one extra term to protect per line.",
     )
-    parser.add_argument(
+    quote.add_argument(
         "--quote-no-default",
         action="store_true",
-        help="Do not include built-in technical vocabulary when running smart protection.",
+        help="Do not use the built-in vocabulary of names (Gaussian, Bayesian, Markov, ...).",
     )
-    parser.add_argument(
+    quote.add_argument(
         "--protection-min-length",
         type=int,
         default=MIN_TERM_LENGTH,
-        help="Minimum length for mixed-case, acronym, and number-bearing terms "
+        metavar="N",
+        help="Shortest acronym, mixed-case, or digit-bearing word to report "
         f"(default: {MIN_TERM_LENGTH}).",
     )
-    parser.add_argument(
+
+    keys = parser.add_argument_group("citation keys")
+    keys.add_argument(
         "--check-keys",
         action="store_true",
-        help="Check citation key legibility (METHOD_AUTHOR_VENUEYEAR convention).",
+        help="Check that keys follow METHOD_AUTHOR_VENUEYEAR (e.g. GKEAL_Zhuang_CVPR2023), "
+        "and that the year and venue in the key match the entry's year and venue.",
     )
-    parser.add_argument(
+
+    fields = parser.add_argument_group("field names, values, and duplicates")
+    fields.add_argument(
         "--check-fields",
         action="store_true",
-        help="Check field names (typos such as 'volumn'), field values (years, page "
-        "ranges, DOIs, months, ISSNs, URLs, empty values), and duplicate papers.",
+        help="Report unknown field names (typos such as 'volumn', which BibTeX silently "
+        "ignores), malformed values (years, page ranges, DOIs, months, ISSNs, URLs, empty "
+        "values), and the same paper or key appearing twice.",
     )
-    parser.add_argument(
+    fields.add_argument(
         "--known-fields",
         type=str,
         default="",
-        help="Comma-separated extra field names to accept with --check-fields.",
+        metavar="FIELDS",
+        help="Comma-separated extra field names to accept as known.",
     )
-    parser.add_argument(
+    fields.add_argument(
         "--against",
         action="append",
         default=[],
         metavar="PATH",
-        help="With --check-fields, also look for duplicates in this .bib file or "
-        "directory (recursive). Repeatable.",
+        help="Also look for duplicates in this .bib file or directory (searched "
+        "recursively). Repeatable.",
     )
-    parser.add_argument(
+
+    venues = parser.add_argument_group("venue library")
+    venues.add_argument(
         "--check-venues",
         "--check-templates",
         dest="check_venues",
         action="store_true",
-        help="Check the venue library for missing fields instead of a bib file.",
+        help="Report venue library records missing fields, instead of checking a .bib file.",
     )
-    parser.add_argument(
+    venues.add_argument(
         "--venues",
         type=str,
         default="",
-        help=f"Venue library YAML (default: $BIBCC_VENUES or {default_library_path()}).",
+        metavar="FILE",
+        help=VENUES_HELP,
     )
-    parser.add_argument(
+    venues.add_argument(
         "--journal-fields",
         type=str,
         default=",".join(DEFAULT_JOURNAL_FIELDS),
-        help=f"Comma-separated fields to check in journal records (default: {','.join(DEFAULT_JOURNAL_FIELDS)}).",
+        metavar="FIELDS",
+        help=f"Fields every journal record should have (default: {','.join(DEFAULT_JOURNAL_FIELDS)}).",
     )
-    parser.add_argument(
+    venues.add_argument(
         "--proceedings-fields",
         type=str,
         default=",".join(DEFAULT_PROCEEDINGS_FIELDS),
-        help=(
-            "Comma-separated fields to check in proceedings records "
-            f"(default: {','.join(DEFAULT_PROCEEDINGS_FIELDS)})."
-        ),
+        metavar="FIELDS",
+        help="Fields every proceedings record should have "
+        f"(default: {','.join(DEFAULT_PROCEEDINGS_FIELDS)}).",
     )
 
     return parser

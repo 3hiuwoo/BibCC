@@ -32,6 +32,7 @@ import bibtexparser
 from bibcc.bibedit import BibEditError, month_macro, read_bib, scan, write_bib
 from bibcc.checkers.citation_keys import abbreviate_venue
 from bibcc.checkers.smart_protection import find_unprotected_terms, protect_terms
+from bibcc.helptext import ENV_S2, ENV_VENUES, VENUES_HELP, HelpFormatter, epilog
 from bibcc.logging_utils import SEPARATOR_THIN, SEPARATOR_WIDTH, Logger
 from bibcc.sources import (
     Record,
@@ -47,7 +48,6 @@ from bibcc.titlecases import APA_STOPWORDS, suggest_title_case
 from bibcc.venues import (
     PROCEEDINGS,
     VenueLibrary,
-    default_library_path,
     normalize_venue,
     previous_edition,
     venue_kind,
@@ -439,19 +439,56 @@ def add_papers(
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Fetch papers by DOI, arXiv ID/URL, or title and append them as "
-        "BibTeX entries to a staging file."
+        description=f"""\
+Fetch papers by DOI, arXiv ID or URL, or title, and append them as BibTeX
+entries to a staging file ({DEFAULT_OUTPUT} by default). Review the entries
+there, then move them into your topic files.
+
+Metadata comes from CrossRef (DOIs), arXiv (arXiv IDs), and, for titles,
+Semantic Scholar, OpenReview, CrossRef, and arXiv; a title only counts as
+found when it matches exactly (ignoring case and punctuation). For arXiv
+papers the published version is used when one exists (pass --preprint to
+keep the arXiv entry).
+
+Each entry is formatted like the rest of the bibliography: Title Case,
+{{braces}} around acronyms and technical terms, -- page ranges, month macros,
+venue fields from the venue library, and a suggested METHOD_AUTHOR_VENUEYEAR
+key (check the METHOD part). Papers already in the --against files or in the
+staging file (same DOI, arXiv ID, or title) are skipped.""",
+        epilog=epilog(
+            examples=[
+                ("a DOI and an arXiv ID, skipping papers already in bib/",
+                 "bibcc add 10.1109/TPAMI.2024.3429383 2501.13198 --against bib/"),
+                ("a paper by its title (quote it)",
+                 'bibcc add "SD-LoRA: Scalable Decoupled Low-Rank Adaptation for Class '
+                 'Incremental Learning"'),
+                ("many papers from a file, one identifier per line",
+                 "bibcc add --from new_papers.txt --against bib/ --output new.bib"),
+                ("print the entries without writing anything", "bibcc add 2501.13198 --dry-run"),
+            ],
+            outputs=[
+                ("<output>", f"staging file the new entries are appended to (default: {DEFAULT_OUTPUT})"),
+                (".bibcc/logs/<output>.adder.log", "everything printed to the terminal"),
+            ],
+            exit_status="0 if every paper was added or skipped as a duplicate, 1 if any lookup\n"
+            "failed or the staging file could not be written safely, 2 on usage errors.",
+            env=[ENV_S2, ENV_VENUES],
+        ),
+        formatter_class=HelpFormatter,
     )
     parser.add_argument(
         "identifiers",
         nargs="*",
-        help="DOIs, arXiv IDs or URLs, or quoted titles.",
+        metavar="IDENTIFIER",
+        help="A DOI (10.xxxx/...), an arXiv ID or URL (2501.13198, arxiv.org/abs/...), "
+        "or a quoted title.",
     )
     parser.add_argument(
         "--from",
         dest="from_file",
         default="",
-        help="Text file with one identifier per line ('#' starts a comment).",
+        metavar="FILE",
+        help="Read more identifiers from FILE, one per line ('#' starts a comment).",
     )
     parser.add_argument(
         "--against",
@@ -464,12 +501,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--output",
         default=DEFAULT_OUTPUT,
+        metavar="FILE",
         help=f"Staging .bib file new entries are appended to (default: {DEFAULT_OUTPUT}).",
     )
     parser.add_argument(
         "--venues",
         default="",
-        help=f"Venue library YAML (default: $BIBCC_VENUES or {default_library_path()}).",
+        metavar="FILE",
+        help=VENUES_HELP,
     )
     parser.add_argument(
         "--preprint",
@@ -484,18 +523,20 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="Show the entries without writing the output file.",
+        help="Print the entries without writing the staging file.",
     )
     parser.add_argument(
         "--delay",
         type=float,
         default=1.0,
+        metavar="SECONDS",
         help="Seconds to wait between papers, to respect API rate limits (default: 1).",
     )
     parser.add_argument(
         "--log-dir",
         default="",
-        help="Directory for the log. Default: .bibcc/logs/ next to the output file.",
+        metavar="DIR",
+        help="Directory for the log (default: .bibcc/logs/ next to the staging file).",
     )
     return parser
 
