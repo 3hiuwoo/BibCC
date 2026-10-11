@@ -16,10 +16,18 @@ jobs:
       prerelease: ${{ steps.check.outputs.prerelease }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: astral-sh/setup-uv@v6
       - id: check
         name: Tag, version, and changelog agree
         run: python3 .github/scripts/release.py check "$GITHUB_REF_NAME"
+      - name: The tag is on main or a release/X.Y branch
+        run: |
+          if ! git branch -r --contains "$GITHUB_SHA" | grep -Eq '^\s*origin/(main|release/.+)$'; then
+            echo "::error::$GITHUB_REF_NAME is not on main or a release/X.Y branch; push the branch before the tag (git push --atomic origin main $GITHUB_REF_NAME)"
+            exit 1
+          fi
       - run: uv sync --locked
       - run: uv run ruff check .
       - run: uv run pytest

@@ -11,12 +11,18 @@ BibCC is a command-line toolkit that fills in missing BibTeX fields, checks bibl
 BibCC requires Python 3.10 or later. Install it with [uv](https://docs.astral.sh/uv/):
 
 ```bash
-uv tool install git+https://github.com/3hiuwoo/BibCC@v0.2.0   # a release (see Releases on GitHub)
-uv tool install git+https://github.com/3hiuwoo/BibCC          # or the development version (main)
+uv tool install git+https://github.com/3hiuwoo/BibCC          # the latest release
 bibcc --help
 ```
 
-To update the development version, run `uv tool upgrade bibcc`. To move to a newer release, run `uv tool install --force git+https://github.com/3hiuwoo/BibCC@vX.Y.Z`. To work on BibCC itself, see [Development](#development).
+The `main` branch always holds the latest release, and this README describes it. You can also install a specific release, or the development version from the `dev` branch:
+
+```bash
+uv tool install git+https://github.com/3hiuwoo/BibCC@v0.3.0   # a specific release (see Releases on GitHub)
+uv tool install git+https://github.com/3hiuwoo/BibCC@dev      # the development version
+```
+
+If you installed without a tag, run `uv tool upgrade bibcc` to get the latest release. To move a pinned install to another release, run `uv tool install --force git+https://github.com/3hiuwoo/BibCC@vX.Y.Z`. To see what each version changed, see [`CHANGELOG.md`](CHANGELOG.md). To work on BibCC itself, see [Development](#development).
 
 ### Set up your venue library
 
@@ -723,6 +729,7 @@ To set up a development checkout, run the following:
 
 ```bash
 git clone https://github.com/3hiuwoo/BibCC.git && cd BibCC
+git switch dev                 # work happens on dev; main holds only releases
 uv sync                        # install the package (editable) and the dev tools
 uv run pytest                  # run the tests (no network access; API responses are canned)
 uv run ruff check .            # lint

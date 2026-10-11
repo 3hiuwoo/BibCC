@@ -2,6 +2,7 @@
 
     python .github/scripts/release.py check v0.2.0   # exit 1 with a message if they disagree
     python .github/scripts/release.py notes v0.2.0   # print that version's changelog section
+    python .github/scripts/release.py check-head     # the checkout is a release (required on main)
 
 ``check`` also writes ``prerelease=true|false`` to ``$GITHUB_OUTPUT`` when run
 in GitHub Actions.  Standard library only, so it runs before ``uv sync``.
@@ -62,6 +63,14 @@ def check(tag: str, root: Path = ROOT) -> bool:
 
 
 def main(argv: list[str]) -> None:
+    if argv == ["check-head"]:
+        version = package_version()
+        if re.search(r"\.dev\d*$", version):
+            raise SystemExit(
+                f"__version__ = {version!r} is a development version; main only takes release commits "
+                "(merge into dev instead, or see the release checklist in CONTRIBUTING.md)"
+            )
+        argv = ["check", f"v{version}"]
     if len(argv) != 2 or argv[0] not in ("check", "notes"):
         raise SystemExit(__doc__)
     command, tag = argv

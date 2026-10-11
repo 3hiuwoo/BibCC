@@ -4,6 +4,7 @@
 
 ## Checklist
 
+- [ ] The pull request targets `dev`, not `main`. `main` takes only releases.
 - [ ] `uv run pytest` and `uv run ruff check .` pass.
 - [ ] New behavior has tests under `tests/` (no network access; canned responses in `tests/fixtures/sources/`).
 - [ ] User-visible changes are recorded in `CHANGELOG.md` under the top, unreleased version.

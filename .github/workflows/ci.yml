@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, "release/**"]
+    branches: [main, dev, "release/**"]
   pull_request:
   workflow_dispatch:
 
@@ -14,6 +14,18 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # main and release/X.Y hold only releases, so every commit there must carry a
+  # release version with a dated changelog section. Work goes to dev.
+  release-only:
+    if: >-
+      github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release/') ||
+      github.base_ref == 'main' || startsWith(github.base_ref, 'release/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: The version is a release, and the changelog dates it
+        run: python3 .github/scripts/release.py check-head
+
   lint:
     runs-on: ubuntu-latest
     steps:

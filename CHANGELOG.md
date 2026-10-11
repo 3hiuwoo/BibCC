@@ -12,6 +12,8 @@ This file lists notable changes to BibCC. The format follows [Keep a Changelog](
 
 ### Changed
 
+- **Branches**: `main` now holds only releases, so installing without a tag (`uv tool install git+https://github.com/3hiuwoo/BibCC`) gets the latest release, and the README on GitHub describes it. Development moves to the `dev` branch; to install it, add `@dev`.
+- The README, the other docs, and the help pages follow the Google developer documentation style, with uppercase placeholders such as `INPUT` and `FILE.bib`.
 - The `add` documentation says up front that many papers have no downloadable official BibTeX, and why.
 
 ## [0.2.0] - 2026-10-11

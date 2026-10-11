@@ -8,6 +8,7 @@ To set up a development checkout, run the following commands:
 
 ```bash
 git clone https://github.com/3hiuwoo/BibCC.git && cd BibCC
+git switch dev                 # work happens on dev; main holds only releases
 uv sync                        # .venv with BibCC (editable) and the dev tools
 uv run bibcc --help            # run from the checkout
 uv run pytest                  # tests (no network access; API responses are canned)
@@ -29,10 +30,11 @@ Tests never use your own venue library: `tests/conftest.py` points the user libr
 
 The repository uses the following branches and tags:
 
-- **`main`**: The development line. It must always pass CI. It's what you get from `uv tool install git+https://github.com/3hiuwoo/BibCC` without a tag.
-- **Work branches**: Short-lived branches off `main`, named `feat/TOPIC`, `fix/TOPIC`, `docs/TOPIC`, or, for venue library contributions, `venues/LIBRARY`. Open a pull request to `main`. Before you merge, CI (lint, tests on Python 3.10 to 3.14, and a wheel build) must pass. Prefer squash merges, so that each change is one commit on `main`.
+- **`main`**: The latest release, and nothing else. It moves only when a version comes out, and every commit on it is a tagged release. It's the default branch on GitHub, so the README there describes the latest release, and `uv tool install git+https://github.com/3hiuwoo/BibCC` without a tag installs it. CI fails any push or pull request to `main` whose version isn't a release with a dated changelog section.
+- **`dev`**: The development line, where all work lands. It must always pass CI. Its version is the next release with a `.dev0` suffix. Users who want the newest changes install it with `@dev`.
+- **Work branches**: Short-lived branches off `dev`, named `feat/TOPIC`, `fix/TOPIC`, `docs/TOPIC`, or, for venue library contributions, `venues/LIBRARY`. Open a pull request to `dev`. Because GitHub proposes `main` as the base, change the base to `dev`. Before you merge, CI (lint, tests on Python 3.10 to 3.14, and a wheel build) must pass. Prefer squash merges, so that each change is one commit on `dev`.
 - **Releases**: Tags `vX.Y.Z` on `main`. To pin a release, users run `uv tool install git+https://github.com/3hiuwoo/BibCC@vX.Y.Z`.
-- **`release/X.Y`**: Branches that exist only when an older release needs a fix after `main` has moved on. To fix an older release, create the branch from the last `vX.Y.*` tag, cherry-pick the fix from `main`, and tag `vX.Y.(Z+1)` on the branch.
+- **`release/X.Y`**: Branches that exist only when an older release needs a fix after a newer minor version is out. See [Fixing an older release](#fixing-an-older-release).
 
 ## Commit messages
 
@@ -52,19 +54,41 @@ BibCC follows [Semantic Versioning](https://semver.org/). The version lives only
 - **Minor** (`0.3.0`): New commands, options, or fields. Before `1.0.0`, a minor version can also include breaking changes. List them in the `Changed` or `Removed` section of the changelog.
 - **Major** (`1.0.0` onward): Incompatible changes to command-line options, output file names, or the venue library schema.
 
-Between releases, `__version__` on `main` is the next version with a `.dev0` suffix (for example, `0.3.0.dev0`), so `bibcc --version` distinguishes a development install from a release. Record every user-visible change in [`CHANGELOG.md`](CHANGELOG.md) under the top section, `## [0.3.0] - Unreleased`.
+`__version__` on `main` is always the latest release. On `dev`, it's the next version with a `.dev0` suffix (for example, `0.4.0.dev0`), so `bibcc --version` distinguishes a development install from a release. Record every user-visible change in [`CHANGELOG.md`](CHANGELOG.md) under the top section, `## [0.4.0] - Unreleased`.
+
+You don't change the version while you work. It changes only when you release, and when you open the next version right after. Release when a set of changes is finished and you want users to get it: a new feature, or a bug fix that users of the last release need.
 
 ## Releasing
 
-To release a version, follow these steps. The examples release version `0.3.0`.
+To release a version, follow these steps. The examples release version `0.4.0`.
 
-1. On `main`, with CI passing, make the following changes:
+1. On `dev`, with CI passing, make the following changes:
    - In `src/bibcc/__init__.py`, set `__version__` to the release version (drop `.dev0`).
-   - In `CHANGELOG.md`, replace `Unreleased` with today's date (`## [0.3.0] - 2026-11-02`), and point the version's link at the tag (`[0.3.0]: https://github.com/3hiuwoo/BibCC/compare/v0.2.0...v0.3.0`).
-2. Commit the changes (`release: 0.3.0`), and then run `python3 .github/scripts/release.py check v0.3.0`.
-3. Tag the release and push it: `git tag -a v0.3.0 -m "BibCC 0.3.0" && git push origin main v0.3.0`.
-4. The [Release workflow](.github/workflows/release.yml) checks that the tag, the version, and the changelog agree. It then runs the lint and the tests, builds the wheel and sdist, and creates the GitHub release with the changelog section as the release notes. Tags such as `v0.3.0rc1` become pre-releases.
-5. To open the next version, set `__version__ = "0.4.0.dev0"`, and add a `## [0.4.0] - Unreleased` section at the top of the changelog.
+   - In `CHANGELOG.md`, replace `Unreleased` with today's date (`## [0.4.0] - 2026-12-01`), and point the version's link at the tag (`[0.4.0]: https://github.com/3hiuwoo/BibCC/compare/v0.3.0...v0.4.0`).
+2. Commit the changes (`release: 0.4.0`), and then run `python3 .github/scripts/release.py check v0.4.0`.
+3. Move `main` to the release, tag it, and push both together:
+
+   ```bash
+   git switch main && git merge --ff-only dev
+   git tag -a v0.4.0 -m "BibCC 0.4.0"
+   git push --atomic origin main v0.4.0
+   ```
+
+4. The [Release workflow](.github/workflows/release.yml) checks that the tag, the version, and the changelog agree, and that the tag is on `main` (or a `release/X.Y` branch). It then runs the lint and the tests, builds the wheel and sdist, and creates the GitHub release with the changelog section as the release notes. Tags such as `v0.4.0rc1` become pre-releases.
+5. Open the next version on `dev`: run `git switch dev`, set `__version__ = "0.5.0.dev0"`, and add a `## [0.5.0] - Unreleased` section at the top of the changelog, with the link `[0.5.0]: https://github.com/3hiuwoo/BibCC/compare/v0.4.0...dev`. Commit the change (`update: open 0.5.0 development`), and push `dev`.
+
+### Fixing the latest release
+
+To release a bug fix without the unreleased work on `dev`, make a patch release from `main`. The examples release version `0.4.1`.
+
+1. Create a branch from `main`: `git switch -c fix/TOPIC main`.
+2. Fix the bug, and add a test. Then set `__version__ = "0.4.1"`, and add a dated `## [0.4.1]` section to the changelog, below `[0.5.0] - Unreleased` if you're copying it from `dev`. Commit the changes, ending with `release: 0.4.1`.
+3. Release it as in steps 2 to 4 of [Releasing](#releasing), with `git merge --ff-only fix/TOPIC` on `main`.
+4. Bring the fix into `dev`: run `git switch dev && git merge main`. If `__init__.py` conflicts, keep the `.dev0` version of `dev`. In the changelog, keep `[0.5.0] - Unreleased` at the top, followed by the `[0.4.1]` section. Push `dev`.
+
+### Fixing an older release
+
+When a fix is needed for an older minor version (for example, 0.3 after 0.4.0 is out), create `release/0.3` from the last `v0.3.*` tag. Cherry-pick the fix, set the version and changelog to `0.3.1`, commit `release: 0.3.1`, and then push the branch and the tag `v0.3.1` together with `git push --atomic origin release/0.3 v0.3.1`.
 
 ### Publishing to PyPI (optional)
 

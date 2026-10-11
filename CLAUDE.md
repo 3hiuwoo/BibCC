@@ -26,5 +26,6 @@ uv run ruff check .    # lint
 
 ## Git
 
+- **Branches**: work on `dev` (or branches off it); `main` holds only release commits, and CI rejects anything else there. Releases and patch fixes follow `CONTRIBUTING.md`.
 - **No Co-Authored-By signature** in commit messages.
 - **Commit message style**: lowercase `verb: short description` (e.g. `add: feature`, `fix: bug`).
