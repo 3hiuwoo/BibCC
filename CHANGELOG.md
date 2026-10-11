@@ -2,6 +2,12 @@
 
 This file lists notable changes to BibCC. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/). The version number lives only in [`src/bibcc/__init__.py`](src/bibcc/__init__.py).
 
+## [0.3.1] - 2026-10-11
+
+### Changed
+
+- **Contributing**: The code conventions now live in `CONTRIBUTING.md`, which also says that user-facing text follows the Google developer documentation style guide. `CLAUDE.md` is no longer part of the repository.
+
 ## [0.3.0] - 2026-10-11
 
 ### Added
@@ -88,5 +94,6 @@ This is the first packaged version. BibCC becomes an installable `bibcc` command
 
 Before version 0.2.0, BibCC was a set of unversioned scripts that you ran with `python bibcc.py`: `check` (missing fields, title case, term protection, citation keys, and template fields), `complete` with Python templates, `librarian`, `scholar`, and `compose`.
 
+[0.3.1]: https://github.com/3hiuwoo/BibCC/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/3hiuwoo/BibCC/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/3hiuwoo/BibCC/compare/7632476...v0.2.0
