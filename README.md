@@ -746,7 +746,7 @@ The code lives in `src/bibcc/`. Each command is one module, registered in `cli.p
 - `crosscheck.py`: the CrossRef check of `complete --online`.
 - `logging_utils.py`: reports and logs.
 
-For branches, versioning, and releases, see [`CONTRIBUTING.md`](CONTRIBUTING.md). For code conventions, see [`CLAUDE.md`](CLAUDE.md). For the changes in each version, see [`CHANGELOG.md`](CHANGELOG.md). BibCC is released under the [MIT License](LICENSE).
+For code conventions, branches, versioning, and releases, see [`CONTRIBUTING.md`](CONTRIBUTING.md). For the changes in each version, see [`CHANGELOG.md`](CHANGELOG.md). BibCC is released under the [MIT License](LICENSE).
 
 ## Additional resources
 

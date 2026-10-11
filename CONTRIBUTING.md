@@ -16,15 +16,20 @@ uv run ruff check .            # lint
 uv tool install --editable .   # optional: `bibcc` on your PATH, following the checkout
 ```
 
-The code conventions are in [`CLAUDE.md`](CLAUDE.md). In summary:
-
-- Code lives in `src/bibcc/`.
-- Tools log through a `log` callback instead of `print()`.
-- Network access goes through `bibcc.sources.fetch_url`.
-- Every help page has a description and examples.
-- New behavior comes with tests.
-
 Tests never use your own venue library: `tests/conftest.py` points the user library at a temporary directory for every test.
+
+## Code conventions
+
+- **Package layout**: All code lives in `src/bibcc/`. Import with absolute `bibcc.` paths, and don't modify `sys.path`.
+- **Output**: Tool logic doesn't call `print()`. It accepts a `log: Callable[[str], None]` callback and logs through it. Only `cli.py` (usage and `--version`) and the `Logger` sink in `logging_utils.py` write to stdout.
+- **Output format**: The constants for reports and logs live in `bibcc/logging_utils.py`: `SEPARATOR_WIDTH`, `SEPARATOR_HEAVY`, `SEPARATOR_LIGHT`, `SEPARATOR_THIN`, `Logger`, and `write_report`. Use them instead of hard-coding widths or separator characters.
+- **Commands**: The main tools expose `build_parser()` and `run(args)`. The tools in `utils/` expose `build_parser()` and `main()`, with subcommands. Register a new tool in `bibcc/cli.py`.
+- **Help pages**: Build parsers with `bibcc.helptext.HelpFormatter` and an `epilog(...)` that lists examples, output files, the exit status, and environment variables. `tests/test_cli.py` requires every help page to have a description, `examples:`, `DOCS_URL`, and help text for every option.
+- **Writing style**: User-facing text, such as the docs, help pages, and messages, follows the [Google developer documentation style guide](https://developers.google.com/style). Keep text that BibCC parses back, or that tests check exactly, unchanged. This includes marker comments, report headers, and status words.
+- **Version and changelog**: The version lives only in `src/bibcc/__init__.py`, and `pyproject.toml` reads it from there. Record user-visible changes in `CHANGELOG.md` under the top, unreleased version. For details, see [Versioning](#versioning).
+- **Venue library**: The venue library is user data, and BibCC never packages one. Commands read the merged user and project libraries with `bibcc.venues.load_library(args.venues or None, start=BIB_FILE)`, and treat that view as read-only. They write exactly one file, from `open_library(scope, ...)`, and log which scope and file they write. Shared libraries live in `examples/venues/`, and tests use `tests/conftest.py::MIAA_VENUES`. When you write YAML strings by hand, such as in the missing-venues file, quote them with `json.dumps` so that backslashes and quotes are escaped.
+- **Network access**: Go through `bibcc.sources.fetch_url` or `fetch_json`, so that tests can replace one function. Tests never use the network. Canned API responses live in `tests/fixtures/sources/`.
+- **Tests**: Add tests under `tests/` for new behavior.
 
 ## Branches
 
@@ -50,7 +55,7 @@ Write commit messages in lowercase, in the form `verb: short description`. For e
 
 BibCC follows [Semantic Versioning](https://semver.org/). The version lives only in [`src/bibcc/__init__.py`](src/bibcc/__init__.py), and `pyproject.toml` reads it from there. Each part of the version covers the following changes:
 
-- **Patch** (`0.2.1`): Bug fixes only.
+- **Patch** (`0.2.1`): Bug fixes and documentation fixes only.
 - **Minor** (`0.3.0`): New commands, options, or fields. Before `1.0.0`, a minor version can also include breaking changes. List them in the `Changed` or `Removed` section of the changelog.
 - **Major** (`1.0.0` onward): Incompatible changes to command-line options, output file names, or the venue library schema.
 
