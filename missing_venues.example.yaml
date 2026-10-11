@@ -1,6 +1,6 @@
-# Example *.missing_venues.yaml file
+# Example missing_venues.yaml file
 # When entries use venues that aren't in the venue library, `bibcc complete refs.bib`
-# writes this file to .bibcc/refs.bib.missing_venues.yaml. `bibcc add` and
+# writes this file to .bibcc/refs.bib/missing_venues.yaml. `bibcc add` and
 # `bibcc upgrade` write one for the entries they create.
 # To merge it, fill in the fields, and then run the following command (for the
 # project library, add --scope project):

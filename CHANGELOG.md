@@ -4,6 +4,33 @@ This file lists notable changes to BibCC. The format follows [Keep a Changelog](
 
 ## [0.4.0] - Unreleased
 
+### Added
+
+- **`add` with BibTeX that you downloaded yourself**: A `.bib` file or a directory of `.bib` files is now an identifier. `add` treats each entry as official BibTeX: it formats the entry, completes it from the venue library, and checks it for duplicates, without any lookup. A `% source: URL` comment line before an entry names where it came from, and the URL appears in the report.
+- **`add` fills in empty entries**: A paper that matches an empty entry of the staging file (same DOI, arXiv ID, title, or key) replaces that entry in place and keeps its key. Before, `add` skipped the paper as a duplicate. An empty entry in an `--against` file still counts as present.
+- **`add --retry`**: Looks up again the empty entries of the staging file and the papers that failed in its last report. You don't need to give any identifiers.
+- **`add` manifests**: `--from` accepts a `.csv` or `.tsv` file with an `identifier` column and optional `method`, `venue`, `year`, and `key` columns that set the parts of the key. The `venue` column also helps `add` find the official source of a paper whose metadata names no venue.
+- **`add` totals**: The end of each run gives the number of entries in the staging file, with and without fields.
+- **`check --strict`**: Exits with status 1 when a check finds something or the file has empty entries, so scripts and agents can rely on the exit status.
+- **`check --quote-apply`**: Wraps the terms from `--quote-terms` and `--quote-vocab-file` in braces in the titles, as a verified edit, and then reports what else might need braces. The built-in vocabulary and the other suggestions are never applied.
+- **`check --check-keys`**: Also checks that the AUTHOR part of each key is the first author's surname. Part of a compound surname and names without accents are accepted.
+- **`check` and empty entries**: `check` lists the empty entries that it skips, because they have no fields to check.
+
+### Changed
+
+- **Report layout**: Reports about an input now go to a directory of their own, `.bibcc/NAME/` (for example, `.bibcc/refs.bib/title_case.txt` instead of `.bibcc/refs.bib.title_case.txt`), and logs go to `.bibcc/NAME/logs/TOOL.log`. `--log-dir DIR` takes the place of `.bibcc/`. The first run on an input moves its 0.3 files into the new layout; it never deletes them.
+- **No nested `.bibcc` directories**: An input that is already inside a `.bibcc/` directory gets `reports/NAME/` next to it. Before, a scratch file in `.bibcc/` got a `.bibcc/.bibcc/` directory.
+- **No stale reports**: A check or a dry run that finds nothing removes its old report, and `format --check` writes no files.
+- The hint to merge a missing-venues file names `--scope project` when the input has a project venue library.
+
+### Fixed
+
+- Suggested keys keep accented surnames: `Zaj\k{a}c` gives `Zajac` instead of `Zaj`, and `{\v{S}}imon` gives `Simon` instead of an empty name.
+- `add` reads the BibTeX of CVF Open Access pages that break lines with `<br>` (ICCV 2017 and other older pages).
+- `add` recognizes legacy NeurIPS paper URLs (`papers.nips.cc` and `/paper/YEAR/hash/`) and reads them from `proceedings.neurips.cc`.
+- OpenReview messages tell apart a paper that wasn't accepted, an accepted paper without a BibTeX export, and a request that was blocked or failed. When CrossRef doesn't find a title either, the error still includes the OpenReview message.
+- Network requests are retried, with a short backoff, after dropped connections, timeouts, and SSL errors, not only after rate limits. Certificate failures aren't retried.
+
 ## [0.3.1] - 2026-10-11
 
 ### Changed
