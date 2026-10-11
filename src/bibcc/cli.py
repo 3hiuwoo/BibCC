@@ -7,23 +7,26 @@ as a subcommand so that the entire workflow can be driven from one entry point.
 Subcommands:
     check      Quality checks (missing fields, title case, term protection, …)
     complete   Auto-fill missing BibTeX fields from the venue library
-    add        Fetch papers by DOI, arXiv ID, or title into a staging .bib
-    upgrade    Replace arXiv preprints with their published versions
+    add        Download official BibTeX by DOI, arXiv ID, URL, or title
+    upgrade    Replace preprints with the official BibTeX of their published versions
     format     Reformat .bib files consistently (aligned fields, braces, month macros)
     librarian  Align a PDF library with a .bib file (missing / extra / rename)
     scholar    Citation counts and title verification via external APIs
     compose    Merge per-folder .bib files into a single bibliography
+    venues     Manage the user and project venue libraries
 
 Usage:
     bibcc check input.bib --fields month --title-case
     bibcc complete input.bib --output out.bib
     bibcc add 2501.13198 10.1109/TPAMI.2024.3429383 --against bibs/
     bibcc upgrade input.bib --in-place
+    bibcc upgrade --report-only bibs/
     bibcc format bibs/ --check
     bibcc librarian missing input.bib papers.txt
     bibcc scholar cite input.bib
     bibcc scholar titles input.bib
     bibcc compose compose ./bibs combined.bib
+    bibcc venues import miaa
 """
 
 from __future__ import annotations
@@ -36,13 +39,14 @@ from bibcc.helptext import ENV_S2, ENV_VENUES, epilog
 
 TOOLS = {
     "check": "Quality checks: missing fields, title case, braces, keys, field typos",
-    "complete": "Fill missing venue fields from the venue library",
-    "add": "Fetch papers by DOI, arXiv ID, or title into a staging .bib",
-    "upgrade": "Replace arXiv preprints with their published versions",
+    "complete": "Fill missing venue fields from the venue library and report conflicts",
+    "add": "Download official BibTeX by DOI, arXiv ID, URL, or title into a staging .bib",
+    "upgrade": "Replace preprints with the official BibTeX of their published versions",
     "format": "Reformat .bib files consistently (aligned fields, braces, month macros)",
     "librarian": "Align a PDF library with a .bib file: missing / extra / rename",
     "scholar": "Google Scholar citation counts and title verification",
     "compose": "Merge the .bib files of a folder tree into one bibliography",
+    "venues": "Manage the user and project venue libraries: where, init, import, examples",
 }
 
 # Tools exposing build_parser() + run(args) vs. a self-parsing main().
@@ -57,6 +61,7 @@ _MAIN_TOOLS = {
     "librarian": "bibcc.utils.librarian",
     "scholar": "bibcc.utils.scholar",
     "compose": "bibcc.utils.composer",
+    "venues": "bibcc.utils.venuelib",
 }
 
 
@@ -68,8 +73,15 @@ fields they change. Every result is parsed again and verified before anything
 is written. Reports go to a .bibcc/ folder next to the input file, and logs
 to .bibcc/logs/.
 
-add, upgrade, and scholar titles query CrossRef, arXiv, OpenReview, and
-Semantic Scholar; the other commands work offline."""
+add and upgrade download official BibTeX from the publisher or proceedings
+site (IEEE Xplore, Springer, PMLR, NeurIPS, ICLR, ACL, IJCAI, OpenReview,
+arXiv) after finding the paper through CrossRef, arXiv, OpenReview, and
+Semantic Scholar. scholar titles and complete --online also go online; the
+other commands work offline.
+
+Venue fields come from your own venue library: the user library
+(~/.config/bibcc/venues.yaml) merged with the project's .bibcc-venues.yaml.
+BibCC ships none; start from scratch or from a shared one ('bibcc venues -h')."""
 
 
 def usage_text() -> str:
@@ -84,8 +96,10 @@ def usage_text() -> str:
             ("check titles, braces, keys, field typos, and duplicates",
              "bibcc check bib/topic.bib --title-case --quote --check-keys --check-fields"),
             ("replace preprints with their published versions", "bibcc upgrade bib/topic.bib --in-place"),
+            ("only report which preprints have been published", "bibcc upgrade --report-only bib/"),
             ("give every file the same layout", "bibcc format bib/ --in-place"),
             ("merge the folder into one file for LaTeX", "bibcc compose compose bib/ references.bib"),
+            ("start your venue library from a shared one", "bibcc venues import miaa"),
         ],
         env=[ENV_VENUES, ENV_S2],
     )

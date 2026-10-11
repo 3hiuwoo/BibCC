@@ -2,9 +2,12 @@
 #
 # journals:    matched by name, any alias, or ISSN (year-agnostic).
 # proceedings: matched by name or alias AND the entry's publication year.
+#              name is the published proceedings' booktitle; interim maps a
+#              source (cvf, openreview) to the booktitle it uses before or
+#              instead of the proceedings.
 #
-# This file is rewritten by `bibcc complete --update-venues`; comments other
-# than this header are not preserved.
+# This file is rewritten by `bibcc complete --update-venues` and
+# `bibcc venues import`; comments other than this header are not preserved.
 
 journals:
 - name: ACM Transactions on Knowledge Discovery from Data
@@ -126,16 +129,57 @@ journals:
   fields:
     issn: 2835-8856
 proceedings:
+- name: 2026 IEEE/CVF Winter Conference on Applications of Computer Vision (WACV)
+  year: '2026'
+  interim:
+    cvf: Proceedings of the IEEE/CVF Winter Conference on Applications of Computer Vision (WACV)
+  fields:
+    venue: Tucson, AZ, USA
+    publisher: IEEE
+    month: March
+- name: International Conference on Learning Representations
+  year: '2026'
+  interim:
+    openreview: The Fourteenth International Conference on Learning Representations
+  fields: {}
+- name: Proceedings of the 43rd International Conference on Machine Learning
+  year: '2026'
+  interim:
+    openreview: Forty-third International Conference on Machine Learning
+  fields:
+    editor: Zhang, Tong and Dudik, Miroslav and Jaggi, Martin and Agarwal, Alekh and Li, Sharon and Schuurmans, Dale and Zhu, Jerry and Berkenkamp, Felix and Dong, Hanze and Bietti, Alberto
+    series: Proceedings of Machine Learning Research
+    publisher: PMLR
+    month: July
+    day: 06--11
+- name: Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)
+  year: '2026'
+  fields:
+    month: June
 - name: 2025 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)
   year: '2025'
+  interim:
+    cvf:
+    - Proceedings of the Computer Vision and Pattern Recognition Conference (CVPR)
+    - Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)
   fields:
     venue: Nashville, TN, USA
     issn: 2575-7075
     isbn: 979-8-3315-4364-8
     publisher: IEEE
     month: June
+- name: 2025 IEEE/CVF International Conference on Computer Vision (ICCV)
+  year: '2025'
+  interim:
+    cvf: Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV)
+  fields:
+    venue: Honolulu, HI, USA
+    publisher: IEEE
+    month: October
 - name: 2025 IEEE/CVF Winter Conference on Applications of Computer Vision (WACV)
   year: '2025'
+  interim:
+    cvf: Proceedings of the Winter Conference on Applications of Computer Vision (WACV)
   fields:
     venue: Tucson, AZ, USA
     issn: 2642-9381
@@ -158,7 +202,13 @@ proceedings:
     publisher: Association for Computational Linguistics
     month: July
     isbn: 979-8-89176-256-5
-    editor: Che, Wanxiang  and Nabende, Joyce  and Shutova, Ekaterina  and Pilehvar, Mohammad Taher
+    editor: Che, Wanxiang and Nabende, Joyce and Shutova, Ekaterina and Pilehvar, Mohammad Taher
+- name: International Conference on Learning Representations
+  year: '2025'
+  interim:
+    openreview: The Thirteenth International Conference on Learning Representations
+  fields:
+    venue: Singapore
 - name: Interspeech 2025
   year: '2025'
   fields:
@@ -184,6 +234,8 @@ proceedings:
     month: July
 - name: Proceedings of the 42nd International Conference on Machine Learning
   year: '2025'
+  interim:
+    openreview: Forty-second International Conference on Machine Learning
   fields:
     venue: Vancouver, BC, Canada
     editor: Singh, Aarti and Fazel, Maryam and Hsu, Daniel and Lacoste-Julien, Simon and Berkenkamp, Felix and Maharaj, Tegan and Wagstaff, Kiri and Zhu, Jerry
@@ -217,10 +269,6 @@ proceedings:
     publisher: Association for Computing Machinery
     venue: Hannover, Germany
     month: March
-- name: Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV)
-  year: '2025'
-  fields:
-    month: October
 - name: Proceedings of the Thirty-Fourth International Joint Conference on Artificial Intelligence, {IJCAI-25}
   year: '2025'
   fields:
@@ -229,15 +277,13 @@ proceedings:
     isbn: 978-1-956792-06-5
     publisher: International Joint Conferences on Artificial Intelligence Organization
     month: August
-- name: The Thirteenth International Conference on Learning Representations
-  year: '2025'
-  fields:
-    venue: Singapore
 - name: The Thirty-ninth Annual Conference on Neural Information Processing Systems
   year: '2025'
   fields: {}
 - name: 2024 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)
   year: '2024'
+  interim:
+    cvf: Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)
   fields:
     venue: Seattle, WA, USA
     issn: 2575-7075
@@ -246,6 +292,8 @@ proceedings:
     month: June
 - name: 2024 IEEE/CVF Winter Conference on Applications of Computer Vision (WACV)
   year: '2024'
+  interim:
+    cvf: Proceedings of the IEEE/CVF Winter Conference on Applications of Computer Vision (WACV)
   fields:
     venue: Waikoloa, HI, USA
     issn: 2642-9381
@@ -263,6 +311,8 @@ proceedings:
     publisher: Springer Nature Singapore
 - name: Advances in Neural Information Processing Systems
   year: '2024'
+  interim:
+    openreview: The Thirty-eighth Annual Conference on Neural Information Processing Systems
   fields:
     venue: Vancouver, BC, Canada
     editor: A. Globerson and L. Mackey and D. Belgrave and A. Fan and U. Paquet and J. Tomczak and C. Zhang
@@ -270,6 +320,13 @@ proceedings:
     address: Red Hook, NY, USA
     publisher: Curran Associates, Inc.
     month: December
+- name: International Conference on Learning Representations
+  year: '2024'
+  interim:
+    openreview: The Twelfth International Conference on Learning Representations
+  fields:
+    month: May
+    venue: Vienna, Austria
 - name: Medical Image Computing and Computer Assisted Intervention -- MICCAI 2024
   year: '2024'
   fields:
@@ -298,6 +355,8 @@ proceedings:
     series: MM '24
 - name: Proceedings of the 41st International Conference on Machine Learning
   year: '2024'
+  interim:
+    openreview: Forty-first International Conference on Machine Learning
   fields:
     venue: Vienna, Austria
     editor: Salakhutdinov, Ruslan and Kolter, Zico and Heller, Katherine and Weller, Adrian and Oliver, Nuria and Scarlett, Jonathan and Berkenkamp, Felix
@@ -322,11 +381,6 @@ proceedings:
     editor: Kate Larson
     publisher: International Joint Conferences on Artificial Intelligence Organization
     month: August
-- name: The Twelfth International Conference on Learning Representations
-  year: '2024'
-  fields:
-    month: May
-    venue: Vienna, Austria
 - name: 2023 IEEE International Conference on Systems, Man, and Cybernetics (SMC)
   year: '2023'
   fields:
@@ -337,6 +391,8 @@ proceedings:
     month: October
 - name: 2023 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)
   year: '2023'
+  interim:
+    cvf: Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)
   fields:
     venue: Vancouver, BC, Canada
     issn: 2575-7075
@@ -345,6 +401,8 @@ proceedings:
     month: June
 - name: 2023 IEEE/CVF Conference on Computer Vision and Pattern Recognition Workshops (CVPRW)
   year: '2023'
+  interim:
+    cvf: Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) Workshops
   fields:
     venue: Vancouver, BC, Canada
     issn: 2160-7516
@@ -353,6 +411,8 @@ proceedings:
     month: June
 - name: 2023 IEEE/CVF International Conference on Computer Vision (ICCV)
   year: '2023'
+  interim:
+    cvf: Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV)
   fields:
     venue: Paris, France
     issn: 2380-7504
@@ -361,6 +421,8 @@ proceedings:
     month: October
 - name: 2023 IEEE/CVF International Conference on Computer Vision Workshops (ICCVW)
   year: '2023'
+  interim:
+    cvf: Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV) Workshops
   fields:
     venue: Paris, France
     issn: 2473-9944
@@ -369,6 +431,8 @@ proceedings:
     month: October
 - name: 2023 IEEE/CVF Winter Conference on Applications of Computer Vision (WACV)
   year: '2023'
+  interim:
+    cvf: Proceedings of the IEEE/CVF Winter Conference on Applications of Computer Vision (WACV)
   fields:
     venue: Waikoloa, HI, USA
     issn: 2642-9381
@@ -377,6 +441,8 @@ proceedings:
     month: January
 - name: Advances in Neural Information Processing Systems
   year: '2023'
+  interim:
+    openreview: Thirty-seventh Conference on Neural Information Processing Systems
   fields:
     isbn: 978-1-7138-9992-1
     venue: New Orleans, LA, USA
@@ -423,6 +489,8 @@ proceedings:
     month: October
 - name: 2022 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)
   year: '2022'
+  interim:
+    cvf: Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)
   fields:
     venue: New Orleans, LA, USA
     issn: 2575-7075
@@ -431,6 +499,8 @@ proceedings:
     month: June
 - name: 2022 IEEE/CVF Conference on Computer Vision and Pattern Recognition Workshops (CVPRW)
   year: '2022'
+  interim:
+    cvf: Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) Workshops
   fields:
     venue: New Orleans, LA, USA
     issn: 2160-7516
@@ -474,6 +544,8 @@ proceedings:
     address: Palo Alto, California, USA
 - name: 2021 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)
   year: '2021'
+  interim:
+    cvf: Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)
   fields:
     venue: Nashville, TN, USA
     issn: 2575-7075
@@ -482,6 +554,8 @@ proceedings:
     month: June
 - name: 2021 IEEE/CVF Conference on Computer Vision and Pattern Recognition Workshops (CVPRW)
   year: '2021'
+  interim:
+    cvf: Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) Workshops
   fields:
     venue: Nashville, TN, USA
     issn: 2160-7516
@@ -490,6 +564,8 @@ proceedings:
     month: June
 - name: 2021 IEEE/CVF International Conference on Computer Vision (ICCV)
   year: '2021'
+  interim:
+    cvf: Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV)
   fields:
     venue: Montreal, QC, Canada
     publisher: IEEE
@@ -528,15 +604,16 @@ proceedings:
 - name: Proceedings of the AAAI Conference on Artificial Intelligence
   year: '2021'
   fields:
-    venue: Stockholmsmässan, Stockholm, Sweden
+    venue: Online
     publisher: AAAI Press
     month: May
     isbn: 978-1-57735-866-4
     issn: 2374-3468
-    series: Proceedings of Machine Learning Research
     address: Palo Alto, California, USA
 - name: 2020 IEEE Winter Conference on Applications of Computer Vision (WACV)
   year: '2020'
+  interim:
+    cvf: Proceedings of the IEEE/CVF Winter Conference on Applications of Computer Vision (WACV)
   fields:
     venue: Snowmass, CO, USA
     publisher: IEEE
@@ -545,6 +622,8 @@ proceedings:
     issn: 2642-9381
 - name: 2020 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)
   year: '2020'
+  interim:
+    cvf: Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)
   fields:
     venue: Seattle, WA, USA
     publisher: IEEE
@@ -571,6 +650,8 @@ proceedings:
     address: Cham
 - name: 2019 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)
   year: '2019'
+  interim:
+    cvf: Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)
   fields:
     venue: Long Beach, CA, USA
     issn: 2575-7075
@@ -579,6 +660,8 @@ proceedings:
     month: June
 - name: 2019 IEEE/CVF International Conference on Computer Vision (ICCV)
   year: '2019'
+  interim:
+    cvf: Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV)
   fields:
     venue: Seoul, Korea (South)
     issn: 2380-7504

@@ -88,6 +88,11 @@
     "value": "1939-3539",
     "type": "electronic"
    }
-  ]
+  ],
+  "resource": {
+   "primary": {
+    "URL": "https://ieeexplore.ieee.org/document/10599804/"
+   }
+  }
  }
 }

@@ -11,7 +11,9 @@ The default style matches the survey bibliography::
     }
 
 Entry types and field names are lowercased, ``=`` signs are aligned, values
-are braced (``"..."`` and bare numbers), months become bare macros, page
+are braced (``"..."`` and bare numbers) with one pair of braces (``{{...}}``
+becomes ``{...}`` outside ``author``/``editor``), every field but the last
+ends with a comma (missing ones are added), months become bare macros, page
 ranges use ``--``, and entries are separated by one blank line.  Field values are otherwise copied
 verbatim.  Text between entries (``%`` comments, ``@string``/``@comment``
 blocks) is kept; only the blank lines around it are normalised.
@@ -69,6 +71,8 @@ from bibcc.logging_utils import (
 
 _BOM = "\ufeff"
 _HOISTED_BLOCK = re.compile(r"^[ \t]*@\s*(string|preamble)\s*[{(]", re.IGNORECASE | re.MULTILINE)
+# Double braces in name lists keep a corporate author ({{World Health Organization}}) as one name.
+_NAME_FIELDS = frozenset({"author", "editor"})
 
 
 @dataclass
@@ -79,6 +83,7 @@ class FormatOptions:
     field_order: Sequence[str] = tuple(FIELD_ORDER)
     sort_entries: bool = False
     braces: bool = True  # "..." and bare numbers become {...}
+    outer_braces: bool = True  # {{...}} becomes {...} (except in name lists)
     months: bool = True  # month values become bare macros (jun)
     pages: bool = True  # page ranges use "--" (12-15 -> 12--15)
     align: bool = True
@@ -127,23 +132,54 @@ def _is_empty(raw: str) -> bool:
     return len(tokens) == 1 and tokens[0][:1] in '{"' and not unwrap(tokens[0]).strip()
 
 
+def _inner_group(text: str) -> Optional[str]:
+    """The content of *text* if it is one brace group (``{...}``), else None.
+
+    A group opening with a backslash (``{\\"o}``) is a BibTeX special
+    character, which behaves differently once it loses its braces, so it does
+    not count.
+    """
+    text = text.strip()
+    if len(text) < 2 or text[0] != "{" or text[-1] != "}" or text.startswith("{\\"):
+        return None
+    depth = 0
+    for i, ch in enumerate(text):
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0 and i < len(text) - 1:
+                return None
+    return text[1:-1] if depth == 0 else None
+
+
+def _strip_outer(value: str) -> str:
+    """*value* (the text inside the field's braces) without redundant brace pairs."""
+    inner = _inner_group(value)
+    while inner is not None:
+        value = inner
+        inner = _inner_group(value)
+    return value
+
+
 def _convert(name: str, raw: str, options: FormatOptions) -> str:
     """Return the formatted value text for field *name* with raw value *raw*."""
     tokens = value_tokens(raw)
     if len(tokens) != 1:
         return raw
     token = tokens[0]
+    if options.braces and token.startswith('"') and balanced(unwrap(token)):
+        token = "{" + unwrap(token) + "}"
+    if options.outer_braces and name not in _NAME_FIELDS and token.startswith("{"):
+        token = "{" + _strip_outer(token[1:-1]) + "}"
     if name == "month" and options.months:
         macro = month_macro(unwrap(token))
         if macro:
             return macro
     if name == "pages" and options.pages and token[:1] in '{"':
         token = token[0] + page_range(unwrap(token)) + token[-1]
-    if options.braces:
-        if token.startswith('"') and balanced(unwrap(token)):
-            return "{" + unwrap(token) + "}"
-        if token.isascii() and token.isdigit():
-            return "{" + token + "}"
+    if options.braces and token.isascii() and token.isdigit():
+        return "{" + token + "}"
     return token
 
 
@@ -320,6 +356,25 @@ def _month_of(value) -> Optional[str]:
     return month_macro(canon)
 
 
+def _with_commas(text: str, entries: List[EntrySpan]) -> str:
+    """*text* with the commas that are missing after keys and between fields inserted.
+
+    The scanner reads entries without them, but bibtexparser does not, so the
+    input is repaired before it is parsed for comparison.
+    """
+    inserts: List[int] = []
+    for entry in entries:
+        spans = list(entry.fields.values())
+        ends = [entry.key_end] + [f.value_end for f in spans[:-1]] if spans else []
+        for pos in ends:
+            rest = text[pos:entry.closer].lstrip()
+            if not rest.startswith(","):
+                inserts.append(pos)
+    for pos in reversed(inserts):
+        text = text[:pos] + "," + text[pos:]
+    return text
+
+
 def _verify(old: str, new: str, options: FormatOptions) -> None:
     """Raise BibEditError unless *new* holds the same bibliography as *old*."""
     old_spans, new_spans = scan(old), scan(new)
@@ -334,8 +389,15 @@ def _verify(old: str, new: str, options: FormatOptions) -> None:
     if old_lines != new_lines:
         raise BibEditError("formatting changed the text between entries")
 
-    old_db, new_db = _parse(old), _parse(new)
-    for label, db, keys in (("input", old_db, old_keys), ("output", new_db, expected)):
+    # bibtexparser skips entries without fields (bibcc add's empty entries); compare the others.
+    empty = {e.key for e in old_spans if not e.fields}
+    if empty != {e.key for e in new_spans if not e.fields}:
+        raise BibEditError("formatting changed which entries have no fields")
+    old_db, new_db = _parse(_with_commas(old, old_spans)), _parse(new)
+    for label, db, keys in (
+        ("input", old_db, [k for k in old_keys if k not in empty]),
+        ("output", new_db, [k for k in expected if k not in empty]),
+    ):
         parsed = [e["ID"] for e in db.entries]
         if sorted(parsed) != sorted(keys):
             missing = sorted(set(keys) - set(parsed)) or sorted(set(parsed) - set(keys))
@@ -361,6 +423,8 @@ def _verify(old: str, new: str, options: FormatOptions) -> None:
             if name not in old_entry:
                 raise BibEditError(f"formatting added field '{name}' to '{key}'")
             old_value, new_value = old_entry[name], new_entry[name]
+            if options.outer_braces and name not in _NAME_FIELDS and isinstance(old_value, str):
+                old_value = _strip_outer("{" + old_value + "}")
             if _canon(old_value) == _canon(new_value):
                 continue
             if name == "month" and _month_of(old_value) and _month_of(old_value) == _month_of(new_value):
@@ -539,6 +603,9 @@ entry. The default style:
 - lowercase entry types and field names, two-space indent, aligned '='
 - "..." values and bare numbers become {...}; # concatenations and macros
   such as @string names are kept
+- values wrapped in extra braces get one pair ({{Title}} -> {Title}), except
+  author and editor, where {{...}} keeps a corporate name together
+- a comma follows every field but the last; missing commas are added
 - months become macros ({June}, "6", Jun. -> jun)
 - page ranges use a double hyphen (12-15 -> 12--15)
 - one blank line between entries, one newline at the end of the file
@@ -596,6 +663,11 @@ run that writes one diff per changed file.""",
         "entry moves with it; @string and @preamble blocks stay at the top.",
     )
     style.add_argument("--keep-quotes", action="store_true", help='Keep "..." values and bare numbers as they are.')
+    style.add_argument(
+        "--keep-outer-braces",
+        action="store_true",
+        help="Keep values wrapped in extra braces ({{...}}) as they are.",
+    )
     style.add_argument("--keep-months", action="store_true", help="Do not turn month values into macros (jun).")
     style.add_argument("--keep-pages", action="store_true", help="Do not turn page ranges like 12-15 into 12--15.")
     style.add_argument("--no-align", action="store_true", help="Write 'name = value' without aligning '='.")
@@ -633,6 +705,7 @@ def run(args: argparse.Namespace) -> None:
         field_order=tuple(f.strip().lower() for f in args.field_order.split(",") if f.strip()),
         sort_entries=args.sort_entries,
         braces=not args.keep_quotes,
+        outer_braces=not args.keep_outer_braces,
         months=not args.keep_months,
         pages=not args.keep_pages,
         align=not args.no_align,

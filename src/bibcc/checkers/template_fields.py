@@ -1,8 +1,8 @@
 """
 Venue library completeness checker.
 
-Inspects the journal and proceedings records in the venue library
-(``bibcc/data/venues.yaml``) for missing fields (publisher, ISSN, venue, etc.).  Supports per-venue
+Inspects the journal and proceedings records of a venue library file (see
+:mod:`bibcc.venues`) for missing fields (publisher, ISSN, venue, etc.).  Supports per-venue
 field overrides so that specific conferences can require additional fields
 (e.g., ECCV → ``series``, some conferences → ``editor``).
 

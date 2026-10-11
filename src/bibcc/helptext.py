@@ -23,15 +23,26 @@ from __future__ import annotations
 import argparse
 from typing import Optional, Sequence, Tuple
 
-from bibcc.venues import DEFAULT_LIBRARY_PATH, LIBRARY_ENV_VAR
+from bibcc.venues import LIBRARY_ENV_VAR, PROJECT_LIBRARY_NAME, USER_LIBRARY_DISPLAY
 
-DOCS_URL = "https://github.com/3hiuwoo/BibCC#readme"
+REPO = "3hiuwoo/BibCC"
+DOCS_URL = f"https://github.com/{REPO}#readme"
 
-ENV_VENUES: Tuple[str, str] = (LIBRARY_ENV_VAR, "venue library to use when --venues is not given")
+ENV_VENUES: Tuple[str, str] = (
+    LIBRARY_ENV_VAR,
+    f"user venue library file (default: $XDG_CONFIG_HOME/bibcc/venues.yaml, i.e. {USER_LIBRARY_DISPLAY})",
+)
 ENV_S2: Tuple[str, str] = ("S2_API_KEY", "Semantic Scholar API key (without one, requests are soon rate limited)")
 
 VENUES_HELP = (
-    f"Venue library YAML (default: ${LIBRARY_ENV_VAR}, else the bundled {DEFAULT_LIBRARY_PATH})."
+    "Use only this venue library YAML. By default the user library "
+    f"(${LIBRARY_ENV_VAR}, else {USER_LIBRARY_DISPLAY}) is used, merged with the nearest "
+    f"{PROJECT_LIBRARY_NAME} above the .bib file, whose values win (see 'bibcc venues -h')."
+)
+
+SCOPE_HELP = (
+    f"Venue library to write to: 'user' (default, ${LIBRARY_ENV_VAR} or {USER_LIBRARY_DISPLAY}) "
+    f"or 'project' (the nearest {PROJECT_LIBRARY_NAME} above the .bib file)."
 )
 
 

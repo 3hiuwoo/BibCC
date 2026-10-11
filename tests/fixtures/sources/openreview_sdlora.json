@@ -28,6 +28,9 @@
       "Kede Ma",
       "Ying Wei"
      ]
+    },
+    "_bibtex": {
+     "value": "@inproceedings{DBLP:conf/iclr/WuPHW0PMM025,\n  author={Yichen Wu and Hongming Piao and Long-Kai Huang and Renzhen Wang and Wanhua Li and Hanspeter Pfister and Deyu Meng and Kede Ma and Ying Wei},\n  title={SD-LoRA: Scalable Decoupled Low-Rank Adaptation for Class Incremental Learning},\n  year={2025},\n  cdate={1735689600000},\n  url={https://openreview.net/forum?id=5U1rlpX68A},\n  booktitle={ICLR},\n  crossref={conf/iclr/2025}\n}\n"
     }
    }
   },
@@ -56,6 +59,9 @@
       "Kede Ma",
       "Ying Wei"
      ]
+    },
+    "_bibtex": {
+     "value": "@inproceedings{\nwu2025sdlora,\ntitle={{SD}-Lo{RA}: Scalable Decoupled Low-Rank Adaptation for Class Incremental Learning},\nauthor={Yichen Wu and Hongming Piao and Long-Kai Huang and Renzhen Wang and Wanhua Li and Hanspeter Pfister and Deyu Meng and Kede Ma and Ying Wei},\nbooktitle={The Thirteenth International Conference on Learning Representations},\nyear={2025},\nurl={https://openreview.net/forum?id=5U1rlpX68A}\n}"
     }
    }
   },
@@ -87,6 +93,9 @@
       "Kede Ma",
       "Ying Wei"
      ]
+    },
+    "_bibtex": {
+     "value": "@article{DBLP:journals/corr/abs-2501-13198,\n  publtype={informal},\n  author={Yichen Wu and Hongming Piao and Long-Kai Huang and Renzhen Wang and Wanhua Li and Hanspeter Pfister and Deyu Meng and Kede Ma and Ying Wei},\n  title={S-LoRA: Scalable Low-Rank Adaptation for Class Incremental Learning},\n  year={2025},\n  month={January},\n  cdate={1735689600000},\n  journal={CoRR},\n  volume={abs/2501.13198},\n  url={https://doi.org/10.48550/arXiv.2501.13198}\n}\n"
     }
    }
   }

@@ -1,7 +1,8 @@
 from pathlib import Path
+from types import SimpleNamespace
 
 from bibcc.utils.composer import compose_bibliographies
-from bibcc.utils.librarian import match_title_to_bib, parse_bib_entries, parse_library
+from bibcc.utils.librarian import cmd_rename, match_title_to_bib, parse_bib_entries, parse_library
 
 BIB = """\
 @inproceedings{Braced_2024,
@@ -32,7 +33,32 @@ def test_librarian_reads_braced_and_quoted_titles(tmp_path: Path):
     assert entries["NoTitle_2022"]["title_raw"] == ""
     assert entries["Quoted_2023"]["raw"].startswith("@article{Quoted_2023,")
     assert entries["Quoted_2023"]["raw"].endswith("}")
-    assert match_title_to_bib("a quoted title with subtitle", entries) == "Quoted_2023"
+    assert match_title_to_bib("a quoted title with subtitle", entries) == ["Quoted_2023"]
+
+
+def test_librarian_rename_skips_titles_shared_by_several_entries(tmp_path: Path):
+    bib = tmp_path / "refs.bib"
+    bib.write_text(
+        "@inproceedings{LwF_Li_ECCV2016, title = {Learning without Forgetting}}\n"
+        "@article{LwF_Li_TPAMI2018, title = {Learning without Forgetting}}\n"
+        "@article{Other_A_PR2024, title = {Another Title}}\n",
+        encoding="utf-8",
+    )
+    pdfs = tmp_path / "pdfs"
+    pdfs.mkdir()
+    (pdfs / "Li - 2016 - Learning without Forgetting.pdf").write_bytes(b"")
+    (pdfs / "A - 2024 - Another Title.pdf").write_bytes(b"")
+
+    logs = []
+    cmd_rename(bib, pdfs, dry_run=False, logger=SimpleNamespace(log=logs.append))
+
+    assert sorted(p.name for p in pdfs.iterdir()) == [
+        "Li - 2016 - Learning without Forgetting.pdf",
+        "Other_A_PR2024.pdf",
+    ]
+    assert any("LwF_Li_ECCV2016, LwF_Li_TPAMI2018" in line for line in logs)
+    report = (tmp_path / ".bibcc" / "refs.bib.rename_report.txt").read_text(encoding="utf-8")
+    assert "1 ambiguous" in report
 
 
 def test_librarian_library_listing_encodings(tmp_path: Path):

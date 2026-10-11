@@ -87,6 +87,16 @@ def test_rewriting_an_equivalent_macro_month_is_a_no_op():
     assert new == text and applied == []
 
 
+def test_insert_longer_name_widens_the_entry_column():
+    text = "% c\n@article{k,\n  title  = {T},\n  year   = {2024},\n  pages  = {1--2}\n}\n\n@misc{o,\n  a = {b}\n}\n"
+    new, applied = set_fields(text, {"k": {"publisher": "IEEE", "pages": "1--3"}})
+    assert new == (
+        "% c\n@article{k,\n  title     = {T},\n  year      = {2024},\n  pages     = {1--3},\n"
+        "  publisher = {IEEE}\n}\n\n@misc{o,\n  a = {b}\n}\n"
+    )
+    assert [(a.field, a.action) for a in applied] == [("pages", "replaced"), ("publisher", "added")]
+
+
 def test_insert_with_trailing_comma_and_unaligned_fields():
     text = "@article{k,\n    title = {T},\n    year = {2024},\n}\n"
     new, _ = set_fields(text, {"k": {"issn": "1234-5678"}})

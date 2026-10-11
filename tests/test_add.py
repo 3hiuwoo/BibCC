@@ -3,18 +3,22 @@ from pathlib import Path
 import bibtexparser
 import pytest
 
-from bibcc import sources
+from bibcc import official, sources
 from bibcc.adder import (
+    EMPTY_ENTRY_MARK,
     add_papers,
+    build_entry,
     first_author_surname,
     format_entry,
     latex_escape,
     suggest_key,
+    venue_proposals,
 )
 from bibcc.checkers.citation_keys import _KEY_PATTERN, abbreviate_venue
 from bibcc.checkers.smart_protection import protect_terms
 from bibcc.cli import main
 from bibcc.venues import VenueLibrary
+from conftest import MIAA_VENUES
 
 SOURCES = Path(__file__).parent / "fixtures" / "sources"
 
@@ -38,11 +42,19 @@ class FakeWeb:
         return None, "HTTP 404: Not Found"
 
 
+XPLORE_EXPORT = "ieeexplore.ieee.org/rest/search/citation/format?recordIds="
+SDLORA_TITLE = "SD-LoRA: Scalable Decoupled Low-Rank Adaptation for Class Incremental Learning"
+
 DEFAULT_ROUTES = {
     "api.crossref.org/works/10.1109/TPAMI.2024.3429383": (_fixture("crossref_tpami.json"), None),
     "api.crossref.org/works/10.1007/978-3-031-72667-5_1": (_fixture("crossref_eccv.json"), None),
     "export.arxiv.org/api/query?id_list=2603.03818": (_fixture("arxiv_2603.03818.xml"), None),
     "semanticscholar.org/graph/v1/paper/search/match": (_fixture("s2_sdlora_match.json"), None),
+    # Official BibTeX exports.
+    XPLORE_EXPORT + "10599804": (_fixture("xplore_10599804.json"), None),
+    "citation-needed.springer.com/v2/references/10.1007/978-3-031-72667-5_1": (
+        _fixture("springer_eccv2024.bib"), None),
+    "arxiv.org/bibtex/2603.03818": (_fixture("arxiv_2603.03818.bib"), None),
 }
 
 
@@ -50,12 +62,14 @@ DEFAULT_ROUTES = {
 def web(monkeypatch):
     fake = FakeWeb(dict(DEFAULT_ROUTES))
     monkeypatch.setattr(sources, "fetch_url", fake)
-    return fake
+    official.clear_cache()
+    yield fake
+    official.clear_cache()
 
 
 @pytest.fixture
 def library():
-    return VenueLibrary.load()
+    return VenueLibrary.load(MIAA_VENUES)
 
 
 def _entries(path: Path):
@@ -114,10 +128,8 @@ def test_crossref_book_chapter_becomes_inproceedings():
     assert "\u00a0" not in record.fields["title"]
 
 
-def test_crossref_proceedings_journal_becomes_inproceedings(library):
+def test_crossref_proceedings_journal_becomes_inproceedings():
     import json
-
-    from bibcc.adder import polish
 
     msg = json.loads(_fixture("crossref_tpami.json"))["message"]
     msg.update({
@@ -128,65 +140,114 @@ def test_crossref_proceedings_journal_becomes_inproceedings(library):
     assert record.entry_type == "inproceedings"
     assert record.fields["booktitle"] == "Proceedings of the AAAI Conference on Artificial Intelligence"
     assert "journal" not in record.fields and "issn" not in record.fields
-    fields, _ = polish(record, library)
-    assert fields["booktitle"] == "Proceedings of the {AAAI} Conference on Artificial Intelligence"
-    assert fields["publisher"] == "AAAI Press"  # AAAI 2025 record of the venue library
-
-    # An edition missing from the library borrows stable fields from the previous one.
-    msg["published-print"] = {"date-parts": [[2031, 3]]}
-    fields, notes = polish(sources.record_from_crossref(msg), library)
-    assert fields["publisher"] == "AAAI Press"
-    assert fields["address"] == "Washington, DC, USA"
-    assert "venue" not in fields  # the location changes every year
-    assert any("from the 2025 edition" in n for n in notes)
+    assert record.extra["landing_url"] == "https://ieeexplore.ieee.org/document/10599804/"
 
 
-def test_add_doi_uses_library_fields_and_survey_format(web, library, tmp_path):
+def _xplore_text(name: str = "xplore_10599804.json") -> str:
+    import json
+
+    return json.loads(_fixture(name))["data"].replace("\r\n", "\n")
+
+
+def test_build_entry_completes_from_library_and_reports_differences(library):
+    text = _xplore_text().replace("  year={2024},", "  year={2024},\n  publisher={Someone Else},")
+    built = build_entry(official.Official("IEEE Xplore", "u", text), library)
+    assert built.entry_type == "article"
+    assert built.fields["issn"] == "1939-3539"  # added from the library
+    assert built.fields["publisher"] == "Someone Else"  # never overwritten...
+    assert any("publisher: official 'Someone Else' kept" in n for n in built.notes)  # ...but reported
+    assert built.fields["pages"] == "9851--9873"
+    assert "keywords" not in built.fields
+
+
+def test_build_entry_adds_located_doi_when_official_has_none(library):
+    built = build_entry(official.Official("Springer", "u", _fixture("springer_eccv2024.bib")), library,
+                        doi="10.1007/978-3-031-72667-5_1")
+    assert built.fields["doi"] == "10.1007/978-3-031-72667-5_1"
+    assert built.fields["booktitle"] == "Computer Vision -- {ECCV} 2024"
+
+
+def test_build_entry_interim_booktitle_only_gets_event_fields(library):
+    import json
+
+    notes = json.loads(_fixture("openreview_sdlora.json"))["notes"]
+    bibtex = next(n for n in notes if n["id"] == "5U1rlpX68A")["content"]["_bibtex"]["value"]
+    built = build_entry(official.Official("OpenReview", "u", bibtex, interim="openreview"), library)
+    assert built.fields["booktitle"] == "The Thirteenth International Conference on Learning Representations"
+    assert built.fields["venue"] == "Singapore"
+    assert built.completion.interim_source == "openreview"
+    assert any("interim BibTeX from OpenReview" in n for n in built.notes)
+
+
+def test_venue_proposals_for_new_proceedings_link_interim_record(library):
+    text = _xplore_text("xplore_11095062.json").replace("2025", "2026")
+    xplore = official.Official("IEEE Xplore", "u", text)
+    built = build_entry(xplore, library)
+    assert built.completion.status == "missing"
+    (proposal,) = venue_proposals(built, xplore, library, "Unified_Kumar_CVPR2026")
+    assert proposal.name == "2026 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)"
+    assert proposal.collected_label == "from official BibTeX"
+    # The library's CVPR 2026 record still has the CVF name; merging the proposal renames it.
+    assert proposal.interim == {
+        "cvf": ["Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)"]
+    }
+
+
+def test_add_doi_uses_official_bibtex_and_library_fields(web, library, tmp_path):
     out = tmp_path / "added.bib"
     summary = add_papers(["10.1109/TPAMI.2024.3429383"], out, library, delay=0, log=lambda _: None)
     assert summary["added"] == [("10.1109/TPAMI.2024.3429383", "ClassIncremental_Zhou_TPAMI2024")]
     text = out.read_text()
     assert "@article{ClassIncremental_Zhou_TPAMI2024,\n  title     = {Class-Incremental" in text
-    assert "  month     = dec,\n" in text
     assert "  journal   = {{IEEE} Transactions on Pattern Analysis" in text
     entry = _entries(out)["ClassIncremental_Zhou_TPAMI2024"]
-    assert entry["publisher"] == "IEEE"  # library wins over CrossRef's long name
+    assert entry["publisher"] == "IEEE"  # from the library
     assert entry["issn"] == "1939-3539"
-    assert entry["doi"] == "10.1109/TPAMI.2024.3429383"  # caller's casing kept
+    assert entry["doi"] == "10.1109/TPAMI.2024.3429383"
+    assert entry["pages"] == "9851--9873"
+    assert entry["number"] == "12"
+    assert "keywords" not in entry
     assert entry["author"].startswith("Zhou, Da-Wei and Wang, Qi-Wei")
+    assert any(XPLORE_EXPORT + "10599804" in call for call in web.calls)
 
 
-def test_add_eccv_chapter_matches_library_record(web, library, tmp_path):
+def test_add_eccv_chapter_uses_springer_bibtex(web, library, tmp_path):
     out = tmp_path / "added.bib"
     add_papers(["10.1007/978-3-031-72667-5_1"], out, library, delay=0, log=lambda _: None)
     entry = _entries(out)["ScaleDreamer_Ma_ECCV2025"]
     assert entry["booktitle"] == "Computer Vision -- {ECCV} 2024"
-    assert entry["venue"] == "Milan, Italy"
+    assert entry["venue"] == "Milan, Italy"  # from the library
+    assert entry["editor"].startswith("Leonardis, Ale{\\v{s}} and Ricci, Elisa")
     assert entry["doi"] == "10.1007/978-3-031-72667-5_1"
-    assert "doi       = {10.1007/978-3-031-72667-5_1}" in out.read_text()
+    assert "abstract" not in entry
 
 
-def test_add_arxiv_without_published_version_stays_misc(web, library, tmp_path):
+def test_add_arxiv_without_published_version_uses_arxiv_bibtex(web, library, tmp_path):
     out = tmp_path / "added.bib"
     add_papers(["https://arxiv.org/abs/2603.03818v2"], out, library, delay=0, log=lambda _: None)
     entry = _entries(out)["PretrainedVision_Liu_arXiv2026"]
     assert entry["ENTRYTYPE"] == "misc"
     assert entry["eprint"] == "2603.03818"
     assert entry["archiveprefix"] == "arXiv"
+    assert entry["primaryclass"] == "cs.LG"
     assert entry["url"] == "https://arxiv.org/abs/2603.03818"
     assert entry["title"].startswith("Pretrained Vision-Language-Action Models Are")
     assert any("arXiv:2603.03818" in call for call in web.calls)  # looked for a published version
 
 
-def test_add_title_resolves_iclr_paper_via_dblp_key(web, library, tmp_path):
+def test_add_title_of_iclr_paper_not_in_proceedings_gets_openreview_bibtex(web, library, tmp_path):
+    web.routes["api2.openreview.net"] = (_fixture("openreview_sdlora.json"), None)
     out = tmp_path / "added.bib"
-    title = "SD-LoRA: Scalable Decoupled Low-Rank Adaptation for Class Incremental Learning"
-    add_papers([title], out, library, delay=0, log=lambda _: None)
+    lines = []
+    add_papers([SDLORA_TITLE], out, library, delay=0, log=lines.append)
     entry = _entries(out)["SD-LoRA_Wu_ICLR2025"]
     assert entry["ENTRYTYPE"] == "inproceedings"
     assert entry["booktitle"] == "The Thirteenth International Conference on Learning Representations"
     assert entry["venue"] == "Singapore"
+    assert entry["url"] == "https://openreview.net/forum?id=5U1rlpX68A"
     assert entry["title"].startswith("{SD-LoRA}: Scalable")
+    assert any("interim BibTeX from OpenReview" in line for line in lines)
+    assert any("proceedings.iclr.cc/paper_files/paper/2025" in call for call in web.calls)
 
 
 def test_add_arxiv_finds_published_version_via_crossref_search(web, library, tmp_path):
@@ -206,33 +267,108 @@ def test_add_arxiv_finds_published_version_via_crossref_search(web, library, tmp
     assert _entries(out)["ClassIncremental_Zhou_TPAMI2024"]["ENTRYTYPE"] == "article"
 
 
-def test_add_arxiv_published_via_dblp_keeps_arxiv_author_names(web, library, tmp_path):
+def test_add_arxiv_published_at_iclr_uses_iclr_proceedings(web, library, tmp_path):
     import json
 
+    title = "Generalization and Distributed Learning of GFlowNets"
+    web.routes["id_list=2603.03818"] = (_fixture("arxiv_2603.03818.xml").replace(
+        "Pretrained Vision-Language-Action Models are Surprisingly Resistant to Forgetting in Continual Learning",
+        title), None)
     web.routes["paper/arXiv:2603.03818"] = (json.dumps({
-        "title": (
-            "Pretrained Vision-Language-Action Models are Surprisingly Resistant to Forgetting in Continual Learning"
-        ),
-        "externalIds": {"DBLP": "conf/iclr/LiuKLLZ25", "ArXiv": "2603.03818"},
-        "authors": [{"name": "H. Liu"}],
+        "title": title,
+        "externalIds": {"DBLP": "conf/iclr/SilvaSRGKM25", "ArXiv": "2603.03818"},
+        "authors": [{"name": "T. Silva"}],
     }), None)
+    web.routes["proceedings.iclr.cc/paper_files/paper/2025/hash/"] = ("", None)
+    web.routes["proceedings.iclr.cc/paper_files/paper/2025/file/000eba875068854d5ff003b1fa534cd6-Bibtex.bib"] = (
+        _fixture("iclr_000eba87.bib"), None)
+    web.routes["proceedings.iclr.cc/paper_files/paper/2025"] = (_fixture("iclr_2025_listing.html"), None)
     out = tmp_path / "added.bib"
-    add_papers(["2603.03818"], out, library, delay=0, log=lambda _: None)
-    entry = _entries(out)["PretrainedVision_Liu_ICLR2025"]
-    assert entry["author"].startswith("Huihan Liu and Changyeon Kim")
-    assert entry["booktitle"] == "The Thirteenth International Conference on Learning Representations"
+    summary = add_papers(["2603.03818"], out, library, delay=0, log=lambda _: None)
+    (key,) = [k for _, k in summary["added"]]
+    entry = _entries(out)[key]
+    assert key.endswith("_Silva_ICLR2025")
+    assert entry["booktitle"] == "International Conference on Learning Representations"
+    assert entry["author"].startswith("Silva, Tiago and Souza, Amauri")
+    assert entry["venue"] == "Singapore"  # library record matched by its published name
+    assert "{GFlowNets}" in entry["title"]
 
 
 def test_add_title_uses_openreview_when_s2_is_rate_limited(web, library, tmp_path):
     web.routes["semanticscholar.org/graph/v1/paper/search/match"] = (None, "HTTP 429: Too Many Requests")
     web.routes["api2.openreview.net"] = (_fixture("openreview_sdlora.json"), None)
     out = tmp_path / "added.bib"
-    title = "SD-LoRA: Scalable Decoupled Low-Rank Adaptation for Class Incremental Learning"
-    add_papers([title], out, library, delay=0, log=lambda _: None)
+    add_papers([SDLORA_TITLE], out, library, delay=0, log=lambda _: None)
     entry = _entries(out)["SD-LoRA_Wu_ICLR2025"]
     assert entry["booktitle"] == "The Thirteenth International Conference on Learning Representations"
     assert entry["url"] == "https://openreview.net/forum?id=5U1rlpX68A"  # the conference's note
     assert entry["author"].startswith("Yichen Wu and Hongming Piao")
+
+
+def test_add_paper_page_url(web, library, tmp_path):
+    web.routes["proceedings.mlr.press/v235/abad-rocamora24a.html"] = (_fixture("pmlr_abad-rocamora24a.html"), None)
+    out = tmp_path / "added.bib"
+    summary = add_papers(["https://proceedings.mlr.press/v235/abad-rocamora24a.html"], out, library,
+                         delay=0, log=lambda _: None)
+    (key,) = [k for _, k in summary["added"]]
+    assert key.endswith("_AbadRocamora_ICML2024")
+    entry = _entries(out)[key]
+    assert entry["booktitle"] == "Proceedings of the 41st International Conference on Machine Learning"
+    assert entry["month"] == "July" or entry["month"].lower().startswith("jul")
+    assert entry["day"] == "21--27"
+    assert entry["venue"] == "Vienna, Austria"  # from the library
+    assert "pdf" not in entry and "abstract" not in entry
+
+
+def test_add_writes_empty_entry_when_publisher_blocks_downloads(web, library, tmp_path):
+    import json
+
+    msg = json.loads(_fixture("crossref_tpami.json"))["message"]
+    msg.pop("resource")
+    msg.update({
+        "DOI": "10.1609/aaai.v39i1.30001",
+        "title": ["Continual Learning for Everyone"],
+        "container-title": ["Proceedings of the AAAI Conference on Artificial Intelligence"],
+        "published-print": {"date-parts": [[2025, 4]]},
+    })
+    web.routes["api.crossref.org/works/10.1609/aaai.v39i1.30001"] = (json.dumps({"message": msg}), None)
+    out = tmp_path / "added.bib"
+    summary = add_papers(["10.1609/aaai.v39i1.30001"], out, library, delay=0, log=lambda _: None)
+    ((_, key, reason),) = summary["empty"]
+    assert key == "ContinualLearning_Zhou_AAAI2025"
+    assert "AAAI blocks" in reason
+    text = out.read_text()
+    assert f"{EMPTY_ENTRY_MARK} could be downloaded" in text
+    assert "%   doi:    10.1609/aaai.v39i1.30001\n" in text
+    assert "%   get it: https://doi.org/10.1609/aaai.v39i1.30001\n" in text
+    assert f"@inproceedings{{{key},\n}}" in text
+    assert not any("ieeexplore" in c for c in web.calls)
+
+    # The empty entry counts as present: adding the paper again is a duplicate.
+    again = add_papers(["10.1609/aaai.v39i1.30001"], out, library, delay=0, log=lambda _: None)
+    assert again["duplicates"][0][1].key == key
+    assert out.read_text() == text
+
+
+def test_add_download_error_writes_nothing(web, library, tmp_path):
+    web.routes[XPLORE_EXPORT + "10599804"] = (None, "HTTP 503: Service Unavailable")
+    out = tmp_path / "added.bib"
+    summary = add_papers(["10.1109/TPAMI.2024.3429383"], out, library, delay=0, log=lambda _: None)
+    assert summary["added"] == [] and "503" in summary["failed"][0][1]
+    assert not out.exists()
+
+
+def test_add_proposes_missing_venue_in_yaml(web, library, tmp_path):
+    web.routes["aclanthology.org/2023.acl-long.1.bib"] = (_fixture("acl_2023.acl-long.1.bib").replace(
+        "61st Annual Meeting", "99th Annual Meeting"), None)
+    web.routes["api.crossref.org/works/10.18653"] = (None, "HTTP 404: Not Found")
+    out = tmp_path / "added.bib"
+    summary = add_papers(["https://aclanthology.org/2023.acl-long.1/"], out, library, delay=0,
+                         log=lambda _: None)
+    assert summary["added"]
+    yaml_text = (tmp_path / ".bibcc" / "added.bib.missing_venues.yaml").read_text()
+    assert "99th Annual Meeting" in yaml_text
+    assert "Toronto, Canada" in yaml_text  # collected from the official BibTeX
 
 
 def test_openreview_ignores_unaccepted_and_other_titles(web, library):
@@ -375,6 +511,8 @@ def test_key_pattern_accepts_arxiv_and_prefixes():
         ("IEEE Transactions on Neural Networks and Learning Systems", "TNNLS"),
         ("Proceedings of the 2025 Workshop on Foo (FooW)", "FooW"),
         ("Machine Intelligence Research", "MIR"),
+        ("Proceedings of the Computer Vision and Pattern Recognition Conference (CVPR)", "CVPR"),
+        ("Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition", "CVPR"),
     ],
 )
 def test_abbreviate_venue(venue, expected):
@@ -384,6 +522,20 @@ def test_abbreviate_venue(venue, expected):
 def test_protect_terms_groups_compounds():
     assert protect_terms("SD-LoRA for IEEE/CVF", ["SD", "LoRA", "IEEE", "CVF"]) == "{SD-LoRA} for {IEEE/CVF}"
     assert protect_terms("Already {BERT} and BERT", ["BERT"]) == "Already {BERT} and {BERT}"
+
+
+@pytest.mark.parametrize(
+    "title,expected",
+    [
+        ("{SD}-Lo{RA}: Scalable", "{SD-LoRA}: Scalable"),
+        ("{BERT} and {GPT}s", "{BERT} and {GPTs}"),
+        ("Ale{\\v{s}} {Foo Bar}", "Ale{\\v{s}} {Foo Bar}"),
+    ],
+)
+def test_merge_word_braces(title, expected):
+    from bibcc.adder import _merge_word_braces
+
+    assert _merge_word_braces(title) == expected
 
 
 def test_latex_escape_and_format_entry():

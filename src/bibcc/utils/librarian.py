@@ -147,19 +147,15 @@ def extract_title_from_filename(filename: str) -> str:
 def match_title_to_bib(
     query_title_norm: str,
     bib_entries: Dict[str, Dict[str, str]],
-) -> Optional[str]:
-    """Find the bib entry whose normalised title exactly matches *query_title_norm*.
+) -> List[str]:
+    """Return the keys of all bib entries whose normalised title equals *query_title_norm*.
 
-    Returns the citation key on match, or ``None`` if no match is found.
+    Several keys mean the title is ambiguous (e.g. a conference paper and its
+    journal version share it), so callers must not pick one.
     """
     if not query_title_norm:
-        return None
-
-    for key, info in bib_entries.items():
-        if info["title_norm"] and query_title_norm == info["title_norm"]:
-            return key
-
-    return None
+        return []
+    return [key for key, info in bib_entries.items() if info["title_norm"] and query_title_norm == info["title_norm"]]
 
 
 # ---------------------------------------------------------------------------
@@ -251,20 +247,27 @@ def cmd_rename(
 
     matched: List[Tuple[str, str]] = []  # (old_name, new_name)
     unmatched: List[str] = []
+    ambiguous: List[Tuple[str, List[str]]] = []  # (old_name, candidate keys)
 
     prefix = "[DRY RUN] " if dry_run else ""
     log(f"\n{prefix}Matching & renaming PDFs:\n")
 
     for pdf in pdfs:
         query_norm = extract_title_from_filename(pdf.name)
-        key = match_title_to_bib(query_norm, bib_entries)
+        keys = match_title_to_bib(query_norm, bib_entries)
 
-        if key is None:
+        if not keys:
             unmatched.append(pdf.name)
             log(f"  ✗ {pdf.name}")
             log("       No match found")
             continue
+        if len(keys) > 1:
+            ambiguous.append((pdf.name, keys))
+            log(f"  ? {pdf.name}")
+            log(f"       Several entries have this title, not renamed: {', '.join(keys)}")
+            continue
 
+        key = keys[0]
         new_name = f"{key}.pdf"
         new_path = pdf_folder / new_name
 
@@ -284,11 +287,17 @@ def cmd_rename(
     log(f"{prefix}Summary:")
     log(f"  Matched : {len(matched)}")
     log(f"  Unmatched : {len(unmatched)}")
+    log(f"  Ambiguous : {len(ambiguous)}")
 
     if unmatched:
         log("\nUnmatched files:")
         for name in unmatched:
             log(f"  - {name}")
+
+    if ambiguous:
+        log("\nAmbiguous files (rename by hand to one of the keys):")
+        for name, keys in ambiguous:
+            log(f"  - {name}: {', '.join(keys)}")
 
     if dry_run:
         log(f"\n{prefix}No files were renamed. Remove --dry-run to apply.")
@@ -297,7 +306,7 @@ def cmd_rename(
     output_file = get_output_dir(bib_file) / f"{bib_file.name}.rename_report.txt"
     with open(output_file, "w", encoding="utf-8") as f:
         f.write(
-            f"% Rename report: {len(matched)} matched, " f"{len(unmatched)} unmatched\n"
+            f"% Rename report: {len(matched)} matched, {len(unmatched)} unmatched, {len(ambiguous)} ambiguous\n"
         )
         f.write(f"% Source folder: {pdf_folder}\n")
         f.write(f"% {'DRY RUN — no files renamed' if dry_run else 'Applied'}\n\n")
@@ -311,6 +320,11 @@ def cmd_rename(
             f.write(f"\n% Unmatched ({len(unmatched)})\n")
             for name in unmatched:
                 f.write(f"{name}\n")
+
+        if ambiguous:
+            f.write(f"\n% Ambiguous ({len(ambiguous)}): several entries have the title\n")
+            for name, keys in ambiguous:
+                f.write(f"{name}\t{', '.join(keys)}\n")
 
     log(f"\nRename report written to {output_file.name}")
 
@@ -389,7 +403,8 @@ tools export them: 'Author et al. - 2025 - Full Paper Title.pdf'. The text
 after the last ' - ' is taken as the title. Titles are compared ignoring
 case, braces, and punctuation, and must otherwise match exactly. Files are
 renamed in place; an existing <key>.pdf is never overwritten, and files
-without a match are listed and left alone.""",
+without a match, or whose title several entries share, are listed and left
+alone.""",
         epilog=epilog(
             examples=[
                 ("preview the renames", "bibcc librarian rename refs.bib ~/Downloads/papers --dry-run"),

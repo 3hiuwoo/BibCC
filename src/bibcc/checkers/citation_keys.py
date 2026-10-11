@@ -42,7 +42,12 @@ _KEY_PATTERN = re.compile(
 # This is used to verify the VENUE part against the actual booktitle/journal
 VENUE_ABBREVIATIONS: Dict[str, Set[str]] = {
     # Top-tier CV conferences
-    "CVPR": {"cvpr", "ieee/cvf conference on computer vision and pattern recognition"},
+    "CVPR": {
+        "cvpr",
+        "ieee/cvf conference on computer vision and pattern recognition",
+        # Also the CVF Open Access name from 2025 ("... Pattern Recognition Conference (CVPR)").
+        "computer vision and pattern recognition",
+    },
     "ICCV": {"iccv", "ieee/cvf international conference on computer vision"},
     "ECCV": {
         "eccv",
@@ -165,6 +170,37 @@ def _match_venue_abbreviation(
     return None
 
 
+_PREPRINT_TYPES = {"misc", "unpublished", "techreport", "online", "preprint"}
+_PREPRINT_VENUE = re.compile(r"\b(arxiv|corr|preprint)\b", re.IGNORECASE)
+
+
+def _key_year_ok(key_year: str, entry_year: str, entry: Dict[str, str]) -> bool:
+    """Whether the key's year fits the entry.
+
+    Keys carry the year of the event, which may differ from ``year``:
+
+    * the venue names the event year (``Computer Vision -- ECCV 2024``, published 2025);
+    * proceedings appear the year after the event (CoLLAs 2024, SenSys 2023), so an
+      ``@inproceedings`` one year older than ``year`` is accepted unless its venue
+      names another year;
+    * a preprint keyed by the venue that accepted it (``..._AAAI2026`` for a 2025
+      arXiv paper) may be keyed later than ``year``.
+    """
+    if key_year == entry_year:
+        return True
+    venue = entry.get("booktitle") or entry.get("journal") or ""
+    venue_years = set(re.findall(r"(?<!\d)(?:19|20)\d\d(?!\d)", venue))
+    if key_year in venue_years:
+        return True
+    if not (key_year.isdigit() and entry_year.isdigit()):
+        return False
+    entry_type = entry.get("ENTRYTYPE", "").lower()
+    if entry_type == "inproceedings" and int(key_year) == int(entry_year) - 1 and not venue_years:
+        return True
+    preprint = (entry_type in _PREPRINT_TYPES and not venue) or bool(_PREPRINT_VENUE.search(venue))
+    return preprint and int(key_year) > int(entry_year)
+
+
 def check_citation_keys(
     input_path: str,
     log: Optional[Callable[[str], None]] = None,
@@ -208,7 +244,7 @@ def check_citation_keys(
         # Validate year matches entry year
         key_year = match.group("year")
         entry_year = entry.get("year", "").strip()
-        if entry_year and key_year != entry_year:
+        if entry_year and not _key_year_ok(key_year, entry_year, entry):
             detail = f"key year={key_year} but entry year={entry_year}"
             log(f"{entry_id:<45} | {'year_mismatch':<18} | {detail}")
             issues.append((entry_id, "year_mismatch", detail))

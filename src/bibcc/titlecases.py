@@ -174,14 +174,11 @@ def _split_tokens_preserve_space(text: str) -> List[str]:
 
 
 def _has_internal_capitals(word: str) -> bool:
-    """Check if a word has internal capitals (e.g., 'iOS', 'ResNet')."""
-    if len(word) < 2:
-        return False
-    # Skip first character, check if any lowercase→uppercase transition exists
-    for i in range(1, len(word)):
-        if word[i].isupper() and i > 0 and word[i - 1].islower():
-            return True
-    return False
+    """Check if a word has a capital after its first letter (e.g., 'iOS', 'ResNet', 'PODNet').
+
+    Such casing is deliberate (acronyms, method names), so it is never changed.
+    """
+    return any(c.isupper() for c in word[1:])
 
 
 def _get_known_mixed_case(word: str) -> Optional[str]:
@@ -237,6 +234,11 @@ def _titlecase_hyphenated(
         else:
             # Subsequent parts: check for lowercase prefixes
             if lower_part in _LOWERCASE_PREFIXES and not force_capitalize:
+                cased_parts.append(lower_part)
+                continue
+            # Minor words joining a compound stay lowercase (Out-of-Distribution,
+            # Plug-and-Play); as the last part they are particles (Plug-In, Follow-Up).
+            if lower_part in stopwords and i < len(parts) - 1:
                 cased_parts.append(lower_part)
                 continue
             part_major = style.hyphen_capitalize_all_parts
@@ -377,13 +379,16 @@ def suggest_title_case(
     rebuilt_parts: List[str] = []
     word_counter = 0
     prev_token_nonspace = ""
+    prev_kind = ""
     for kind, segment in parts:
+        after_brace = prev_kind == "braced"
+        prev_kind = kind
         if kind == "braced":
             rebuilt_parts.append(segment)
             continue
         tokens = _split_tokens_preserve_space(segment)
         new_tokens = []
-        for tok in tokens:
+        for tok_idx, tok in enumerate(tokens):
             if tok.isspace() or not tok:
                 new_tokens.append(tok)
                 continue
@@ -396,7 +401,14 @@ def suggest_title_case(
             )
             force = is_first_or_last(word_counter) or prev_delim
 
-            new_tok = _titlecase_word(tok, force, stopwords, style)
+            if after_brace and tok_idx == 0:
+                # Text glued to a braced group continues that word ({G}aussian,
+                # {LoRA}s): keep its letters, case only what follows (-Augmented).
+                head = re.match(r"[A-Za-z0-9]*", tok).group()
+                rest = tok[len(head):]
+                new_tok = head + (_titlecase_word(rest, False, stopwords, style) if rest else "")
+            else:
+                new_tok = _titlecase_word(tok, force, stopwords, style)
             new_tokens.append(new_tok)
             prev_token_nonspace = tok
             word_counter += 1

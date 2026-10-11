@@ -1,5 +1,5 @@
 [build-system]
-requires = ["hatchling>=1.25"]
+requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"
 
 [project]
@@ -8,12 +8,36 @@ name = "bibcc"
 dynamic = ["version"]
 description = "BibTeX Check & Complete: quality checks, field completion, and PDF library alignment"
 readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Xiaoyu Sun" }]
+keywords = ["bibtex", "bibliography", "latex", "citations", "references"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Science/Research",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Text Processing :: Markup :: LaTeX",
+]
 requires-python = ">=3.10"
 dependencies = [
     # The code uses the bibtexparser 1.x API (bparser.BibTexParser); 2.x is incompatible.
     "bibtexparser>=1.4,<2",
     "pyyaml>=6.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/3hiuwoo/BibCC"
+Documentation = "https://github.com/3hiuwoo/BibCC#readme"
+Issues = "https://github.com/3hiuwoo/BibCC/issues"
+Changelog = "https://github.com/3hiuwoo/BibCC/blob/main/CHANGELOG.md"
 
 [project.scripts]
 bibcc = "bibcc.cli:main"
@@ -29,6 +53,19 @@ path = "src/bibcc/__init__.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/bibcc"]
+
+# Venue libraries are user data, so none is packaged; examples/ ships in the sdist only.
+[tool.hatch.build.targets.sdist]
+include = [
+    "/src",
+    "/tests",
+    "/examples",
+    "/README.md",
+    "/CHANGELOG.md",
+    "/CONTRIBUTING.md",
+    "/LICENSE",
+    "/missing_venues.example.yaml",
+]
 
 [tool.ruff]
 target-version = "py310"

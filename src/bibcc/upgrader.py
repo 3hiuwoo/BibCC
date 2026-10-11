@@ -1,23 +1,42 @@
 """
-Replace arXiv preprint entries with their published versions.
+Replace preprints and interim entries with the official BibTeX of their published version.
 
-For every preprint in a .bib file (``@misc`` / ``@unpublished`` entries,
-or entries whose journal is arXiv/CoRR), the published version is looked
-up the same way ``bibcc add`` does (Semantic Scholar's DOI or DBLP key,
-the DOI linked from arXiv, an accepted OpenReview paper, or a CrossRef
-record with the same title).
+Two kinds of entries are candidates:
+
+* **Preprints**: ``@misc`` / ``@unpublished`` entries, or entries whose
+  journal is arXiv/CoRR.  The published version is looked up the same way
+  ``bibcc add`` does (the DOI linked from arXiv or known to Semantic
+  Scholar, its DBLP key, an accepted OpenReview paper, or a CrossRef record
+  with the same title).
+* **Interim entries**: conference papers cited with the CVF Open Access or
+  OpenReview booktitle (see :mod:`bibcc.venues`), whose proceedings
+  (IEEE Xplore, NeurIPS, ICLR, PMLR) may now be out.
+
+An entry is only replaced by downloaded official BibTeX (see
+:mod:`bibcc.official`).  A preprint whose published version has no
+downloadable BibTeX (AAAI, ACM, Elsevier, ECCV papers not on SpringerLink
+yet) is kept, and the report gives the venue and where to get the BibTeX by
+hand.  A preprint may be replaced by interim BibTeX when that is all there
+is yet.
 
 The citation key is kept so ``\\cite`` commands keep working.  The old title
 is kept when it matches the published one (it may carry hand-made braces),
-custom fields such as ``citation`` are carried over, and arXiv-only fields
-(``eprint``, ``archiveprefix``, the arXiv ``url``, ...) are dropped.
+custom fields such as ``citation`` are carried over, preprint and interim
+fields (``eprint``, ``archiveprefix``, the arXiv/OpenReview/CVF ``url``,
+...) are dropped, and venue fields come from the venue library.  Venues
+missing from the library, and interim booktitles the upgrade links to their
+proceedings, are proposed in ``.bibcc/<input>.missing_venues.yaml``.
 
 By default nothing is written: the changes are saved as a diff under
 ``.bibcc/``.  Use ``--output`` or ``--in-place`` to write them.
+``--report-only`` only lists, for any number of files and directories, the
+entries that now have a published version, with its venue and the URL of
+its official BibTeX (no BibTeX is downloaded, nothing is changed).
 
 Usage:
     bibcc upgrade refs.bib
     bibcc upgrade refs.bib --in-place
+    bibcc upgrade --report-only bib/
 """
 
 from __future__ import annotations
@@ -31,32 +50,40 @@ from typing import Callable, Dict, List, Optional, Tuple
 
 import bibtexparser
 
-from bibcc.adder import format_entry, polish, suggest_key
+from bibcc.adder import BuiltEntry, build_entry, format_entry, suggest_key, venue_proposals
 from bibcc.bibedit import BibEditError, read_bib, replace_entry, unified_diff, write_bib
 from bibcc.helptext import ENV_S2, ENV_VENUES, VENUES_HELP, HelpFormatter, epilog
 from bibcc.logging_utils import SEPARATOR_THIN, SEPARATOR_WIDTH, Logger, get_output_dir, write_report
+from bibcc.missing_venues import MissingVenue, write_missing_venues
+from bibcc.official import Official, OfficialLookup, find_official, interim_source_of
 from bibcc.sources import (
     Record,
+    clean_text,
     clean_title_for_search,
     entry_arxiv_id,
     find_published_by_title,
     is_arxiv_doi,
     normalize_arxiv_id,
+    normalize_doi,
     published_from_s2,
     resolve_arxiv,
     s2_match,
     titles_match,
 )
-from bibcc.venues import VenueLibrary
+from bibcc.venues import PROCEEDINGS, VenueLibrary, load_library, normalize_venue
 
 _PREPRINT_TYPES = {"misc", "unpublished", "techreport", "online", "preprint"}
 _PREPRINT_VENUE = re.compile(r"\b(arxiv|corr|preprint)\b", re.IGNORECASE)
-# Fields describing the preprint or the paper itself; never carried over.
+# Fields describing the preprint, the interim entry, or the paper itself; never carried over.
 _REPLACED_FIELDS = {
-    "title", "author", "year", "month", "journal", "booktitle", "publisher",
+    "title", "author", "year", "month", "day", "journal", "booktitle", "publisher",
     "volume", "number", "pages", "eprint", "archiveprefix", "primaryclass",
-    "eprinttype", "eprintclass", "howpublished",
+    "eprinttype", "eprintclass", "howpublished", "venue", "isbn", "issn", "series",
+    "editor", "address", "doi",
 }
+_INTERIM_URL = re.compile(r"openreview\.net|thecvf\.com", re.IGNORECASE)
+
+PREPRINT = "preprint"
 
 
 def is_preprint(entry: Dict[str, str]) -> bool:
@@ -66,6 +93,20 @@ def is_preprint(entry: Dict[str, str]) -> bool:
     if entry_type in _PREPRINT_TYPES:
         return not venue or bool(_PREPRINT_VENUE.search(venue))
     return bool(_PREPRINT_VENUE.search(venue))
+
+
+def candidate_kind(entry: Dict[str, str], library: VenueLibrary) -> str:
+    """``"preprint"``, an interim source (``"cvf"``, ``"openreview"``), or ``""``."""
+    if is_preprint(entry):
+        return PREPRINT
+    if entry.get("ENTRYTYPE", "").lower() != "inproceedings":
+        return ""
+    booktitle = entry.get("booktitle", "")
+    year = entry.get("year", "")
+    result = library.lookup(booktitle, year, PROCEEDINGS)
+    if result.interim_source:
+        return result.interim_source
+    return interim_source_of(booktitle, url=entry.get("url", ""), year=year)
 
 
 def find_upgrade(
@@ -94,15 +135,30 @@ def find_upgrade(
     return None, error or cr_error, []
 
 
+def record_from_entry(entry: Dict[str, str]) -> Record:
+    """A :class:`Record` with an existing entry's identifying fields."""
+    fields = {
+        name: clean_text(entry.get(name, "").replace("{", "").replace("}", ""))
+        for name in ("title", "author", "booktitle", "journal", "year", "url")
+        if entry.get(name)
+    }
+    doi = normalize_doi(entry.get("doi", ""))
+    return Record(
+        entry_type=entry.get("ENTRYTYPE", "inproceedings").lower(),
+        fields=fields,
+        source="bib",
+        doi="" if is_arxiv_doi(doi) else doi,
+        arxiv_id=entry_arxiv_id(entry),
+    )
+
+
 def _carried_over(entry: Dict[str, str]) -> Dict[str, str]:
     """Old fields worth keeping in the published entry (e.g. ``citation``)."""
     kept = {}
     for name, value in entry.items():
         if name in ("ID", "ENTRYTYPE") or name in _REPLACED_FIELDS:
             continue
-        if name == "url" and normalize_arxiv_id(value):
-            continue
-        if name == "doi" and is_arxiv_doi(value):
+        if name == "url" and (normalize_arxiv_id(value) or _INTERIM_URL.search(value)):
             continue
         if name == "note" and _PREPRINT_VENUE.search(value):
             continue
@@ -111,28 +167,67 @@ def _carried_over(entry: Dict[str, str]) -> Dict[str, str]:
 
 
 def build_upgraded_entry(
-    entry: Dict[str, str], record: Record, library: VenueLibrary
-) -> Tuple[str, List[str]]:
-    """Text of the published entry under the old key, plus notes."""
-    fields, notes = polish(record, library)
+    entry: Dict[str, str], official: Official, library: VenueLibrary, doi: str = ""
+) -> Tuple[str, List[str], BuiltEntry]:
+    """Text of the published entry under the old key, notes, and the built entry.
+
+    *doi* is the published version's DOI, added when the official BibTeX has none.
+    """
+    built = build_entry(official, library, doi=doi)
+    fields = built.fields
+    notes = list(built.notes)
     old_title = entry.get("title", "")
     if old_title and titles_match(clean_title_for_search(old_title), clean_title_for_search(fields.get("title", ""))):
         fields["title"] = " ".join(old_title.split())
     else:
         notes.append(f"title changed from '{' '.join(old_title.split())}'")
-    # Semantic Scholar author names are often abbreviated; arXiv's are not.
-    if record.source.startswith("Semantic Scholar") and entry.get("author"):
-        fields["author"] = " ".join(entry["author"].split())
     for name, value in _carried_over(entry).items():
         fields.setdefault(name, " ".join(value.split()))
 
     key = entry["ID"]
-    suggested = suggest_key(record.entry_type, fields, set())
+    suggested = suggest_key(built.entry_type, fields, set())
     old_venue = key.rsplit("_", 1)[-1]
     new_venue = suggested.rsplit("_", 1)[-1]
     if old_venue != new_venue:
         notes.append(f"key kept as {key}; the convention would end in _{new_venue}")
-    return format_entry(record.entry_type, key, fields), notes
+    return format_entry(built.entry_type, key, fields), notes, built
+
+
+def _link_proposals(
+    entry: Dict[str, str], source: str, built: BuiltEntry, library: VenueLibrary, proposals: List[MissingVenue]
+) -> List[MissingVenue]:
+    """Interim booktitle → proceedings links shown by replacing an interim entry."""
+    old_name = " ".join(entry.get("booktitle", "").split())
+    if not old_name or normalize_venue(old_name) == normalize_venue(built.venue_name):
+        return proposals
+    evidence = f"{entry['ID']} was '{old_name}' ({source}) and is '{built.venue_name}' in the proceedings"
+    for proposal in proposals:
+        proposal.interim.setdefault(source, []).append(old_name)
+        proposal.notes.append(f"interim booktitle: {evidence}")
+        return proposals
+    record = library.lookup(built.venue_name, built.year, PROCEEDINGS).venue
+    if record is None or normalize_venue(old_name) in record.all_names():
+        return proposals
+    return [MissingVenue(PROCEEDINGS, record.name, str(record.year), interim={source: [old_name]},
+                         notes=[f"links an interim booktitle: {evidence}"], link_only=True)]
+
+
+def _lookup_for(
+    entry: Dict[str, str], kind: str, library: VenueLibrary, download: bool
+) -> Tuple[Optional[Record], Optional[OfficialLookup], Optional[str], List[str]]:
+    """``(published record, official lookup, error, notes)`` for one candidate."""
+    if kind == PREPRINT:
+        record, error, notes = find_upgrade(entry, library)
+        if record is None:
+            return None, None, error, notes
+        return record, find_official(record, download=download), None, notes
+    record = record_from_entry(entry)
+    return record, find_official(record, download=download, interim=False), None, []
+
+
+def _venue_label(record: Record) -> str:
+    venue = record.fields.get("journal") or record.fields.get("booktitle") or record.entry_type
+    return f"{venue} ({record.fields.get('year', '')})"
 
 
 def upgrade_bib(
@@ -144,32 +239,37 @@ def upgrade_bib(
     log_dir: Optional[Path] = None,
     log: Optional[Callable[[str], None]] = None,
 ) -> Dict[str, list]:
-    """Upgrade preprints in *input_path*; write to *output_path* unless it is None.
+    """Upgrade candidates in *input_path*; write to *output_path* unless it is None.
 
-    Returns ``{"upgraded": [(key, source)], "unchanged": [(key, reason)],
+    Returns ``{"upgraded": [(key, provider)], "unchanged": [(key, reason)],
     "failed": [(key, error)]}``.
     """
     log = log or print
     text = read_bib(input_path)
     parser = bibtexparser.bparser.BibTexParser(common_strings=True)
     entries = bibtexparser.loads(text, parser=parser).entries
-    candidates = [e for e in entries if is_preprint(e) and (not ids or e["ID"] in ids)]
-    log(f"🔎 {len(candidates)} preprint entries out of {len(entries)} in {input_path}.")
+    candidates = [
+        (e, kind) for e in entries if (not ids or e["ID"] in ids) and (kind := candidate_kind(e, library))
+    ]
+    n_interim = sum(1 for _, kind in candidates if kind != PREPRINT)
+    log(f"🔎 {len(candidates) - n_interim} preprints and {n_interim} interim entries "
+        f"out of {len(entries)} in {input_path}.")
 
     upgraded: List[Tuple[str, str]] = []
     unchanged: List[Tuple[str, str]] = []
     failed: List[Tuple[str, str]] = []
+    proposals: List[MissingVenue] = []
     new_text = text
 
-    for n, entry in enumerate(candidates):
+    for n, (entry, kind) in enumerate(candidates):
         if n and delay:
             time.sleep(delay)
         key = entry["ID"]
-        log(f"\n📄 {key}")
-        record, error, notes = find_upgrade(entry, library)
+        log(f"\n📄 {key}" + ("" if kind == PREPRINT else f" ({kind} booktitle)"))
+        record, lookup, error, notes = _lookup_for(entry, kind, library, download=True)
         for note in notes:
             log(f"   ℹ️  {note}")
-        if record is None:
+        if record is None or lookup is None:
             if error:
                 log(f"   ❌ {error}")
                 failed.append((key, error))
@@ -177,18 +277,38 @@ def upgrade_bib(
                 log("   ⏳ no published version found")
                 unchanged.append((key, notes[0] if notes else "no published version found"))
             continue
-        entry_text, entry_notes = build_upgraded_entry(entry, record, library)
+        if lookup.official is None:
+            if lookup.error:
+                log(f"   ❌ could not get the official BibTeX: {lookup.error}")
+                failed.append((key, lookup.error))
+                continue
+            where = f"; get it from {lookup.manual_url}" if lookup.manual_url else ""
+            if kind == PREPRINT:
+                reason = f"published in {_venue_label(record)}, no official BibTeX: {lookup.reason}{where}"
+            else:
+                reason = f"proceedings not available yet: {lookup.reason}{where}"
+            log(f"   ⏳ kept: {reason}")
+            unchanged.append((key, reason))
+            continue
+
+        official = lookup.official
+        entry_text, entry_notes, built = build_upgraded_entry(entry, official, library, doi=record.doi)
         try:
             new_text = replace_entry(new_text, key, entry_text)
         except BibEditError as e:
             log(f"   ❌ {e}")
             failed.append((key, str(e)))
             continue
-        venue = record.fields.get("journal") or record.fields.get("booktitle") or record.entry_type
-        log(f"   ✅ {record.source}: @{record.entry_type} in {venue} ({record.fields.get('year', '')})")
-        for note in [*record.notes, *entry_notes]:
+        found = venue_proposals(built, official, library, key, record)
+        if kind != PREPRINT and not official.interim:
+            found = _link_proposals(entry, kind, built, library, found)
+        proposals.extend(found)
+        log(f"   ✅ {official.provider}: @{built.entry_type} in {built.venue_name} ({built.year})")
+        for note in ([lookup.reason] if lookup.reason else []) + [
+            n for n in record.notes if not n.startswith("booktitle ")
+        ] + entry_notes:
             log(f"   ℹ️  {note}")
-        upgraded.append((key, record.source))
+        upgraded.append((key, official.provider))
 
     output_dir = get_output_dir(input_path, log_dir)
     base = Path(input_path).name
@@ -197,9 +317,14 @@ def upgrade_bib(
     rows += [f"{k}\tunchanged\t{r}" for k, r in unchanged]
     rows += [f"{k}\tfailed\t{e}" for k, e in failed]
     write_report(report, "upgrade: entry_id\tstatus\tdetail", rows)
+    if proposals:
+        yaml_path = output_dir / f"{base}.missing_venues.yaml"
+        rerun = f"bibcc complete {input_path} --in-place --update-venues"
+        counts = write_missing_venues(yaml_path, proposals, library, rerun)
+        log(f"\n📝 {counts['new']} venue records proposed in {yaml_path}")
 
     log(f"\n{SEPARATOR_THIN * SEPARATOR_WIDTH}")
-    log(f"Upgraded {len(upgraded)}; {len(unchanged)} still preprints; {len(failed)} failed.")
+    log(f"Upgraded {len(upgraded)}; {len(unchanged)} unchanged; {len(failed)} failed.")
     if output_path is None:
         diff = unified_diff(text, new_text, input_path)
         diff_path = output_dir / f"{base}.upgrade.diff"
@@ -214,45 +339,157 @@ def upgrade_bib(
     return {"upgraded": upgraded, "unchanged": unchanged, "failed": failed}
 
 
+def _bib_files(paths: List[str], log: Callable[[str], None]) -> List[Path]:
+    files: List[Path] = []
+    for raw in paths:
+        path = Path(raw)
+        if path.is_dir():
+            files += sorted(
+                p for p in path.rglob("*.bib")
+                if not any(part.startswith(".") for part in p.relative_to(path).parts)
+            )
+        elif path.exists():
+            files.append(path)
+        else:
+            log(f"⚠️  not found: {path}")
+    return files
+
+
+def report_published(
+    paths: List[str],
+    library: VenueLibrary,
+    delay: float = 1.0,
+    log_dir: Optional[Path] = None,
+    log: Optional[Callable[[str], None]] = None,
+) -> Dict[str, list]:
+    """List candidates in *paths* that now have a published version; change nothing.
+
+    No BibTeX is downloaded: for each such entry the report gives the venue
+    and the URL of its official BibTeX (or why there is none).  Returns
+    ``{"published": [row], "failed": [(file, key, error)], "checked": n}``.
+    """
+    log = log or print
+    files = _bib_files(paths, log)
+    published: List[Tuple[str, str, str, str, str, str]] = []
+    failed: List[Tuple[str, str, str]] = []
+    checked = 0
+    for file in files:
+        parser = bibtexparser.bparser.BibTexParser(common_strings=True)
+        try:
+            entries = bibtexparser.loads(read_bib(file), parser=parser).entries
+        except Exception as e:  # noqa: BLE001 - a broken file should not stop the report
+            log(f"⚠️  Could not read {file}: {e}")
+            continue
+        for entry in entries:
+            kind = candidate_kind(entry, library)
+            if not kind:
+                continue
+            if checked and delay:
+                time.sleep(delay)
+            checked += 1
+            key = entry["ID"]
+            record, lookup, error, _ = _lookup_for(entry, kind, library, download=False)
+            if record is None or lookup is None:
+                if error:
+                    log(f"❌ {file}: {key}: {error}")
+                    failed.append((str(file), key, error))
+                continue
+            if lookup.error and lookup.official is None:
+                log(f"❌ {file}: {key}: {lookup.error}")
+                failed.append((str(file), key, lookup.error))
+                continue
+            if lookup.official is None and kind != PREPRINT:
+                continue  # interim entry whose proceedings are not out yet
+            label = _venue_label(record) if kind == PREPRINT else record.fields.get("booktitle", "")
+            if lookup.official:
+                status = "interim" if lookup.official.interim else "published"
+                row = (str(file), key, status, label, lookup.official.provider, lookup.official.url)
+                log(f"📗 {key}: {status} — {label}; {lookup.official.provider}: {lookup.official.url}")
+            else:
+                row = (str(file), key, "published, no official BibTeX", label, lookup.reason, lookup.manual_url)
+                log(f"📙 {key}: published — {label}; no official BibTeX ({lookup.reason})")
+            published.append(row)
+
+    first = paths[0] if paths else "."
+    report = get_output_dir(first, log_dir) / f"{Path(first).resolve().name}.published.txt"
+    write_report(
+        report,
+        "published versions: file\tentry_id\tstatus\tvenue\tofficial BibTeX source\turl",
+        ["\t".join(row) for row in published] + [f"{f}\t{k}\tfailed\t{e}" for f, k, e in failed],
+    )
+    log(f"\n{SEPARATOR_THIN * SEPARATOR_WIDTH}")
+    log(f"Checked {checked} candidates in {len(files)} files: {len(published)} have a published "
+        f"version; {len(failed)} failed. Report: {report}")
+    if published:
+        log("💡 Run `bibcc upgrade <file> --in-place` to replace them.")
+    return {"published": published, "failed": failed, "checked": checked}
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="""\
-Find arXiv preprints in a .bib file that have since been published, and
-replace them with the published entry. Preprints are @misc, @unpublished,
-@techreport, @online, and @preprint entries without a venue, and any entry
-whose journal or booktitle is arXiv, CoRR, or a preprint.
+Find preprints and interim entries in a .bib file that have since been
+published, and replace them with the official BibTeX of the published
+version.
 
-The published version is looked up the same way as in 'bibcc add': the DOI
-linked from arXiv or known to Semantic Scholar, an accepted OpenReview paper,
-the DBLP key Semantic Scholar reports, or a CrossRef record with the same
-title. The replacement keeps the citation key (so \\cite commands keep
-working), keeps your title when it matches the published one, keeps custom
-fields such as citation, drops arXiv-only fields (eprint, archiveprefix,
-primaryclass, the arXiv url), and fills venue fields from the venue library.
-The rest of the file stays byte for byte.
+Preprints are @misc, @unpublished, @techreport, @online, and @preprint
+entries without a venue, and any entry whose journal or booktitle is arXiv,
+CoRR, or a preprint. Their published version is looked up the same way as in
+'bibcc add': the DOI linked from arXiv or known to Semantic Scholar, an
+accepted OpenReview paper, the DBLP key Semantic Scholar reports, or a
+CrossRef record with the same title.
+
+Interim entries are conference papers cited with the CVF Open Access
+booktitle (CVPR, ICCV, WACV) or the OpenReview one (NeurIPS, ICLR from
+2024, ICML): the venue library's interim names, or an openreview.net or
+thecvf.com url. They are replaced once the paper is in IEEE Xplore, the
+NeurIPS or ICLR proceedings, or PMLR.
+
+An entry is only replaced by downloaded official BibTeX (see 'bibcc add -h'
+for the sources). A preprint whose published version has none (AAAI, ACM,
+Elsevier, ECCV papers not on SpringerLink yet) is kept, and listed with the
+venue and where to get the BibTeX by hand. The replacement keeps the
+citation key (so \\cite commands keep working), keeps your title when it
+matches the published one, keeps custom fields such as citation, drops
+preprint fields (eprint, archiveprefix, primaryclass, the arXiv, OpenReview,
+or CVF url), and adds venue fields from the venue library. The rest of the
+file stays byte for byte. Venues missing from the library are proposed in a
+fill-in YAML, together with the interim booktitles the upgrade linked to
+their proceedings.
 
 Without --output or --in-place this is a dry run that writes the would-be
-changes as a diff. Preprints without a published version are listed as
-unchanged, with the arXiv comment when it says the paper was accepted.""",
+changes as a diff. --report-only only lists the entries of any number of
+files and directories that now have a published version, with the venue and
+the URL of the official BibTeX; it downloads no BibTeX and changes nothing.""",
         epilog=epilog(
             examples=[
                 ("preview: report and diff in .bibcc/", "bibcc upgrade refs.bib"),
-                ("replace the preprints in the file itself", "bibcc upgrade refs.bib --in-place"),
+                ("replace the entries in the file itself", "bibcc upgrade refs.bib --in-place"),
                 ("only some entries, written to another file",
                  "bibcc upgrade refs.bib --ids KeyA,KeyB --output out.bib"),
+                ("which entries of a whole bibliography have been published?",
+                 "bibcc upgrade --report-only bib/ extra.bib"),
             ],
             outputs=[
-                (".bibcc/<input>.upgrade.txt", "upgraded, unchanged, and failed preprints"),
+                (".bibcc/<input>.upgrade.txt", "upgraded, unchanged, and failed entries"),
                 (".bibcc/<input>.upgrade.diff", "dry run: the changes that would be made"),
+                (".bibcc/<input>.missing_venues.yaml", "fill-in records for venues not in the library"),
+                (".bibcc/<path>.published.txt", "--report-only: entries with a published version"),
                 (".bibcc/logs/<input>.upgrader.log", "everything printed to the terminal"),
             ],
-            exit_status="0 on success, 1 if any lookup failed (for example rate limits; run\n"
-            "again later or set S2_API_KEY), 2 on usage errors.",
+            exit_status="0 on success, 1 if any lookup or download failed (for example rate limits;\n"
+            "run again later or set S2_API_KEY), 2 on usage errors.",
             env=[ENV_S2, ENV_VENUES],
         ),
         formatter_class=HelpFormatter,
     )
-    parser.add_argument("input", help="The .bib file to upgrade.")
+    parser.add_argument(
+        "paths",
+        nargs="+",
+        metavar="PATH",
+        help="The .bib file to upgrade (with --report-only: any number of .bib files and "
+        "directories).",
+    )
     parser.add_argument(
         "--output",
         default="",
@@ -261,10 +498,16 @@ unchanged, with the arXiv comment when it says the paper was accepted.""",
     )
     parser.add_argument("--in-place", action="store_true", help="Write back to the input file.")
     parser.add_argument(
+        "--report-only",
+        action="store_true",
+        help="Only report entries that now have a published version and where its official "
+        "BibTeX is; download nothing and change nothing.",
+    )
+    parser.add_argument(
         "--ids",
         default="",
         metavar="KEYS",
-        help="Comma-separated citation keys to upgrade (default: all preprints).",
+        help="Comma-separated citation keys to upgrade (default: all candidates).",
     )
     parser.add_argument("--venues", default="", metavar="FILE", help=VENUES_HELP)
     parser.add_argument(
@@ -284,16 +527,31 @@ unchanged, with the arXiv comment when it says the paper was accepted.""",
 
 
 def run(args: argparse.Namespace) -> None:
+    log_dir = Path(args.log_dir) if args.log_dir else None
+    if args.report_only:
+        if args.output or args.in_place or args.ids:
+            build_parser().error("--report-only cannot be combined with --output, --in-place, or --ids")
+        with Logger("upgrader", input_file=args.paths[0], log_dir=log_dir) as logger:
+            library = load_library(args.venues or None, start=args.paths[0])
+            logger.log(f"📦 Venue library: {library.describe()}")
+            summary = report_published(args.paths, library, delay=args.delay, log_dir=log_dir, log=logger.log)
+        if summary["failed"]:
+            sys.exit(1)
+        return
+
+    if len(args.paths) != 1 or Path(args.paths[0]).is_dir():
+        build_parser().error("give exactly one .bib file (several files or directories need --report-only)")
     if args.in_place and args.output:
         build_parser().error("use either --output or --in-place, not both")
-    output = args.input if args.in_place else (args.output or None)
-    log_dir = Path(args.log_dir) if args.log_dir else None
+    input_path = args.paths[0]
+    output = input_path if args.in_place else (args.output or None)
     ids = [i.strip() for i in args.ids.split(",") if i.strip()] or None
 
-    with Logger("upgrader", input_file=args.input, log_dir=log_dir) as logger:
-        library = VenueLibrary.load(args.venues or None)
+    with Logger("upgrader", input_file=input_path, log_dir=log_dir) as logger:
+        library = load_library(args.venues or None, start=input_path)
+        logger.log(f"📦 Venue library: {library.describe()}")
         summary = upgrade_bib(
-            args.input,
+            input_path,
             output,
             library,
             ids=ids,

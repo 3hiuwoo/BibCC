@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  push:
+    branches: [main, "release/**"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --locked
+      - run: uv run ruff check .
+
+  test:
+    name: test (${{ matrix.os }}, Python ${{ matrix.python }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+        python: ["3.10", "3.11", "3.12", "3.13", "3.14"]
+        include:
+          - os: macos-latest
+            python: "3.13"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: ${{ matrix.python }}
+      - run: uv sync --locked
+      # The tests never touch the network; canned responses live in tests/fixtures/sources/.
+      - run: uv run pytest
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv build
+      - name: The wheel ships no venue library
+        run: |
+          if unzip -l dist/*.whl | grep -E '\.ya?ml$'; then
+            echo "::error::the wheel contains a YAML file; venue libraries are user data"
+            exit 1
+          fi
+      - name: The installed tool runs
+        run: |
+          wheel=$(ls dist/*.whl)
+          uvx --from "$wheel" bibcc --version
+          uvx --from "$wheel" bibcc venues where
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/

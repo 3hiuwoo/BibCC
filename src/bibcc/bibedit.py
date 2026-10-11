@@ -5,6 +5,8 @@ bibtexparser is used to *read* entries, but writing its output back would
 reformat the whole file.  This module instead locates each entry and field in
 the original text with a brace-aware scanner and patches only the targeted
 byte ranges, so comments, field order, alignment, and LaTeX stay untouched.
+The one exception: a new field whose name is longer than an entry's aligned
+``=`` column widens that entry's column, so its fields stay aligned.
 
 Every edited text is re-parsed with bibtexparser and checked before it is
 returned: the same citation keys in the same order, untouched fields
@@ -309,6 +311,18 @@ def _layout(text: str, entry: EntrySpan) -> Tuple[str, Optional[int]]:
     return indent, widths.pop() if aligned else None
 
 
+def _realign(text: str, entry: EntrySpan, width: int) -> List[Tuple[int, int, str]]:
+    """Patches that move the entry's aligned '=' column to *width*."""
+    patches = []
+    for f in entry.fields.values():
+        line_start = text.rfind("\n", 0, f.start) + 1
+        if text[line_start : f.start].strip():
+            continue
+        eq = text.index("=", f.start)
+        patches.append((f.start, eq, text[f.start : eq].rstrip().ljust(width)))
+    return patches
+
+
 def _format_field(name: str, value: str, width: Optional[int]) -> str:
     if width and len(name) < width:
         return f"{name.ljust(width)}= {_render(name, value)}"
@@ -407,6 +421,11 @@ def set_fields(
 
         if inserts:
             indent, width = _layout(text, entry)
+            widest = max(len(n) for n, _ in inserts) + 1
+            if width is not None and widest > width:
+                # Widen the column rather than leave the new field out of line.
+                patches.extend(_realign(text, entry, widest))
+                width = widest
             anchor = max((f.value_end for f in entry.fields.values()), default=entry.key_end)
             between = text[anchor : entry.closer]
             if between.lstrip().startswith(","):

@@ -1,0 +1,199 @@
+{
+ "status": "ok",
+ "message-type": "work",
+ "message-version": "1.0.0",
+ "message": {
+  "indexed": {
+   "date-parts": [
+    [
+     2026,
+     9,
+     22
+    ]
+   ],
+   "date-time": "2026-09-22T21:38:09Z",
+   "timestamp": 1790113089413,
+   "version": "4.0.1"
+  },
+  "reference-count": 0,
+  "publisher": "IEEE",
+  "license": [
+   {
+    "start": {
+     "date-parts": [
+      [
+       2025,
+       6,
+       10
+      ]
+     ],
+     "date-time": "2025-06-10T00:00:00Z",
+     "timestamp": 1749513600000
+    },
+    "content-version": "stm-asf",
+    "delay-in-days": 0,
+    "URL": "https://doi.org/10.15223/policy-029"
+   },
+   {
+    "start": {
+     "date-parts": [
+      [
+       2025,
+       6,
+       10
+      ]
+     ],
+     "date-time": "2025-06-10T00:00:00Z",
+     "timestamp": 1749513600000
+    },
+    "content-version": "stm-asf",
+    "delay-in-days": 0,
+    "URL": "https://doi.org/10.15223/policy-037"
+   }
+  ],
+  "content-domain": {
+   "domain": [],
+   "crossmark-restriction": false
+  },
+  "short-container-title": [],
+  "published-print": {
+   "date-parts": [
+    [
+     2025,
+     6,
+     10
+    ]
+   ]
+  },
+  "DOI": "10.1109/cvpr52734.2025.02829",
+  "type": "proceedings-article",
+  "created": {
+   "date-parts": [
+    [
+     2025,
+     8,
+     13
+    ]
+   ],
+   "date-time": "2025-08-13T17:26:42Z",
+   "timestamp": 1755106002000
+  },
+  "page": "30387-30397",
+  "source": "Crossref",
+  "is-referenced-by-count": 6,
+  "title": [
+   "A Unified, Resilient, and Explainable Adversarial Patch Detector"
+  ],
+  "prefix": "10.1109",
+  "author": [
+   {
+    "given": "Vishesh",
+    "family": "Kumar",
+    "sequence": "first",
+    "affiliation": [
+     {
+      "name": "IISER Bhopal,Trustworthy BiometraVision Lab,India"
+     }
+    ],
+    "role": [
+     {
+      "vocabulary": "crossref",
+      "role": "author"
+     }
+    ]
+   },
+   {
+    "given": "Akshay",
+    "family": "Agarwal",
+    "sequence": "additional",
+    "affiliation": [
+     {
+      "name": "IISER Bhopal,Trustworthy BiometraVision Lab,India"
+     }
+    ],
+    "role": [
+     {
+      "vocabulary": "crossref",
+      "role": "author"
+     }
+    ]
+   }
+  ],
+  "member": "263",
+  "event": {
+   "name": "2025 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)",
+   "location": "Nashville, TN, USA",
+   "start": {
+    "date-parts": [
+     [
+      2025,
+      6,
+      10
+     ]
+    ]
+   },
+   "end": {
+    "date-parts": [
+     [
+      2025,
+      6,
+      17
+     ]
+    ]
+   }
+  },
+  "container-title": [
+   "2025 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)"
+  ],
+  "original-title": [],
+  "link": [
+   {
+    "URL": "http://xplorestaging.ieee.org/ielx8/11091818/11091608/11095062.pdf?arnumber=11095062",
+    "content-type": "unspecified",
+    "content-version": "vor",
+    "intended-application": "similarity-checking"
+   }
+  ],
+  "deposited": {
+   "date-parts": [
+    [
+     2025,
+     8,
+     13
+    ]
+   ],
+   "date-time": "2025-08-13T17:33:47Z",
+   "timestamp": 1755106427000
+  },
+  "score": 1,
+  "resource": {
+   "primary": {
+    "URL": "https://ieeexplore.ieee.org/document/11095062/"
+   }
+  },
+  "subtitle": [],
+  "short-title": [],
+  "issued": {
+   "date-parts": [
+    [
+     2025,
+     6,
+     10
+    ]
+   ]
+  },
+  "references-count": 0,
+  "URL": "https://doi.org/10.1109/cvpr52734.2025.02829",
+  "relation": {},
+  "subject": [],
+  "published": {
+   "date-parts": [
+    [
+     2025,
+     6,
+     10
+    ]
+   ]
+  }
+ }
+}

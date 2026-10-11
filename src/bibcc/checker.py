@@ -50,7 +50,7 @@ from bibcc.checkers import (
 from bibcc.helptext import ENV_VENUES, VENUES_HELP, HelpFormatter, epilog
 from bibcc.logging_utils import Logger, get_output_dir, write_report
 from bibcc.titlecases import STYLES
-from bibcc.venues import default_library_path
+from bibcc.venues import PROJECT_LIBRARY_NAME, find_project_library, user_library_path
 
 
 def parse_list_arg(raw: str) -> List[str]:
@@ -242,7 +242,8 @@ def build_parser() -> argparse.ArgumentParser:
         "--check-templates",
         dest="check_venues",
         action="store_true",
-        help="Report venue library records missing fields, instead of checking a .bib file.",
+        help="Report venue library records missing fields, instead of checking a .bib file: "
+        f"the user library and the nearest {PROJECT_LIBRARY_NAME}, each on its own, or --venues FILE.",
     )
     venues.add_argument(
         "--venues",
@@ -274,17 +275,30 @@ def run(args: argparse.Namespace) -> None:
     """Run checker with parsed arguments."""
     # Venue library checking mode
     if args.check_venues:
-        venues_path = Path(args.venues) if args.venues else default_library_path()
+        if args.venues:
+            targets = [("library", Path(args.venues))]
+        else:
+            targets = [("user library", user_library_path())]
+            project = find_project_library(args.input or None)
+            if project is not None:
+                targets.append(("project library", project))
         log_dir = get_output_dir() / "logs"
-        with Logger("checker", input_file=venues_path, log_dir=log_dir) as logger:
+        with Logger("checker", input_file="venues", log_dir=log_dir) as logger:
             journal_fields = parse_list_arg(args.journal_fields)
             proceedings_fields = parse_list_arg(args.proceedings_fields)
-            check_template_fields(
-                venues_path,
-                journal_fields,
-                proceedings_fields,
-                log=logger.log,
-            )
+            for n, (label, venues_path) in enumerate(targets):
+                if n:
+                    logger.log("")
+                if not venues_path.exists():
+                    logger.log(f"ℹ️  No {label} yet ({venues_path}); see 'bibcc venues -h'.")
+                    continue
+                logger.log(f"📦 {label.capitalize()}: {venues_path}")
+                check_template_fields(
+                    venues_path,
+                    journal_fields,
+                    proceedings_fields,
+                    log=logger.log,
+                )
         return
 
     if not args.input:

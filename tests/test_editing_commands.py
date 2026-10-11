@@ -10,7 +10,7 @@ def _strip_added(text: str, added: str) -> str:
     return text.replace(added, "", 1)
 
 
-def test_complete_output_only_adds_fields(sample_bib: Path, tmp_path: Path):
+def test_complete_output_only_adds_fields(sample_bib: Path, tmp_path: Path, miaa_user_library):
     original = sample_bib.read_text()
     out = tmp_path / "out.bib"
     main(["complete", str(sample_bib), "--output", str(out)])
@@ -21,14 +21,21 @@ def test_complete_output_only_adds_fields(sample_bib: Path, tmp_path: Path):
         ",\n  venue     = {Seattle, WA, USA},\n  issn      = {2575-7075},\n"
         "  isbn      = {979-8-3503-5300-6},\n  publisher = {IEEE},\n  month     = jun"
     )
-    added_dual = ",\n  issn    = {1939-3539},\n  publisher = {IEEE}"
     assert added_ispc in result
-    assert added_dual in result
-    assert _strip_added(_strip_added(result, added_ispc), added_dual) == original
+    # "publisher" is longer than DualPrompt's '=' column, so that entry's column widens.
+    dual_before = original[original.index("  title   = {a study"): original.index("  month   = jun") + 15]
+    dual_after = (
+        "  title     = {a study of prompts\n             for continual learning},\n"
+        "  author    = {Wang, Zifeng and Zhang, Zizhao},\n"
+        "  journal   = {IEEE Transactions on Pattern Analysis and Machine Intelligence},\n"
+        "  year      = {2024},\n  month     = jun,\n  issn      = {1939-3539},\n  publisher = {IEEE}"
+    )
+    assert dual_after in result
+    assert _strip_added(result, added_ispc) == original.replace(dual_before, dual_after)
     assert sample_bib.read_text() == original
 
 
-def test_complete_dry_run_writes_diff_but_not_the_bib(sample_bib: Path):
+def test_complete_dry_run_writes_diff_but_not_the_bib(sample_bib: Path, miaa_user_library):
     original = sample_bib.read_text()
     main(["complete", str(sample_bib)])
     diff = (sample_bib.parent / ".bibcc" / "sample.bib.complete.diff").read_text()
@@ -36,7 +43,7 @@ def test_complete_dry_run_writes_diff_but_not_the_bib(sample_bib: Path):
     assert sample_bib.read_text() == original
 
 
-def test_complete_in_place(sample_bib: Path):
+def test_complete_in_place(sample_bib: Path, miaa_user_library):
     main(["complete", str(sample_bib), "--in-place"])
     assert "publisher = {IEEE}" in sample_bib.read_text()
 
@@ -76,5 +83,12 @@ def test_scholar_cite_adds_empty_citation_fields_safely(sample_bib: Path, tmp_pa
     out = tmp_path / "cited.bib"
     cmd_cite(sample_bib, out, dry_run=False, log=lambda _: None)
     result = out.read_text()
-    assert "  month   = jun,\n  citation = {}\n}" in result
-    assert result.replace(",\n  citation = {}", "", 1) == original
+    # "citation" is one character longer than DualPrompt's '=' column, which widens.
+    dual_before = original[original.index("  title   = {a study"): original.index("  month   = jun") + 15]
+    dual_after = (
+        "  title    = {a study of prompts\n             for continual learning},\n"
+        "  author   = {Wang, Zifeng and Zhang, Zizhao},\n"
+        "  journal  = {IEEE Transactions on Pattern Analysis and Machine Intelligence},\n"
+        "  year     = {2024},\n  month    = jun,\n  citation = {}"
+    )
+    assert result == original.replace(dual_before, dual_after)

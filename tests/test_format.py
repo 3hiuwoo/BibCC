@@ -75,6 +75,42 @@ def test_keep_quotes_and_months():
 @pytest.mark.parametrize(
     "raw, expected",
     [
+        ("{{Whole Title}}", "{Whole Title}"),
+        ("{{{Whole Title}}}", "{Whole Title}"),
+        ('"{Whole Title}"', "{Whole Title}"),
+        ("{ {Whole Title} }", "{Whole Title}"),
+        ("{{GKEAL}: Kernel}", "{{GKEAL}: Kernel}"),
+        ("{{A} and {B}}", "{{A} and {B}}"),
+        ('{{\\"O}}', '{{\\"O}}'),
+    ],
+)
+def test_redundant_outer_braces_are_stripped(raw, expected):
+    out = format_text(f"@misc{{k, title = {raw}}}\n")
+    assert f"title = {expected}\n" in out
+
+
+def test_name_lists_and_keep_outer_braces_keep_double_braces():
+    text = "@misc{k, author = {{World Health Organization}}, title = {{T}}}\n"
+    assert "author = {{World Health Organization}}," in format_text(text)
+    assert "title  = {{T}}\n" in format_text(text, FormatOptions(outer_braces=False))
+
+
+def test_outer_braces_around_months_and_pages():
+    out = format_text("@misc{k, month = {{June}}, pages = {{12-15}}}\n")
+    assert "month = jun," in out
+    assert "pages = {12--15}\n" in out
+
+
+def test_missing_commas_are_added():
+    text = "@article{k\n  title = {T}\n  year = 2024\n  journal = {J}\n}\n"
+    assert format_text(text) == (
+        "@article{k,\n  title   = {T},\n  year    = {2024},\n  journal = {J}\n}\n"
+    )
+
+
+@pytest.mark.parametrize(
+    "raw, expected",
+    [
         ("{12-15}", "{12--15}"),
         ('"12 – 15"', "{12--15}"),
         ("{S1-S9, 20-22}", "{S1--S9, 20--22}"),
@@ -228,3 +264,15 @@ def test_cli_output_requires_single_file(tmp_path: Path):
     _write(tmp_path / "a.bib", MESSY)
     with pytest.raises(SystemExit):
         main(["format", str(tmp_path), "--output", str(tmp_path / "o.bib")])
+
+
+def test_empty_entries_from_add_are_kept():
+    text = (
+        "% BibCC: no official BibTeX could be downloaded; paste it into the entry below, keeping the key.\n"
+        "%   title:  T\n"
+        "@inproceedings{Empty_Doe_AAAI2025,\n}\n\n"
+        "@article{A,\ntitle={T},\n  year = 2024}\n"
+    )
+    out = format_text(text)
+    assert "@inproceedings{Empty_Doe_AAAI2025,\n}\n" in out
+    assert "  title = {T},\n  year  = {2024}\n" in out

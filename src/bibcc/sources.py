@@ -22,6 +22,7 @@ Usage:
 
 from __future__ import annotations
 
+import gzip
 import html
 import json
 import os
@@ -89,9 +90,15 @@ def fetch_url(
     attempt = 0
     while True:
         try:
-            req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, **(headers or {})})
+            # gzip makes the large proceedings listings (NeurIPS: 4 MB) several times faster.
+            base = {"User-Agent": USER_AGENT, "Accept-Encoding": "gzip"}
+            req = urllib.request.Request(url, headers={**base, **(headers or {})})
             with urllib.request.urlopen(req, timeout=timeout) as response:
-                return response.read().decode("utf-8"), None
+                body = response.read()
+                # Checked by content, not header: some servers (AAAI's OJS) gzip without saying so.
+                if body[:2] == b"\x1f\x8b":
+                    body = gzip.decompress(body)
+                return body.decode("utf-8", errors="replace"), None
         except urllib.error.HTTPError as e:
             if e.code in (429, 503) and attempt < retries:
                 retry_after = e.headers.get("Retry-After", "") if e.headers else ""
@@ -183,6 +190,11 @@ def parse_identifier(text: str) -> Tuple[str, str]:
     if doi:
         return "doi", doi
     if re.match(r"^https?://", t, re.IGNORECASE):
+        # Publisher pages such as link.springer.com/chapter/10.1007/... carry the DOI.
+        m = re.search(r"/(10\.\d{4,9}/[^?#\s]+)", t)
+        doi = normalize_doi(re.sub(r"\.pdf$", "", m.group(1))) if m else ""
+        if doi:
+            return "doi", doi
         return "url", t
     return "title", t
 
@@ -331,11 +343,23 @@ def record_from_crossref(msg: Dict[str, Any]) -> Record:
     doi = clean_text(msg.get("DOI"))
     fields["doi"] = doi
 
+    # Kept apart from the fields: the official BibTeX, not CrossRef, makes the
+    # entry; these values only locate it and fill or validate venue records.
+    event = msg.get("event") or {}
+    _, event_month = _date_parts(event, "start")
+    extra = {
+        "landing_url": clean_text(((msg.get("resource") or {}).get("primary") or {}).get("URL")),
+        "issn": ", ".join(dict.fromkeys(msg.get("ISSN") or [])),
+        "isbn": ", ".join(dict.fromkeys(msg.get("ISBN") or [])),
+        "event_month": event_month,
+        "container": containers[0] if containers else "",
+    }
     return Record(
         entry_type=entry_type,
         fields={k: v for k, v in fields.items() if v},
         source="CrossRef",
         doi=doi,
+        extra={k: v for k, v in extra.items() if v},
     )
 
 
@@ -357,10 +381,16 @@ def crossref_record(doi: str) -> Tuple[Optional[Record], Optional[str]]:
     return record, None
 
 
-def crossref_search(title: str) -> Tuple[Optional[Record], Optional[str]]:
-    """Search CrossRef by title; only an exact (normalized) title match counts."""
+def crossref_search(title: str, prefix: str = "") -> Tuple[Optional[Record], Optional[str]]:
+    """Search CrossRef by title; only an exact (normalized) title match counts.
+
+    *prefix* (e.g. ``10.1109``) limits the search to one publisher's DOIs.
+    """
     query = urllib.parse.quote(clean_title_for_search(title))
-    data, error = fetch_json(f"https://api.crossref.org/works?query.bibliographic={query}&rows=5")
+    url = f"https://api.crossref.org/works?query.bibliographic={query}&rows=5"
+    if prefix:
+        url += f"&filter=prefix:{urllib.parse.quote(prefix)}"
+    data, error = fetch_json(url)
     if error:
         return None, error
     for item in ((data or {}).get("message") or {}).get("items") or []:
@@ -535,6 +565,7 @@ def published_from_s2(
     record, _ = openreview_search(clean_text(paper.get("title")), library)
     if record:
         record.arxiv_id = arxiv_id
+        record.extra.setdefault("dblp_key", str(ext.get("DBLP") or ""))
         return record, None
     booktitle = library_booktitle(library, abbrev, year)
     notes = []
@@ -558,6 +589,7 @@ def published_from_s2(
             source=f"Semantic Scholar (DBLP {ext.get('DBLP')})",
             arxiv_id=arxiv_id,
             notes=notes,
+            extra={"venue_abbrev": abbrev, "venue_year": year, "dblp_key": str(ext.get("DBLP") or "")},
         ),
         None,
     )
@@ -603,7 +635,9 @@ def openreview_search(
         abbrev = next((k for k in _OPENREVIEW_CONFERENCES if k.lower() == m.group(1).lower()), None)
         if abbrev is None:
             continue
-        official = not str(_note_value(content, "venueid") or "").startswith("dblp.org")
+        venueid = str(_note_value(content, "venueid") or "")
+        # dblp.org/... and OpenReview.net/... notes are imports, not the conference's own.
+        official = bool(venueid) and not venueid.startswith(("dblp.org", "OpenReview.net"))
         if best is None or (official and not best[0]):
             best = (official, note, venue, abbrev, m.group(2))
     if best is None:
@@ -631,12 +665,18 @@ def openreview_search(
         "booktitle": booktitle,
         "url": url,
     }
+    extra = {"openreview_venue": venue, "openreview_url": url, "venue_abbrev": abbrev, "venue_year": year}
+    bibtex = str(_note_value(content, "_bibtex") or "")
+    # An imported note's _bibtex is DBLP's, not the conference's.
+    if best[0] and bibtex.lstrip().startswith("@"):
+        extra["bibtex"] = bibtex
     return (
         Record(
             entry_type="inproceedings",
             fields={k: v for k, v in fields.items() if v},
             source=f"OpenReview ({venue})",
             notes=notes,
+            extra=extra,
         ),
         None,
     )
