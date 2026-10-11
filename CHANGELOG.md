@@ -29,6 +29,7 @@ This file lists notable changes to BibCC. The format follows [Keep a Changelog](
 - `add` reads the BibTeX of CVF Open Access pages that break lines with `<br>` (ICCV 2017 and other older pages).
 - `add` recognizes legacy NeurIPS paper URLs (`papers.nips.cc` and `/paper/YEAR/hash/`) and reads them from `proceedings.neurips.cc`.
 - OpenReview messages tell apart a paper that wasn't accepted, an accepted paper without a BibTeX export, and a request that was blocked or failed. When CrossRef doesn't find a title either, the error still includes the OpenReview message.
+- `add` and `upgrade` find BibCC's comment above an empty entry or an entry built from metadata when other comment lines, such as `% TODO: switch to official bibtex`, come before it.
 - Network requests are retried, with a short backoff, after dropped connections, timeouts, and SSL errors, not only after rate limits. Certificate failures aren't retried.
 
 ## [0.3.1] - 2026-10-11
