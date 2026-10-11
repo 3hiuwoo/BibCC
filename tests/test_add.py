@@ -344,10 +344,18 @@ def test_add_writes_empty_entry_when_publisher_blocks_downloads(web, library, tm
     assert f"@inproceedings{{{key},\n}}" in text
     assert not any("ieeexplore" in c for c in web.calls)
 
-    # The empty entry counts as present: adding the paper again is a duplicate.
+    # Adding the paper again looks it up again; the empty entry stays as it is.
     again = add_papers(["10.1609/aaai.v39i1.30001"], out, library, delay=0, log=lambda _: None)
-    assert again["duplicates"][0][1].key == key
+    assert again["added"] == [] and again["duplicates"] == []
+    assert [k for _, k, _ in again["empty"]] == [key]
     assert out.read_text() == text
+
+    # In another file, the empty entry counts as present: the paper is a duplicate.
+    other = tmp_path / "other.bib"
+    third = add_papers(["10.1609/aaai.v39i1.30001"], other, library, against=[str(out)], delay=0,
+                       log=lambda _: None)
+    assert third["duplicates"][0][1].key == key
+    assert not other.exists()
 
 
 def test_add_download_error_writes_nothing(web, library, tmp_path):
@@ -562,3 +570,148 @@ def test_latex_escape_and_format_entry():
     )
     assert format_entry("misc", "K", {}) == "@misc{K,\n}"
     assert format_entry("misc", "K", {"title": ""}) == "@misc{K,\n}"
+
+
+# ------------------------------------------------- batches and empty entries
+
+
+AAAI_DOI = "10.1609/aaai.v39i1.30001"
+AAAI_BIB = """\
+% source: https://ojs.aaai.org/index.php/AAAI/article/view/30001
+@inproceedings{zhou2025continual,
+  title = {Continual Learning for Everyone},
+  author = {Zhou, Da-Wei and Ye, Han-Jia},
+  booktitle = {Proceedings of the AAAI Conference on Artificial Intelligence},
+  volume = {39},
+  number = {1},
+  pages = {1--9},
+  year = {2025},
+  doi = {10.1609/aaai.v39i1.30001},
+}
+"""
+
+
+def _aaai_route(web):
+    import json
+
+    msg = json.loads(_fixture("crossref_tpami.json"))["message"]
+    msg.pop("resource")
+    msg.update({
+        "DOI": AAAI_DOI,
+        "title": ["Continual Learning for Everyone"],
+        "container-title": ["Proceedings of the AAAI Conference on Artificial Intelligence"],
+        "published-print": {"date-parts": [[2025, 4]]},
+    })
+    web.routes["api.crossref.org/works/" + AAAI_DOI] = (json.dumps({"message": msg}), None)
+
+
+def _report_rows(out: Path):
+    lines = (out.parent / ".bibcc" / out.name / "add.txt").read_text().splitlines()[1:]
+    return [line.split("\t") for line in lines]
+
+
+def test_add_local_bib_fills_empty_entry_and_keeps_key(web, library, tmp_path):
+    _aaai_route(web)
+    out = tmp_path / "added.bib"
+    first = add_papers([AAAI_DOI, "10.1109/TPAMI.2024.3429383"], out, library, delay=0, log=lambda _: None)
+    ((_, key, _),) = first["empty"]
+    tpami_key = [k for _, k in first["added"] if k != key][0]
+    before = _entries(out)[tpami_key]
+
+    downloads = tmp_path / "downloads"
+    downloads.mkdir()
+    (downloads / "aaai.bib").write_text(AAAI_BIB)
+    calls = len(web.calls)
+    lines = []
+    summary = add_papers([str(downloads)], out, library, delay=0, log=lines.append)
+    assert len(web.calls) == calls  # local BibTeX needs no lookup
+    assert summary["filled"] == [(f"{downloads / 'aaai.bib'}:zhou2025continual", key)]
+    assert summary["added"] == [] and summary["failed"] == []
+    text = out.read_text()
+    assert EMPTY_ENTRY_MARK not in text
+    entries = _entries(out)
+    assert list(entries) == [key, tpami_key]
+    assert entries[key]["pages"] == "1--9"
+    assert entries[tpami_key] == before
+    row = _report_rows(out)[0]
+    assert row[1:3] == ["official", key]
+    assert row[5] == "https://ojs.aaai.org/index.php/AAAI/article/view/30001"
+    assert f"{out}: 2 entries (2 with fields, 0 empty)" in lines
+
+    # Passing the file again finds the paper present.
+    again = add_papers([str(downloads / "aaai.bib")], out, library, delay=0, log=lambda _: None)
+    assert again["duplicates"][0][1].key == key
+
+
+def test_add_local_bib_appends_new_paper(web, library, tmp_path):
+    local = tmp_path / "mine.bib"
+    local.write_text(AAAI_BIB)
+    out = tmp_path / "added.bib"
+    summary = add_papers([str(local)], out, library, delay=0, log=lambda _: None)
+    ((_, key),) = summary["added"]
+    assert key == "ContinualLearning_Zhou_AAAI2025"
+    assert web.calls == []
+
+
+def test_add_manifest_sets_key_parts(web, library, tmp_path):
+    from bibcc.adder import read_batch
+
+    manifest = tmp_path / "papers.csv"
+    manifest.write_text(
+        "identifier,method,venue,year,key\n"
+        "10.1109/TPAMI.2024.3429383,CLSurvey,,,\n"
+        f"{tmp_path / 'mine.bib'},,,,Mine_Zhou_AAAI2025\n"
+        "# a comment row,,,,\n"
+    )
+    (tmp_path / "mine.bib").write_text(AAAI_BIB)
+    rows = read_batch(manifest)
+    assert [r[0] for r in rows] == ["10.1109/TPAMI.2024.3429383", str(tmp_path / "mine.bib")]
+    out = tmp_path / "added.bib"
+    summary = add_papers([r[0] for r in rows], out, library, hints=dict(rows), delay=0, log=lambda _: None)
+    keys = [k for _, k in summary["added"]]
+    assert keys[0].startswith("CLSurvey_") and keys[0].endswith("_TPAMI2024")
+    assert keys[1] == "Mine_Zhou_AAAI2025"
+
+
+def test_add_manifest_key_already_used_fails(web, library, tmp_path):
+    from bibcc.adder import Hints
+
+    out = tmp_path / "added.bib"
+    out.write_text("@article{Taken_X_TPAMI2024,\n  title = {Something Else},\n}\n")
+    summary = add_papers(["10.1109/TPAMI.2024.3429383"], out, library, delay=0, log=lambda _: None,
+                         hints={"10.1109/TPAMI.2024.3429383": Hints(key="Taken_X_TPAMI2024")})
+    assert "already used" in summary["failed"][0][1]
+
+
+def test_read_manifest_needs_identifier_column(tmp_path):
+    from bibcc.adder import read_manifest
+
+    bad = tmp_path / "papers.tsv"
+    bad.write_text("doi\tmethod\n10.1/x\tX\n")
+    with pytest.raises(ValueError, match="no 'identifier' column"):
+        read_manifest(bad)
+
+
+def test_add_retry_fills_empty_entries_and_failures(web, library, tmp_path):
+    _aaai_route(web)
+    web.routes[XPLORE_EXPORT + "10599804"] = (None, "HTTP 503: Service Unavailable")
+    out = tmp_path / "added.bib"
+    first = add_papers([AAAI_DOI, "10.1109/TPAMI.2024.3429383"], out, library, delay=0, log=lambda _: None)
+    ((_, key, _),) = first["empty"]
+    assert len(first["failed"]) == 1
+
+    # The site is back, and AAAI's BibTeX can now be had through a page URL.
+    web.routes[XPLORE_EXPORT + "10599804"] = DEFAULT_ROUTES[XPLORE_EXPORT + "10599804"]
+    summary = add_papers([], out, library, retry=True, delay=0, log=lambda _: None)
+    assert [i for i, _ in summary["added"]] == ["10.1109/TPAMI.2024.3429383"]
+    assert [k for _, k, _ in summary["empty"]] == [key]  # still blocked; the entry stays
+    assert len(_entries(out)) == 1 and key in out.read_text()
+
+
+def test_add_cli_retry_needs_no_identifiers(web, tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(SystemExit) as e:
+        main(["add"])
+    assert e.value.code == 2
+    main(["add", "--retry", "--venues", str(MIAA_VENUES)])
+    assert "Retrying 0 papers" in capsys.readouterr().out

@@ -41,6 +41,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import csv
 import re
 import sys
 import time
@@ -213,15 +214,27 @@ def suggest_method(title: str) -> str:
     return "".join(w[:1].upper() + w[1:] for w in words[:2]) or "Paper"
 
 
-def suggest_key(entry_type: str, fields: Dict[str, str], taken: Set[str]) -> str:
-    """``METHOD_AUTHOR_VENUEYEAR``, made unique against *taken* (lower-cased keys)."""
-    method = suggest_method(fields.get("title", ""))
+def suggest_key(
+    entry_type: str,
+    fields: Dict[str, str],
+    taken: Set[str],
+    method: str = "",
+    venue: str = "",
+    year: str = "",
+) -> str:
+    """``METHOD_AUTHOR_VENUEYEAR``, made unique against *taken* (lower-cased keys).
+
+    *method*, *venue*, and *year* (from a manifest) replace the guessed parts;
+    *year* is the edition year, which may differ from the entry's ``year``.
+    """
+    method = re.sub(r"[^A-Za-z0-9+\-]", "", method) or suggest_method(fields.get("title", ""))
     author = first_author_surname(fields.get("author", "")) or "Anon"
-    if entry_type == "misc" and fields.get("archiveprefix", "").lower() == "arxiv":
+    venue = re.sub(r"[^A-Za-z0-9\-]", "", re.sub(r"[\s_'-]*(?:19|20)\d{2}$", "", venue.strip()))
+    if not venue and entry_type == "misc" and fields.get("archiveprefix", "").lower() == "arxiv":
         venue = "arXiv"
-    else:
+    elif not venue:
         venue = abbreviate_venue(fields.get("journal") or fields.get("booktitle")) or "Venue"
-    year = fields.get("year", "")
+    year = year.strip() or fields.get("year", "")
     key = f"{method}_{author}_{venue}{year}"
     n = 2
     while key.lower() in taken:
@@ -271,6 +284,8 @@ class BibIndex:
         self._title: Dict[str, Tuple[str, str]] = {}
         self.keys: Set[str] = set()
         self.key_where: Dict[str, str] = {}
+        # Lower-cased keys of BibCC's empty entries, and the file each is in.
+        self.empty: Dict[str, str] = {}
         self.files = 0
 
     def add(self, entry: Dict[str, str], where: str) -> None:
@@ -306,6 +321,7 @@ class BibIndex:
             info = _empty_entry_info(text, span.start)
             self.add({"ID": span.key, "title": info.get("title", ""), "doi": info.get("doi", ""),
                       "eprint": info.get("arxiv", "")}, where)
+            self.empty[span.key.lower()] = where
             empty += 1
         return len(entries) + empty
 
@@ -632,10 +648,175 @@ def empty_entry(entry_type: str, key: str, record: Record, lookup: OfficialLooku
 # ------------------------------------------------------------------ main
 
 
+MANIFEST_COLUMNS = ("identifier", "method", "venue", "year", "key")
+# In a local .bib file, the comment line that names where an entry's official BibTeX came from.
+_SOURCE_LINE = re.compile(r"^%\s*source:\s*(\S+)\s*$")
+_LOCAL_LABEL = re.compile(r"^(.+\.bib):([^:/\s]+)$", re.IGNORECASE)
+
+
+@dataclass(frozen=True)
+class Hints:
+    """What a manifest row says about one paper: parts of its key, and its venue."""
+
+    method: str = ""
+    venue: str = ""
+    year: str = ""
+    key: str = ""
+
+
+NO_HINTS = Hints()
+
+
+@dataclass
+class _Item:
+    """One paper to add: an identifier to look up, or an entry of a local .bib file."""
+
+    identifier: str
+    hints: Hints = NO_HINTS
+    local: Optional[Official] = None
+    local_key: str = ""
+    # The empty entry to fill, when it is known before the lookup (--retry).
+    target: str = ""
+
+
 def read_identifiers(path: str | Path) -> List[str]:
     """One identifier per line; blank lines and ``#`` comments are ignored."""
     lines = Path(path).read_text(encoding="utf-8").splitlines()
     return [line.strip() for line in lines if line.strip() and not line.lstrip().startswith("#")]
+
+
+def read_manifest(path: str | Path) -> List[Tuple[str, Hints]]:
+    """Rows of a CSV (or ``.tsv``) manifest with an ``identifier`` column.
+
+    The optional ``method``, ``venue``, ``year``, and ``key`` columns set the
+    key: ``key`` as given, or ``METHOD_Surname_VENUEYEAR`` from the columns
+    that are filled in, guessing the rest.  Raises ``ValueError`` when there
+    is no ``identifier`` column.
+    """
+    path = Path(path)
+    delimiter = "\t" if path.suffix.lower() == ".tsv" else ","
+    with path.open(encoding="utf-8-sig", newline="") as f:
+        reader = csv.DictReader(f, delimiter=delimiter)
+        columns = {(name or "").strip().lower(): name for name in reader.fieldnames or []}
+        if "identifier" not in columns:
+            found = ", ".join(c for c in columns if c) or "none"
+            raise ValueError(f"{path} has no 'identifier' column (its columns: {found})")
+        rows: List[Tuple[str, Hints]] = []
+        for row in reader:
+            cells = {name: " ".join((row.get(columns[name]) or "").split()) if name in columns else ""
+                     for name in MANIFEST_COLUMNS}
+            if cells["identifier"] and not cells["identifier"].startswith("#"):
+                rows.append((cells["identifier"], Hints(cells["method"], cells["venue"], cells["year"], cells["key"])))
+    return rows
+
+
+def read_batch(path: str | Path) -> List[Tuple[str, Hints]]:
+    """Identifiers and hints from ``--from FILE``: a manifest if it is ``.csv`` or ``.tsv``."""
+    if Path(path).suffix.lower() in (".csv", ".tsv"):
+        return read_manifest(path)
+    return [(identifier, Hints()) for identifier in read_identifiers(path)]
+
+
+def is_local_bib(identifier: str) -> bool:
+    """True if *identifier* is a ``.bib`` file or a directory on disk."""
+    path = Path(identifier).expanduser()
+    return path.is_dir() or (path.suffix.lower() == ".bib" and path.is_file())
+
+
+def local_entries(identifier: str, log: Callable[[str], None]) -> List[Tuple[str, str, Official]]:
+    """``(label, key, official)`` for each entry with fields in a local ``.bib`` file or directory.
+
+    Such BibTeX is official BibTeX that you got yourself (from a browser,
+    say).  A ``% source: URL`` line in the comment just above an entry names
+    where it came from.
+    """
+    path = Path(identifier).expanduser()
+    if path.is_dir():
+        files = sorted(
+            p for p in path.rglob("*.bib") if not any(part.startswith(".") for part in p.relative_to(path).parts)
+        )
+    else:
+        files = [path]
+    found: List[Tuple[str, str, Official]] = []
+    for file in files:
+        try:
+            text = read_bib(file)
+            spans = scan(text)
+        except (BibEditError, OSError, UnicodeDecodeError) as e:
+            log(f"⚠️  Could not read {file}: {e}")
+            continue
+        for span in spans:
+            if not span.fields:
+                continue
+            _, comment = _comment_above(text, span.start)
+            url = next((m.group(1) for m in map(_SOURCE_LINE.match, comment) if m), "")
+            entry_text = text[span.start:span.end]
+            _, raw = official_fields(entry_text)
+            interim = interim_source_of(raw.get("booktitle", ""), url, raw.get("year", ""))
+            official = Official(f"local file {file.name}", url, entry_text, interim=interim)
+            found.append((f"{file}:{span.key}", span.key, official))
+    return found
+
+
+def retry_items(output: Path, report_dir: Optional[Path]) -> List[_Item]:
+    """The papers ``--retry`` looks up again: the empty entries of *output*, and the failed papers of its report."""
+    items: List[_Item] = []
+    if output.exists():
+        text = read_bib(output)
+        for span in scan(text):
+            if span.fields:
+                continue
+            info = _empty_entry_info(text, span.start)
+            identifier = info.get("doi") or info.get("arxiv") or info.get("title")
+            if identifier:
+                items.append(_Item(identifier, target=span.key))
+    report = reports_for(output, report_dir, create=False) / "add.txt"
+    if report.exists():
+        for line in report.read_text(encoding="utf-8").splitlines()[1:]:
+            cells = line.split("\t")
+            if len(cells) < 2 or cells[1] != "failed" or not cells[0]:
+                continue
+            local = _LOCAL_LABEL.match(cells[0])
+            if local and Path(local.group(1)).exists():
+                continue  # BibTeX in your own file that did not parse; fix the file and pass it again
+            items.append(_Item(cells[0], target=cells[2] if len(cells) > 2 else ""))
+    return items
+
+
+def fill_empty_entry(text: str, key: str, entry_text: str) -> str:
+    """*text* with the empty entry *key*, and BibCC's comment above it, replaced by *entry_text*.
+
+    *entry_text* must keep the key.  Raises :class:`BibEditError` unless the
+    keys stay in order, the new entry parses, and every other entry is
+    unchanged.
+    """
+    spans = scan(text)
+    matches = [s for s in spans if s.key == key]
+    if len(matches) != 1 or matches[0].fields:
+        raise BibEditError(f"expected one empty entry '{key}'")
+    span = matches[0]
+    block_start, comment = _comment_above(text, span.start)
+    start = block_start if comment and comment[0].startswith(EMPTY_ENTRY_MARK) else span.start
+    new_text = text[:start] + entry_text.strip() + text[span.end:]
+    if [s.key for s in scan(new_text)] != [s.key for s in spans]:
+        raise BibEditError("filling the empty entry changed the sequence of citation keys")
+    parser = bibtexparser.bparser.BibTexParser(common_strings=True)
+    before = {e["ID"]: e for e in bibtexparser.loads(text, parser=parser).entries if e["ID"] != key}
+    parser = bibtexparser.bparser.BibTexParser(common_strings=True)
+    after = {e["ID"]: e for e in bibtexparser.loads(new_text, parser=parser).entries}
+    if key not in after:
+        raise BibEditError(f"the entry that fills '{key}' does not parse")
+    after.pop(key)
+    if before != after:
+        raise BibEditError(f"filling '{key}' changed other entries")
+    return new_text
+
+
+def entry_counts(text: str) -> Tuple[int, int]:
+    """``(populated, empty)`` entries in a .bib text; empty ones are placeholders with no fields."""
+    spans = scan(text) if text else []
+    empty = sum(1 for s in spans if not s.fields)
+    return len(spans) - empty, empty
 
 
 def _check_entry(text: str, key: str) -> None:
@@ -649,8 +830,27 @@ def _check_entry(text: str, key: str) -> None:
             raise BibEditError(f"generated entry '{key}' does not parse back")
 
 
+def _hint_venue(record: Record, hints: Hints) -> None:
+    """Let a manifest's venue stand in for a record that names none, so its official source is found."""
+    if not hints.venue or record.extra.get("venue_abbrev"):
+        return
+    if record.fields.get("booktitle") or record.fields.get("journal"):
+        return
+    m = re.match(r"^(.*?)[\s_'-]*((?:19|20)\d{2})?$", hints.venue.strip())
+    abbrev = re.sub(r"[^A-Za-z0-9\-]", "", m.group(1) if m else hints.venue)
+    if abbrev:
+        record.extra["venue_abbrev"] = abbrev
+        year = hints.year or (m.group(2) if m and m.group(2) else "")
+        if year:
+            record.extra["venue_year"] = year
+
+
 def _locate(
-    identifier: str, library: VenueLibrary, prefer_published: bool, log: Callable[[str], None]
+    identifier: str,
+    library: VenueLibrary,
+    prefer_published: bool,
+    log: Callable[[str], None],
+    hints: Hints = NO_HINTS,
 ) -> Tuple[Optional[Record], Optional[OfficialLookup], Optional[str]]:
     """``(record, official lookup, error)`` for one identifier."""
     kind, value = parse_identifier(identifier)
@@ -665,6 +865,7 @@ def _locate(
     result = resolve(identifier, library, prefer_published=prefer_published, log=log)
     if result.record is None:
         return None, None, result.error or "not found"
+    _hint_venue(result.record, hints)
     log(f"   📍 {result.record.source}; looking for the official BibTeX...")
     return result.record, find_official(result.record), None
 
@@ -732,8 +933,18 @@ def add_papers(
     log: Optional[Callable[[str], None]] = None,
     report_dir: Optional[Path] = None,
     fallback: str = FALLBACK_NONE,
+    hints: Optional[Dict[str, Hints]] = None,
+    retry: bool = False,
 ) -> Dict[str, list]:
     """Locate *identifiers*, download their official BibTeX, and append entries to *output*.
+
+    An identifier that is a ``.bib`` file or directory on disk brings in its
+    entries as official BibTeX that you got yourself (see
+    :func:`local_entries`).  *hints* (from a manifest, by identifier) set the
+    parts of the key.  A paper that matches an empty entry of *output* (same
+    DOI, arXiv ID, title, or manifest key) fills that entry in place and
+    keeps its key; with *retry*, the empty entries of *output* and the failed
+    papers of its last report are looked up again.
 
     *fallback* (one of :data:`FALLBACK_LEVELS`) says when an entry is built
     from the metadata the paper was located by instead: ``missing`` when no
@@ -744,15 +955,18 @@ def add_papers(
     to ``.bibcc/<output>/add.txt``, and those left to do by hand (empty
     entries, failures) are listed at the end of the log.
 
-    Returns ``{"added": [(identifier, key)], "empty": [(identifier, key,
-    reason)], "metadata": [(identifier, key, reason)], "duplicates":
-    [(identifier, Duplicate)], "failed": [(identifier, error)], "outcomes":
-    [AddOutcome]}``.  Empty and metadata entries are also listed in ``added``.
+    Returns ``{"added": [(identifier, key)], "filled": [(identifier, key)],
+    "empty": [(identifier, key, reason)], "metadata": [(identifier, key,
+    reason)], "duplicates": [(identifier, Duplicate)], "failed":
+    [(identifier, error)], "outcomes": [AddOutcome]}``.  Empty and metadata
+    entries are also listed in ``added`` (or in ``filled``, when they fill an
+    empty entry).
     """
     if fallback not in FALLBACK_LEVELS:
         raise ValueError(f"fallback must be one of {', '.join(FALLBACK_LEVELS)}, not '{fallback}'")
     log = log or print
     output = Path(output)
+    hints = hints or {}
     index = BibIndex()
     if against:
         count = index.add_paths(against, exclude=output, log=log)
@@ -764,7 +978,26 @@ def add_papers(
     if old_text:
         index.add_text(old_text, str(output))
 
+    items: List[_Item] = retry_items(output, report_dir) if retry else []
+    if retry:
+        log(f"🔁 Retrying {len(items)} papers: the empty entries of {output} and the failed papers of its report.")
+    for identifier in identifiers:
+        hint = hints.get(identifier, NO_HINTS)
+        if not is_local_bib(identifier):
+            items.append(_Item(identifier, hint))
+            continue
+        found = local_entries(identifier, log)
+        if not found:
+            log(f"⚠️  {identifier}: no entries with fields to add")
+        if len(found) > 1 and hint != NO_HINTS:
+            log(f"⚠️  {identifier} holds {len(found)} entries, so its manifest values are ignored")
+            hint = NO_HINTS
+        items += [_Item(label, hint, official, key) for label, key, official in found]
+    seen_ids: Set[str] = set()
+    items = [i for i in items if not (i.identifier in seen_ids or seen_ids.add(i.identifier))]
+
     added: List[Tuple[str, str]] = []
+    filled: List[Tuple[str, str]] = []
     empty: List[Tuple[str, str, str]] = []
     metadata: List[Tuple[str, str, str]] = []
     duplicates: List[Tuple[str, Duplicate]] = []
@@ -772,50 +1005,86 @@ def add_papers(
     outcomes: List[AddOutcome] = []
     proposals: List[MissingVenue] = []
     chunks: List[str] = []
+    fills: Dict[str, str] = {}
+
+    def is_open_placeholder(key: str) -> bool:
+        return index.empty.get(key.lower()) == str(output) and key not in fills
 
     def skip_duplicate(identifier: str, dup: Duplicate, hint: str = "") -> None:
+        if not hint and dup.key.lower() in index.empty:
+            hint = f" (an empty entry; to fill it, run again with --output {dup.where})"
         log(f"   ⏭️  Already present as {dup.key} ({dup.where}): {dup.reason}{hint}")
         duplicates.append((identifier, dup))
         outcomes.append(AddOutcome(identifier, "duplicate", dup.key, detail=f"{dup.reason} ({dup.where})"))
 
-    def duplicate_of(record: Record, identifier: str, title: str = "") -> bool:
-        dup = index.find(doi=record.doi, arxiv_id=record.arxiv_id, title=title or record.fields.get("title", ""))
-        if dup is None:
-            return False
+    def match(identifier: str, record: Record, target: str) -> Tuple[bool, str]:
+        """``(skip, target)``: whether *record* is already present, and the empty entry it fills."""
+        dup = index.find(doi=record.doi, arxiv_id=record.arxiv_id, title=record.fields.get("title", ""))
+        if dup is None or dup.key.lower() == target.lower():
+            return False, target
+        if not target and is_open_placeholder(dup.key):
+            return False, dup.key
         hint = ""
         if record.entry_type != "misc" and dup.reason.startswith("same arXiv"):
             hint = " (the bibliography has the preprint; `bibcc upgrade` can replace it)"
         skip_duplicate(identifier, dup, hint)
-        return True
+        return True, target
 
     def fail(identifier: str, error: str, **outcome: str) -> None:
         log(f"   ❌ {error}")
         failed.append((identifier, error))
         outcomes.append(AddOutcome(identifier, "failed", detail=error, **outcome))
 
-    for n, identifier in enumerate(identifiers):
-        if n and delay:
-            time.sleep(delay)
+    looked_up = False
+    for item in items:
+        identifier, hint = item.identifier, item.hints
+        target = item.target if item.target and is_open_placeholder(item.target) else ""
+        if hint.key and not target:
+            if is_open_placeholder(hint.key):
+                target = hint.key
+            elif hint.key.lower() in index.keys:
+                log(f"\n🔎 {identifier}")
+                fail(identifier, f"key {hint.key} from the manifest is already used in "
+                     f"{index.key_where.get(hint.key.lower(), str(output))}")
+                continue
+        if item.local is None:
+            if looked_up and delay:
+                time.sleep(delay)
+            looked_up = True
         log(f"\n🔎 {identifier}")
-        kind, value = parse_identifier(identifier)
-        dup = index.find(doi=value if kind == "doi" else "", arxiv_id=value if kind == "arxiv" else "")
-        if dup:
-            skip_duplicate(identifier, dup)
-            continue
 
-        record, lookup, error = _locate(identifier, library, prefer_published, log)
-        if record is None or lookup is None:
-            fail(identifier, error or "not found", url=value if kind == "url" else "")
-            continue
-        if duplicate_of(record, identifier):
+        if item.local is not None:
+            if not target and item.local_key and is_open_placeholder(item.local_key):
+                target = item.local_key
+            lookup = OfficialLookup(official=item.local)
+            record = record_from_official(item.local)
+            if record is None:
+                fail(identifier, "the BibTeX does not parse", key=target, url=item.local.url)
+                continue
+        else:
+            kind, value = parse_identifier(identifier)
+            dup = index.find(doi=value if kind == "doi" else "", arxiv_id=value if kind == "arxiv" else "")
+            if dup and dup.key.lower() != target.lower():
+                if not target and is_open_placeholder(dup.key):
+                    target = dup.key
+                else:
+                    skip_duplicate(identifier, dup)
+                    continue
+            record, lookup, error = _locate(identifier, library, prefer_published, log, hint)
+            if record is None or lookup is None:
+                fail(identifier, error or "not found", key=target, url=value if kind == "url" else "")
+                continue
+        skip, target = match(identifier, record, target)
+        if skip:
             continue
         title = record.fields.get("title", "")
         notes = [note for note in record.notes if not note.startswith("booktitle ")]
-
+        fixed_key = target or hint.key
+        key_parts = {"method": hint.method, "venue": hint.venue, "year": hint.year}
         if _use_metadata(lookup, fallback):
             why = lookup.error or lookup.reason or "no official BibTeX source is known"
             built = build_metadata_entry(record, library, keep_title=keep_title)
-            key = suggest_key(built.entry_type, built.fields, index.keys)
+            key = fixed_key or suggest_key(built.entry_type, built.fields, index.keys, **key_parts)
             entry_text = metadata_entry(built, key, record, lookup)
             log(f"   🧩 no official BibTeX ({why}); built {key} from {record.source} metadata")
             notes = list(record.notes) + built.notes
@@ -825,10 +1094,18 @@ def add_papers(
                                  lookup.manual_url)
         elif lookup.official is None and lookup.error:
             fail(identifier, f"could not get the official BibTeX: {lookup.error} (nothing written; try again later)",
-                 title=title, url=lookup.manual_url, fallback=FALLBACK_ALL)
+                 key=target, title=title, url=lookup.manual_url, fallback=FALLBACK_ALL)
+            continue
+        elif lookup.official is None and target:
+            log(f"   📭 still no official BibTeX ({lookup.reason}); the empty entry {target} stays")
+            if lookup.manual_url:
+                log(f"      get it from {lookup.manual_url}")
+            empty.append((identifier, target, lookup.reason))
+            outcomes.append(AddOutcome(identifier, "empty", target, title, lookup.reason, lookup.manual_url,
+                                       fallback=FALLBACK_MISSING))
             continue
         elif lookup.official is None:
-            key = suggest_key(record.entry_type, record.fields, index.keys)
+            key = fixed_key or suggest_key(record.entry_type, record.fields, index.keys, **key_parts)
             entry_text = empty_entry(record.entry_type, key, record, lookup)
             log(f"   📭 no official BibTeX ({lookup.reason}); empty entry {key} to fill in by hand")
             if lookup.manual_url:
@@ -841,9 +1118,10 @@ def add_papers(
             built = build_entry(official, library, keep_title=keep_title, doi=record.doi)
             other = record_from_official(official)
             if other and (other.doi != record.doi or other.fields.get("title") != record.fields.get("title")):
-                if duplicate_of(other, identifier):
+                skip, target = match(identifier, other, target)
+                if skip:
                     continue
-            key = suggest_key(built.entry_type, built.fields, index.keys)
+            key = fixed_key or suggest_key(built.entry_type, built.fields, index.keys, **key_parts)
             entry_text = format_entry(built.entry_type, key, built.fields)
             log(f"   ✅ official BibTeX from {official.provider}: {key}")
             if lookup.reason:
@@ -854,25 +1132,36 @@ def add_papers(
             detail = official.provider + (f" ({lookup.reason})" if lookup.reason else "")
             outcome = AddOutcome(identifier, "interim" if official.interim else "official", key, title, detail,
                                  official.url)
+        if hint.key and target and hint.key != target:
+            notes.append(f"fills the empty entry {target}, which keeps its key (the manifest says {hint.key})")
         try:
             _check_entry(entry_text, key)
         except BibEditError as e:
-            fail(identifier, str(e), title=title)
+            fail(identifier, str(e), key=target, title=title)
             continue
         for note in notes:
             log(f"   ℹ️  {note}")
         log("\n".join("   " + line for line in entry_text.splitlines()))
-        added.append((identifier, key))
+        if target:
+            log(f"   📥 fills the empty entry {target}")
+            fills[target] = entry_text
+            filled.append((identifier, key))
+        else:
+            chunks.append(entry_text)
+            added.append((identifier, key))
         if outcome.status == "empty":
             empty.append((identifier, key, outcome.detail))
         elif outcome.status == "metadata":
             metadata.append((identifier, key, lookup.error or lookup.reason))
         outcomes.append(outcome)
-        chunks.append(entry_text)
 
-    if chunks and not dry_run:
-        new_text = old_text.rstrip()
+    new_text = old_text
+    for key, entry_text in fills.items():
+        new_text = fill_empty_entry(new_text, key, entry_text)
+    if chunks:
+        new_text = new_text.rstrip()
         new_text = (new_text + "\n\n" if new_text else "") + "\n\n".join(chunks) + "\n"
+    if (chunks or fills) and not dry_run:
         old_keys = [e.key for e in scan(old_text)] if old_text else []
         if [e.key for e in scan(new_text)] != old_keys + [k for _, k in added]:
             raise BibEditError("appending changed the existing entries of the output file")
@@ -889,22 +1178,28 @@ def add_papers(
     write_report(report, REPORT_HEADER, [o.row() for o in outcomes])
 
     log(f"\n{SEPARATOR_THIN * SEPARATOR_WIDTH}")
-    target = "(dry run, nothing written)" if dry_run else f"to {output}"
+    target_label = "(dry run, nothing written)" if dry_run else f"to {output}"
+    new_empty = sum(1 for o in outcomes if o.status == "empty" and (o.identifier, o.key) in added)
     log(
-        f"Added {len(added)} {target} ({len(empty)} empty, to fill in by hand; {len(metadata)} built from "
-        f"metadata); {len(duplicates)} already present; {len(failed)} failed. Report: {report}"
+        f"Added {len(added)} {target_label} ({new_empty} empty, to fill in by hand; {len(metadata)} built from "
+        f"metadata); filled {len(filled)} empty entries; {len(duplicates)} already present; "
+        f"{len(failed)} failed. Report: {report}"
     )
+    populated, placeholders = entry_counts(new_text)
+    log(f"{output}: {populated + placeholders} entries ({populated} with fields, {placeholders} empty)"
+        + (" after this run" if dry_run else ""))
     _log_left_to_do(outcomes, report, log)
-    if added and not dry_run:
-        log("\n💡 Review the keys (METHOD is a guess), then run:")
-        if empty:
-            log(f"   fill in the {len(empty)} empty entries (each has a comment saying where to get its BibTeX)")
+    if (added or filled) and not dry_run:
+        log("\n💡 Review the keys (METHOD is a guess unless a manifest gives it), then run:")
+        if placeholders:
+            log(f"   fill in the {placeholders} empty entries (each has a comment saying where to get its BibTeX), "
+                f"or run `bibcc add --retry --output {output}` later")
         if metadata:
             log(f"   check the entries built from metadata ({len(metadata)}); `bibcc upgrade {output}` "
                 "replaces them once their official BibTeX can be downloaded")
         log(f"   bibcc check {output} --check-keys --title-case --quote")
         log(f"   bibcc complete {output}")
-    return {"added": added, "empty": empty, "metadata": metadata, "duplicates": duplicates,
+    return {"added": added, "filled": filled, "empty": empty, "metadata": metadata, "duplicates": duplicates,
             "failed": failed, "outcomes": outcomes}
 
 
@@ -959,7 +1254,26 @@ added from the venue library (differences are reported, never overwritten),
 and a suggested METHOD_AUTHOR_VENUEYEAR key (check the METHOD part). The
 command proposes venues that are missing from the library in a fill-in YAML
 file. It skips papers that are already in the --against files or in the
-staging file (same DOI, arXiv ID, or title, including empty entries).""",
+staging file (same DOI, arXiv ID, or title). An empty entry in another file
+counts as present, but a paper that matches an empty entry of the staging file
+fills that entry in place and keeps its key.
+
+To add BibTeX that you downloaded yourself (for example, from a browser), pass
+the .bib file or a directory of .bib files as an identifier. The command
+treats each entry as official BibTeX: it formats the entry, checks for
+duplicates, and fills a matching empty entry. A '% source: URL' comment line
+just before an entry names where the entry came from.
+
+To set the keys, pass --from with a .csv or .tsv manifest. Its 'identifier'
+column is required, and the optional 'method', 'venue', 'year', and 'key'
+columns give the key as METHOD_AUTHOR_VENUEYEAR or in full. A 'venue' value
+also helps the command find the official source of a paper whose metadata
+names no venue.
+
+To look up again the papers that have no entry yet, pass --retry. The command
+retries the empty entries of the staging file and the papers that failed in
+its last report, .bibcc/OUTPUT/add.txt. The run ends with the number of
+entries in the staging file, with and without fields.""",
         epilog=epilog(
             examples=[
                 ("Add a DOI and an arXiv ID, and skip papers already in bib/",
@@ -971,6 +1285,12 @@ staging file (same DOI, arXiv ID, or title, including empty entries).""",
                  "bibcc add https://proceedings.mlr.press/v235/abad-rocamora24a.html"),
                 ("Add many papers from a file, one identifier per line",
                  "bibcc add --from new_papers.txt --against bib/ --output new.bib"),
+                ("Add papers from a manifest that sets the parts of each key",
+                 "bibcc add --from papers.csv --against bib/ --output new.bib"),
+                ("Add BibTeX that you downloaded by hand, filling empty entries",
+                 "bibcc add downloads/ --output new.bib"),
+                ("Look up the empty entries and failed papers again",
+                 "bibcc add --retry --output new.bib"),
                 ("Build entries from metadata when no official BibTeX is available",
                  "bibcc add --from new_papers.txt --fallback all"),
                 ("Print the entries without writing anything", "bibcc add 2501.13198 --dry-run"),
@@ -994,14 +1314,22 @@ staging file (same DOI, arXiv ID, or title, including empty entries).""",
         nargs="*",
         metavar="IDENTIFIER",
         help="A DOI (10.xxxx/...), an arXiv ID or URL (2501.13198, arxiv.org/abs/...), "
-        "a paper page URL, or a quoted title.",
+        "a paper page URL, a quoted title, or a .bib file or directory of official BibTeX.",
     )
     parser.add_argument(
         "--from",
         dest="from_file",
         default="",
         metavar="FILE",
-        help="Read more identifiers from FILE, one per line ('#' starts a comment).",
+        help="Read more identifiers from FILE, one per line ('#' starts a comment). A .csv or "
+        ".tsv FILE is a manifest with an 'identifier' column and optional 'method', 'venue', "
+        "'year', and 'key' columns that set the key.",
+    )
+    parser.add_argument(
+        "--retry",
+        action="store_true",
+        help="Also look up the empty entries of the staging file and the papers that failed in "
+        "its last report.",
     )
     parser.add_argument(
         "--against",
@@ -1069,10 +1397,16 @@ staging file (same DOI, arXiv ID, or title, including empty entries).""",
 
 def run(args: argparse.Namespace) -> None:
     identifiers = list(args.identifiers)
+    hints: Dict[str, Hints] = {}
     if args.from_file:
-        identifiers += read_identifiers(args.from_file)
-    if not identifiers:
-        build_parser().error("give at least one identifier or --from FILE")
+        try:
+            rows = read_batch(args.from_file)
+        except (OSError, ValueError) as e:
+            build_parser().error(str(e))
+        identifiers += [identifier for identifier, _ in rows]
+        hints = {identifier: hint for identifier, hint in rows if hint != NO_HINTS}
+    if not identifiers and not args.retry:
+        build_parser().error("give at least one identifier, --from FILE, or --retry")
 
     log_dir = Path(args.log_dir) if args.log_dir else None
     with Logger("adder", input_file=args.output, log_dir=log_dir) as logger:
@@ -1091,6 +1425,8 @@ def run(args: argparse.Namespace) -> None:
                 log=logger.log,
                 report_dir=log_dir,
                 fallback=args.fallback,
+                hints=hints,
+                retry=args.retry,
             )
         except BibEditError as e:
             logger.log(f"❌ Could not write {args.output} safely: {e}")
