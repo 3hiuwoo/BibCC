@@ -27,5 +27,6 @@ uv run ruff check .    # lint
 ## Git
 
 - **Branches**: work on `dev` (or branches off it); `main` holds only release commits, and CI rejects anything else there. Releases and patch fixes follow `CONTRIBUTING.md`.
+- **MIAA skill** (`~/.agents/skills/miaa-survey-bibtex`, kept outside this repo): it installs the latest release without a version pin and assumes the current behavior; its only version check is that `bibcc add -h` lists `--fallback`. When a release changes a command, option, output file, marker comment, or report format that the skill uses, update the skill in the same release. If the skill starts to depend on a newer feature, change that check to look for the new feature.
 - **No Co-Authored-By signature** in commit messages.
 - **Commit message style**: lowercase `verb: short description` (e.g. `add: feature`, `fix: bug`).
