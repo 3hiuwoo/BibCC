@@ -38,7 +38,7 @@ def test_complete_output_only_adds_fields(sample_bib: Path, tmp_path: Path, miaa
 def test_complete_dry_run_writes_diff_but_not_the_bib(sample_bib: Path, miaa_user_library):
     original = sample_bib.read_text()
     main(["complete", str(sample_bib)])
-    diff = (sample_bib.parent / ".bibcc" / "sample.bib.complete.diff").read_text()
+    diff = (sample_bib.parent / ".bibcc" / "sample.bib" / "complete.diff").read_text()
     assert "+  publisher = {IEEE}" in diff
     assert sample_bib.read_text() == original
 
@@ -69,7 +69,7 @@ def test_title_apply_rewrites_only_title_values(sample_bib: Path):
 
 def test_title_case_report_keeps_multi_line_titles_on_one_line(sample_bib: Path):
     main(["check", str(sample_bib), "--fields", "", "--title-case"])
-    report = (sample_bib.parent / ".bibcc" / "sample.bib.title_case.txt").read_text()
+    report = (sample_bib.parent / ".bibcc" / "sample.bib" / "title_case.txt").read_text()
     assert (
         "DualPrompt_Wang_TPAMI2024\ta study of prompts for continual learning\t"
         "A Study of Prompts for Continual Learning\n"

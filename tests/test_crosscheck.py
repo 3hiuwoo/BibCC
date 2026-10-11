@@ -82,11 +82,11 @@ def test_complete_online_reports_and_fills_yaml(web, library, tmp_path):
     complete_main(str(bib), str(bib), dry_run=True, library=library, log=lambda _: None, online=True, delay=0)
     assert bib.read_text() == original
 
-    check = (tmp_path / ".bibcc" / "refs.bib.venue_check.txt").read_text()
+    check = (tmp_path / ".bibcc" / "refs.bib" / "venue_check.txt").read_text()
     assert "Unified_Kumar_CVPR2025\tpages\tbib differs" in check
     assert "NoDoi_X_ICML2024\t(not checked)\tno DOI" in check
 
-    yaml_text = (tmp_path / ".bibcc" / "refs.bib.missing_venues.yaml").read_text()
+    yaml_text = (tmp_path / ".bibcc" / "refs.bib" / "missing_venues.yaml").read_text()
     assert "# from CrossRef" in yaml_text
     data = yaml.safe_load(yaml_text)
     tpami = next(j for j in data["journals"] if j["name"].startswith("IEEE Transactions on Pattern"))
@@ -101,7 +101,7 @@ def test_complete_online_suggests_library_corrections(web, library, tmp_path):
     bib.write_text(f"@inproceedings{{A,\n  booktitle = {{{XPLORE_NAME}}},\n  year = {{2025}},\n"
                    "  doi = {10.1109/CVPR52734.2025.02829}\n}\n")
     complete_main(str(bib), str(bib), dry_run=True, library=library, log=lambda _: None, online=True, delay=0)
-    text = (tmp_path / ".bibcc" / "refs.bib.missing_venues.yaml").read_text()
+    text = (tmp_path / ".bibcc" / "refs.bib" / "missing_venues.yaml").read_text()
     assert "# ---- Suggested corrections to library records" in text
     assert '#      venue: "Nashville, TN, USA"  # library has "Seattle, WA, USA"' in text
     data = yaml.safe_load(text) or {}
@@ -114,4 +114,4 @@ def test_complete_offline_makes_no_requests(web, library, tmp_path):
                    "  doi = {10.1109/CVPR52734.2025.02829}\n}\n")
     complete_main(str(bib), str(bib), dry_run=True, library=library, log=lambda _: None)
     assert web.calls == []
-    assert not (tmp_path / ".bibcc" / "refs.bib.venue_check.txt").exists()
+    assert not (tmp_path / ".bibcc" / "refs.bib" / "venue_check.txt").exists()

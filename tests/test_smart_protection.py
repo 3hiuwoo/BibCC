@@ -61,7 +61,7 @@ def test_cli_checks_month_by_default(tmp_path: Path):
     bib = tmp_path / "refs.bib"
     bib.write_text("@article{k, title = {T}, year = {2024}}\n")
     main(["check", str(bib)])
-    report = tmp_path / ".bibcc" / "refs.bib.missing_fields.txt"
+    report = tmp_path / ".bibcc" / "refs.bib" / "missing_fields.txt"
     assert "k\tarticle\t2024\tmonth" in report.read_text()
 
     report.unlink()

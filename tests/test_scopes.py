@@ -139,8 +139,8 @@ def test_open_project_library_requires_one_unless_creating(project: Path, monkey
 
 
 def _missing_yaml(bib: Path, name: str = "New Journal") -> None:
-    path = bib.parent / ".bibcc" / f"{bib.name}.missing_venues.yaml"
-    path.parent.mkdir(exist_ok=True)
+    path = bib.parent / ".bibcc" / bib.name / "missing_venues.yaml"
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(f"journals:\n  - name: {name}\n    fields:\n      publisher: Fresh\n")
 
 
@@ -284,6 +284,24 @@ def test_check_venues_checks_each_scope(isolated_user_library: Path, project: Pa
     main(["check", "--check-venues"])
     out = capsys.readouterr().out
     assert "User library" in out and "Project library" in out
+
+
+def test_update_hint_names_scope_project_only_when_there_is_a_project_library(project: Path):
+    from bibcc.missing_venues import update_command
+
+    bib = project / "bib" / "refs.bib"
+    assert update_command(bib) == f"bibcc complete {bib} --in-place --update-venues"
+    (project / PROJECT_LIBRARY_NAME).write_text("journals: []\nproceedings: []\n")
+    assert update_command(bib).endswith("--update-venues --scope project")
+
+
+def test_complete_yaml_hint_names_scope_project(isolated_user_library: Path, project: Path):
+    (project / PROJECT_LIBRARY_NAME).write_text("journals: []\nproceedings: []\n")
+    bib = project / "bib" / "refs.bib"
+    bib.write_text("@article{A,\n  title = {T},\n  journal = {Unknown Journal of Things},\n  year = {2024}\n}\n")
+    main(["complete", str(bib)])
+    header = (bib.parent / ".bibcc" / "refs.bib" / "missing_venues.yaml").read_text()
+    assert "--update-venues --scope project" in header
 
 
 def test_missing_venues_yaml_documents_the_library_schema():

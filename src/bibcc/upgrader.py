@@ -28,7 +28,7 @@ custom fields such as ``citation`` are carried over, preprint and interim
 fields (``eprint``, ``archiveprefix``, the arXiv/OpenReview/CVF ``url``,
 ...) are dropped, and venue fields come from the venue library.  Venues
 missing from the library, and interim booktitles the upgrade links to their
-proceedings, are proposed in ``.bibcc/<input>.missing_venues.yaml``.
+proceedings, are proposed in ``.bibcc/<input>/missing_venues.yaml``.
 
 By default nothing is written: the changes are saved as a diff under
 ``.bibcc/``.  Use ``--output`` or ``--in-place`` to write them.
@@ -64,8 +64,8 @@ from bibcc.adder import (
 )
 from bibcc.bibedit import BibEditError, read_bib, replace_entry, unified_diff, write_bib
 from bibcc.helptext import ENV_S2, ENV_VENUES, VENUES_HELP, HelpFormatter, epilog
-from bibcc.logging_utils import SEPARATOR_THIN, SEPARATOR_WIDTH, Logger, get_output_dir, write_report
-from bibcc.missing_venues import MissingVenue, write_missing_venues
+from bibcc.logging_utils import SEPARATOR_THIN, SEPARATOR_WIDTH, Logger, remove_report, report_dir, write_report
+from bibcc.missing_venues import MissingVenue, update_command, write_missing_venues
 from bibcc.official import Official, OfficialLookup, find_official, interim_source_of
 from bibcc.sources import (
     Record,
@@ -338,16 +338,15 @@ def upgrade_bib(
             log(f"   ℹ️  {note}")
         upgraded.append((key, official.provider))
 
-    output_dir = get_output_dir(input_path, log_dir)
-    base = Path(input_path).name
-    report = output_dir / f"{base}.upgrade.txt"
+    output_dir = report_dir(input_path, log_dir)
+    report = output_dir / "upgrade.txt"
     rows = [f"{k}\tupgraded\t{s}" for k, s in upgraded]
     rows += [f"{k}\tunchanged\t{r}" for k, r in unchanged]
     rows += [f"{k}\tfailed\t{e}" for k, e in failed]
     write_report(report, "upgrade: entry_id\tstatus\tdetail", rows)
     if proposals:
-        yaml_path = output_dir / f"{base}.missing_venues.yaml"
-        rerun = f"bibcc complete {input_path} --in-place --update-venues"
+        yaml_path = output_dir / "missing_venues.yaml"
+        rerun = update_command(input_path)
         counts = write_missing_venues(yaml_path, proposals, library, rerun)
         log(f"\n📝 {counts['new']} venue records proposed in {yaml_path}")
 
@@ -355,13 +354,17 @@ def upgrade_bib(
     log(f"Upgraded {len(upgraded)}; {len(unchanged)} unchanged; {len(failed)} failed.")
     if output_path is None:
         diff = unified_diff(text, new_text, input_path)
-        diff_path = output_dir / f"{base}.upgrade.diff"
+        diff_path = output_dir / "upgrade.diff"
         if diff:
             diff_path.write_text(diff, encoding="utf-8")
             log(f"🧪 Dry run. Preview: {diff_path}")
             log("💡 To write the changes, run with --output FILE.bib or --in-place.")
+        else:
+            remove_report(diff_path)
         log(f"Report: {report}")
-    elif upgraded:
+        return {"upgraded": upgraded, "unchanged": unchanged, "failed": failed}
+    remove_report(output_dir / "upgrade.diff")
+    if upgraded:
         write_bib(output_path, new_text)
         log(f"✅ Saved to {output_path}. Report: {report}")
     return {"upgraded": upgraded, "unchanged": unchanged, "failed": failed}
@@ -443,7 +446,7 @@ def report_published(
             published.append(row)
 
     first = paths[0] if paths else "."
-    report = get_output_dir(first, log_dir) / f"{Path(first).resolve().name}.published.txt"
+    report = report_dir(first, log_dir) / "published.txt"
     write_report(
         report,
         "published versions: file\tentry_id\tstatus\tvenue\tofficial BibTeX source\turl",
@@ -502,7 +505,7 @@ published version, with the venue and the URL of the official BibTeX; it
 downloads no BibTeX and changes nothing.""",
         epilog=epilog(
             examples=[
-                ("Preview the changes (writes a report and a diff in .bibcc/)", "bibcc upgrade refs.bib"),
+                ("Preview the changes (writes a report and a diff in .bibcc/refs.bib/)", "bibcc upgrade refs.bib"),
                 ("Replace the entries in the file itself", "bibcc upgrade refs.bib --in-place"),
                 ("Upgrade only some entries, and write them to another file",
                  "bibcc upgrade refs.bib --ids KeyA,KeyB --output out.bib"),
@@ -510,11 +513,11 @@ downloads no BibTeX and changes nothing.""",
                  "bibcc upgrade --report-only bib/ extra.bib"),
             ],
             outputs=[
-                (".bibcc/INPUT.upgrade.txt", "Upgraded, unchanged, and failed entries"),
-                (".bibcc/INPUT.upgrade.diff", "Dry run: the changes that the command would make"),
-                (".bibcc/INPUT.missing_venues.yaml", "Fill-in records for venues that aren't in the library"),
-                (".bibcc/PATH.published.txt", "--report-only: entries with a published version"),
-                (".bibcc/logs/INPUT.upgrader.log", "Everything printed to the terminal"),
+                (".bibcc/INPUT/upgrade.txt", "Upgraded, unchanged, and failed entries"),
+                (".bibcc/INPUT/upgrade.diff", "Dry run: the changes that the command would make"),
+                (".bibcc/INPUT/missing_venues.yaml", "Fill-in records for venues that aren't in the library"),
+                (".bibcc/PATH/published.txt", "--report-only: entries with a published version"),
+                (".bibcc/INPUT/logs/upgrader.log", "Everything printed to the terminal"),
             ],
             exit_status="0 on success, 1 if a lookup or download fails (for example, because of rate\n"
             "limits; run again later or set S2_API_KEY), 2 on usage errors.",
@@ -560,7 +563,7 @@ downloads no BibTeX and changes nothing.""",
         "--log-dir",
         default="",
         metavar="DIR",
-        help="Directory for reports and logs (default: .bibcc/ next to the input file).",
+        help="Directory to use instead of .bibcc/ next to the input file; reports go to DIR/INPUT/.",
     )
     return parser
 

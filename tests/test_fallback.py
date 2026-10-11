@@ -60,7 +60,7 @@ def _entries(path: Path):
 
 
 def _report(tmp_path: Path, name: str = "added.bib"):
-    lines = (tmp_path / ".bibcc" / f"{name}.add.txt").read_text().splitlines()
+    lines = (tmp_path / ".bibcc" / name / "add.txt").read_text().splitlines()
     assert lines[0] == REPORT_HEADER
     return [line.split("\t") for line in lines[1:]]
 

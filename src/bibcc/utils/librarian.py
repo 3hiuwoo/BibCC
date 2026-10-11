@@ -33,7 +33,7 @@ from typing import Dict, List, Optional, Set, Tuple
 
 from bibcc.bibedit import BibEditError, read_bib, scan, unwrap
 from bibcc.helptext import HelpFormatter, epilog
-from bibcc.logging_utils import SEPARATOR_THIN, SEPARATOR_WIDTH, Logger, get_output_dir
+from bibcc.logging_utils import SEPARATOR_THIN, SEPARATOR_WIDTH, Logger, report_dir
 
 _LISTING_HELP = """\
 The library LISTING is a text file with one PDF name per line, such as the
@@ -180,7 +180,7 @@ def cmd_missing(
     log(f"\n📚 Missing PDFs: {len(missing_keys)} entries")
 
     # Write report
-    output_file = get_output_dir(bib_file) / f"{bib_file.name}.missing_pdfs.txt"
+    output_file = report_dir(bib_file) / "missing_pdfs.txt"
     with open(output_file, "w", encoding="utf-8") as f:
         f.write(f"% Missing PDFs: {len(missing_keys)} / {len(bib_entries)} entries\n")
         f.write(f"% Library size: {len(library_keys)} PDFs\n\n")
@@ -213,7 +213,7 @@ def cmd_extra(
     log(f"\n📄 Extra PDFs (not in bib): {len(extra_keys)}")
 
     # Write report
-    output_file = get_output_dir(bib_file) / f"{bib_file.name}.extra_pdfs.txt"
+    output_file = report_dir(bib_file) / "extra_pdfs.txt"
     with open(output_file, "w", encoding="utf-8") as f:
         f.write(f"% PDFs in library but not in bib: {len(extra_keys)} entries\n\n")
         for key in sorted(extra_keys):
@@ -303,7 +303,7 @@ def cmd_rename(
         log(f"\n{prefix}No files renamed. To rename them, run without --dry-run.")
 
     # Write report
-    output_file = get_output_dir(bib_file) / f"{bib_file.name}.rename_report.txt"
+    output_file = report_dir(bib_file) / "rename_report.txt"
     with open(output_file, "w", encoding="utf-8") as f:
         f.write(
             f"% Rename report: {len(matched)} matched, {len(unmatched)} unmatched, {len(ambiguous)} ambiguous\n"
@@ -363,8 +363,8 @@ step with a .bib file. For details, run 'bibcc librarian SUBCOMMAND -h'.
             examples=[("List entries without a PDF", "ls ~/papers > papers.txt\n"
                        "  bibcc librarian missing refs.bib papers.txt")],
             outputs=[
-                (".bibcc/BIB_FILE.missing_pdfs.txt", "The full BibTeX entries without a PDF"),
-                (".bibcc/logs/BIB_FILE.librarian.log", "Everything printed to the terminal"),
+                (".bibcc/BIB_FILE/missing_pdfs.txt", "The full BibTeX entries without a PDF"),
+                (".bibcc/BIB_FILE/logs/librarian.log", "Everything printed to the terminal"),
             ],
         ),
         formatter_class=HelpFormatter,
@@ -381,8 +381,8 @@ step with a .bib file. For details, run 'bibcc librarian SUBCOMMAND -h'.
             examples=[("List PDFs without an entry", "ls ~/papers > papers.txt\n"
                        "  bibcc librarian extra refs.bib papers.txt")],
             outputs=[
-                (".bibcc/BIB_FILE.extra_pdfs.txt", "PDF names without an entry"),
-                (".bibcc/logs/BIB_FILE.librarian.log", "Everything printed to the terminal"),
+                (".bibcc/BIB_FILE/extra_pdfs.txt", "PDF names without an entry"),
+                (".bibcc/BIB_FILE/logs/librarian.log", "Everything printed to the terminal"),
             ],
         ),
         formatter_class=HelpFormatter,
@@ -411,8 +411,8 @@ lists them instead.""",
                 ("Rename the PDFs", "bibcc librarian rename refs.bib ~/Downloads/papers"),
             ],
             outputs=[
-                (".bibcc/BIB_FILE.rename_report.txt", "Old and new names, and unmatched files"),
-                (".bibcc/logs/BIB_FILE.librarian.log", "Everything printed to the terminal"),
+                (".bibcc/BIB_FILE/rename_report.txt", "Old and new names, and unmatched files"),
+                (".bibcc/BIB_FILE/logs/librarian.log", "Everything printed to the terminal"),
             ],
         ),
         formatter_class=HelpFormatter,

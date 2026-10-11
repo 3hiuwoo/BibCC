@@ -159,7 +159,7 @@ INPUT_DIR. The command overwrites OUTPUT_FILE."""
         ],
         outputs=[
             ("OUTPUT_FILE", "The merged bibliography"),
-            (".bibcc/logs/OUTPUT_FILE.composer.log", "Everything printed to the terminal (next to OUTPUT_FILE)"),
+            (".bibcc/OUTPUT_FILE/logs/composer.log", "Everything printed to the terminal (next to OUTPUT_FILE)"),
         ],
     )
     parser = argparse.ArgumentParser(

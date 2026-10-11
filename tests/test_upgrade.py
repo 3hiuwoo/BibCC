@@ -130,7 +130,7 @@ def test_upgrade_dry_run_writes_diff_only(web, library, sample_bib: Path):
     summary = upgrade_bib(sample_bib, None, library, delay=0, log=lambda _: None)
     assert summary["upgraded"] == [("PANDA_Raghavan_arXiv2025", "ICLR Proceedings")]
     assert sample_bib.read_text() == original
-    diff = (sample_bib.parent / ".bibcc" / "sample.bib.upgrade.diff").read_text()
+    diff = (sample_bib.parent / ".bibcc" / "sample.bib" / "upgrade.diff").read_text()
     assert "+@inproceedings{PANDA_Raghavan_arXiv2025," in diff
 
 
@@ -193,7 +193,7 @@ def test_upgrade_reports_accepted_but_unindexed(web, library, sample_bib: Path):
     key, reason = summary["unchanged"][0]
     assert key == "PANDA_Raghavan_arXiv2025" and "Accepted at WACV 2026" in reason
     assert sample_bib.read_text() == original
-    report = (sample_bib.parent / ".bibcc" / "sample.bib.upgrade.txt").read_text()
+    report = (sample_bib.parent / ".bibcc" / "sample.bib" / "upgrade.txt").read_text()
     assert "PANDA_Raghavan_arXiv2025\tunchanged" in report
 
 
@@ -232,7 +232,7 @@ def test_upgrade_interim_cvf_entry_to_xplore(web, library, tmp_path):
     assert entry["note"] == "oral"  # custom field carried over
     assert "url" not in entry  # the CVF page is dropped
     # The library already links this CVF name: nothing to propose.
-    assert not (tmp_path / ".bibcc" / "cvpr.bib.missing_venues.yaml").exists()
+    assert not (tmp_path / ".bibcc" / "cvpr.bib" / "missing_venues.yaml").exists()
 
 
 def test_upgrade_interim_entry_waits_for_proceedings(web, library, tmp_path):
@@ -262,7 +262,7 @@ def test_upgrade_proposes_link_for_unknown_interim_name(web, tmp_path):
     bib.write_text(CVF_ENTRY)
     summary = upgrade_bib(bib, None, library, delay=0, log=lambda _: None)
     assert summary["upgraded"]
-    yaml_path = tmp_path / ".bibcc" / "cvpr.bib.missing_venues.yaml"
+    yaml_path = tmp_path / ".bibcc" / "cvpr.bib" / "missing_venues.yaml"
     text = yaml_path.read_text()
     assert CVF_2025 in text and "cvf" in text
 
@@ -289,7 +289,7 @@ def test_report_only_lists_published_versions_without_downloading(web, library, 
     assert rows["PANDA_Raghavan_arXiv2025"][5].endswith("-Abstract-Conference.html")
     assert {p.name: p.read_text() for p in folder.glob("*.bib")} == before
     assert not any(XPLORE_EXPORT in c or c.endswith(".bib") for c in web.calls)
-    report = (tmp_path / "out" / "bib.published.txt").read_text()
+    report = (tmp_path / "out" / "bib" / "published.txt").read_text()
     assert "Unified_Kumar_CVPR2025\tpublished\t" in report
 
 
@@ -299,7 +299,7 @@ def test_report_only_cli_accepts_several_paths(web, tmp_path, monkeypatch):
     a.write_text("@article{A,\n  title = {T},\n  journal = {Pattern Recognition},\n  year = {2024}\n}\n")
     b.write_text("")
     main(["upgrade", "--report-only", str(a), str(b), "--delay", "0"])
-    assert (tmp_path / ".bibcc" / "a.bib.published.txt").exists()
+    assert (tmp_path / ".bibcc" / "a.bib" / "published.txt").exists()
     with pytest.raises(SystemExit):
         main(["upgrade", "--report-only", str(a), "--in-place"])
     with pytest.raises(SystemExit):

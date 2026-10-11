@@ -114,7 +114,7 @@ def test_cli_writes_report(tmp_path: Path):
     bib = tmp_path / "refs.bib"
     bib.write_text("@article{k, title = {T}, volumn = {3}, pages = {1-2}}\n")
     main(["check", str(bib), "--check-fields"])
-    report = (tmp_path / ".bibcc" / "refs.bib.field_issues.txt").read_text()
+    report = (tmp_path / ".bibcc" / "refs.bib" / "field_issues.txt").read_text()
     assert "k\tunknown_field\t'volumn' → did you mean 'volume'?" in report
     assert "k\tpage_range\t'1-2' → '1--2'" in report
     assert bib.read_text() == "@article{k, title = {T}, volumn = {3}, pages = {1-2}}\n"

@@ -5,7 +5,7 @@ Each journal article or conference paper is matched against the venue
 library (the user library merged with the project's ``.bibcc-venues.yaml``,
 see :mod:`bibcc.venues`).
 Fields the entry lacks are added; fields that differ are reported as
-conflicts (in every mode, and in ``.bibcc/<input>.conflicts.txt``) and never
+conflicts (in every mode, and in ``.bibcc/<input>/conflicts.txt``) and never
 overwritten.  The library is the only source of added fields.
 
 An entry whose booktitle is the interim name of a library record (the CVF
@@ -14,7 +14,7 @@ under another name) only receives the fields describing the event (venue
 and month), and is reported so ``bibcc upgrade`` can replace it.
 
 Workflow for venues missing from the library:
-1. ``bibcc complete refs.bib`` writes ``.bibcc/refs.bib.missing_venues.yaml``
+1. ``bibcc complete refs.bib`` writes ``.bibcc/refs.bib/missing_venues.yaml``
    with fields pre-filled from the bib entries, the previous edition of the
    same conference, and venue-name guesses (see :mod:`bibcc.missing_venues`).
    With ``--online`` CrossRef fills more fields, and every entry with a DOI
@@ -41,12 +41,13 @@ from bibtexparser.latexenc import latex_to_unicode
 from bibcc.bibedit import BibEditError, month_macro, read_bib, set_fields, unified_diff, write_bib
 from bibcc.crosscheck import Check, CrossrefCache, check_entry, entry_doi, venue_fields_from_crossref
 from bibcc.helptext import ENV_VENUES, SCOPE_HELP, VENUES_HELP, HelpFormatter, epilog
-from bibcc.logging_utils import Logger, get_output_dir, write_report
+from bibcc.logging_utils import Logger, remove_report, report_dir, write_report
 from bibcc.missing_venues import (
     JOURNAL_FIELDS,
     PROCEEDINGS_FIELDS,
     MissingVenue,
     Suggestion,
+    update_command,
     write_missing_venues,
 )
 from bibcc.venues import (
@@ -291,14 +292,13 @@ def main(
     text = read_bib(input_path)
     new_text, applied = set_fields(text, patches, replace=False)
 
-    output_dir = get_output_dir(input_path, log_dir)
-    base = Path(input_path).name
-    conflict_log = output_dir / f"{base}.conflicts.txt"
-    missing_txt_log = output_dir / f"{base}.missing_venues.txt"
-    missing_yaml_log = output_dir / f"{base}.missing_venues.yaml"
-    incomplete_log = output_dir / f"{base}.incomplete_entries.txt"
-    check_log = output_dir / f"{base}.venue_check.txt"
-    diff_log = output_dir / f"{base}.complete.diff"
+    output_dir = report_dir(input_path, log_dir)
+    conflict_log = output_dir / "conflicts.txt"
+    missing_txt_log = output_dir / "missing_venues.txt"
+    missing_yaml_log = output_dir / "missing_venues.yaml"
+    incomplete_log = output_dir / "incomplete_entries.txt"
+    check_log = output_dir / "venue_check.txt"
+    diff_log = output_dir / "complete.diff"
 
     checks: List[Check] = []
     unchecked: List[Tuple[str, str]] = []
@@ -335,6 +335,9 @@ def main(
             diff_log.write_text(diff, encoding="utf-8")
         else:
             log("\n🧪 Dry run: no additions needed.")
+            remove_report(diff_log)
+    else:
+        remove_report(diff_log)
 
     if conflicts:
         log("\n⚠️  Conflicts (existing value differs from library, not overwritten):")
@@ -396,7 +399,7 @@ def main(
                      crossref=fills.get(key, {}))
         for key, (venue_raw, year, kind) in missing.items()
     ]
-    rerun = f"bibcc complete {input_path} --output OUTPUT.bib --update-venues"
+    rerun = update_command(input_path)
     counts = write_missing_venues(missing_yaml_log, proposals, library, rerun, suggestions=suggestions)
     if missing or suggestions:
         log(f"\n📝 Missing venues YAML: {missing_yaml_log} ({counts['new']} new, {counts['kept']} kept)")
@@ -457,23 +460,23 @@ the differences, and it suggests corrections to library records, commented
 out, at the end of the YAML. Fields still come only from the library.""",
         epilog=epilog(
             examples=[
-                ("Preview the changes (writes .bibcc/refs.bib.complete.diff)", "bibcc complete refs.bib"),
+                ("Preview the changes (writes .bibcc/refs.bib/complete.diff)", "bibcc complete refs.bib"),
                 ("Write the completed file elsewhere", "bibcc complete refs.bib --output out.bib"),
                 ("Complete the file itself", "bibcc complete refs.bib --in-place"),
-                ("After you fill in .bibcc/refs.bib.missing_venues.yaml, add those venues and complete",
+                ("After you fill in .bibcc/refs.bib/missing_venues.yaml, add those venues and complete",
                  "bibcc complete refs.bib --in-place --update-venues"),
                 ("Do the same, but add the venues to the project's .bibcc-venues.yaml",
                  "bibcc complete refs.bib --in-place --update-venues --scope project"),
                 ("Also check the entries and the library against CrossRef", "bibcc complete refs.bib --online"),
             ],
             outputs=[
-                (".bibcc/INPUT.complete.diff", "Dry run: the changes that the command would make"),
-                (".bibcc/INPUT.missing_venues.yaml", "Fill-in records for venues that aren't in the library"),
-                (".bibcc/INPUT.missing_venues.txt", "Entries whose venue isn't in the library"),
-                (".bibcc/INPUT.conflicts.txt", "Fields that differ from the library, and interim booktitles"),
-                (".bibcc/INPUT.incomplete_entries.txt", "Entries without a year or venue (skipped)"),
-                (".bibcc/INPUT.venue_check.txt", "--online: differences from CrossRef, and unchecked entries"),
-                (".bibcc/logs/INPUT.completer.log", "Everything printed to the terminal"),
+                (".bibcc/INPUT/complete.diff", "Dry run: the changes that the command would make"),
+                (".bibcc/INPUT/missing_venues.yaml", "Fill-in records for venues that aren't in the library"),
+                (".bibcc/INPUT/missing_venues.txt", "Entries whose venue isn't in the library"),
+                (".bibcc/INPUT/conflicts.txt", "Fields that differ from the library, and interim booktitles"),
+                (".bibcc/INPUT/incomplete_entries.txt", "Entries without a year or venue (skipped)"),
+                (".bibcc/INPUT/venue_check.txt", "--online: differences from CrossRef, and unchecked entries"),
+                (".bibcc/INPUT/logs/completer.log", "Everything printed to the terminal"),
             ],
             exit_status="0 on success, 1 if BibCC can't verify the edits (it writes nothing), 2 on usage errors.",
             env=[ENV_VENUES],
@@ -498,7 +501,7 @@ out, at the end of the YAML. Fields still come only from the library.""",
         type=str,
         default="",
         metavar="DIR",
-        help="Directory for reports and logs (default: .bibcc/ next to the input file).",
+        help="Directory to use instead of .bibcc/ next to the input file; reports go to DIR/INPUT/.",
     )
     parser.add_argument(
         "--venues",
@@ -512,7 +515,7 @@ out, at the end of the YAML. Fields still come only from the library.""",
         "--update-templates",
         dest="update_venues",
         action="store_true",
-        help="First merge the filled-in .bibcc/INPUT.missing_venues.yaml into the venue "
+        help="First merge the filled-in .bibcc/INPUT/missing_venues.yaml into the venue "
         "library that --scope selects (skipping records with no field filled in), and then "
         "complete the file.",
     )
@@ -535,8 +538,7 @@ out, at the end of the YAML. Fields still come only from the library.""",
 
 def update_library(args: argparse.Namespace, log_dir: Optional[Path], log: Callable[[str], None]) -> None:
     """Merge the filled-in missing-venues YAML into the one library ``--venues``/``--scope`` names."""
-    base = Path(args.input).name
-    yaml_path = get_output_dir(args.input, log_dir) / f"{base}.missing_venues.yaml"
+    yaml_path = report_dir(args.input, log_dir) / "missing_venues.yaml"
     if not yaml_path.exists():
         log(f"ℹ️  No {yaml_path.name} found — run without --output first.")
         return

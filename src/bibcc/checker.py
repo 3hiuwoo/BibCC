@@ -48,7 +48,7 @@ from bibcc.checkers import (
     load_vocab_file,
 )
 from bibcc.helptext import ENV_VENUES, VENUES_HELP, HelpFormatter, epilog
-from bibcc.logging_utils import Logger, get_output_dir, write_report
+from bibcc.logging_utils import Logger, remove_report, report_dir, write_report
 from bibcc.titlecases import STYLES
 from bibcc.venues import PROJECT_LIBRARY_NAME, find_project_library, user_library_path
 
@@ -67,8 +67,9 @@ check (for month) runs.
 
 The command never changes the file, except with --title-apply and
 --title-interactive, which rewrite only the title values. Reports go to
-.bibcc/ next to the input file (only for checks that find something), and the
-log goes to .bibcc/logs/.
+.bibcc/INPUT/ next to the input file (only for checks that find something;
+a check that finds nothing removes its old report), and the log goes to
+.bibcc/INPUT/logs/.
 
 With --check-venues, the command checks the venue library instead, and you
 don't need an input file."""
@@ -94,12 +95,12 @@ def build_parser() -> argparse.ArgumentParser:
                 ("Check the venue library itself", "bibcc check --check-venues"),
             ],
             outputs=[
-                (".bibcc/INPUT.missing_fields.txt", "Entries missing a required field"),
-                (".bibcc/INPUT.title_case.txt", "Current and suggested titles"),
-                (".bibcc/INPUT.smart_protection.txt", "Words that need {braces}"),
-                (".bibcc/INPUT.citation_keys.txt", "Keys that don't follow METHOD_AUTHOR_VENUEYEAR"),
-                (".bibcc/INPUT.field_issues.txt", "Unknown fields, bad values, and duplicates"),
-                (".bibcc/logs/INPUT.checker.log", "Everything printed to the terminal"),
+                (".bibcc/INPUT/missing_fields.txt", "Entries missing a required field"),
+                (".bibcc/INPUT/title_case.txt", "Current and suggested titles"),
+                (".bibcc/INPUT/smart_protection.txt", "Words that need {braces}"),
+                (".bibcc/INPUT/citation_keys.txt", "Keys that don't follow METHOD_AUTHOR_VENUEYEAR"),
+                (".bibcc/INPUT/field_issues.txt", "Unknown fields, bad values, and duplicates"),
+                (".bibcc/INPUT/logs/checker.log", "Everything printed to the terminal"),
             ],
             env=[ENV_VENUES],
         ),
@@ -284,8 +285,7 @@ def run(args: argparse.Namespace) -> None:
             project = find_project_library(args.input or None)
             if project is not None:
                 targets.append(("project library", project))
-        log_dir = get_output_dir() / "logs"
-        with Logger("checker", input_file="venues", log_dir=log_dir) as logger:
+        with Logger("checker") as logger:
             journal_fields = parse_list_arg(args.journal_fields)
             proceedings_fields = parse_list_arg(args.proceedings_fields)
             for n, (label, venues_path) in enumerate(targets):
@@ -306,37 +306,36 @@ def run(args: argparse.Namespace) -> None:
     if not args.input:
         build_parser().error("give an input .bib file, or pass --check-venues to check the venue library")
 
-    report_dir = get_output_dir(args.input)
-    base_name = Path(args.input).name
-
     # Create logger for bib file checking
     with Logger("checker", input_file=args.input) as logger:
+        reports = report_dir(args.input)
+
+        def save(kind: str, header: str, rows: List[str], label: str) -> None:
+            path = reports / kind
+            if rows:
+                write_report(path, header, rows)
+                logger.log(f"\n📄 {label} report: {path}")
+            else:
+                remove_report(path)
+
         required_fields = parse_list_arg(args.fields)
         entry_types = [
             t.lower() for t in parse_list_arg(args.entry_types) or DEFAULT_ENTRY_TYPES
         ]
 
         # Missing fields
-        missing_rows = []
         if required_fields:
             missing_rows = check_missing_fields(
                 args.input, required_fields, entry_types, log=logger.log
             )
-            if missing_rows:
-                report_path = report_dir / f"{base_name}.missing_fields.txt"
-                rows = [
-                    f"{rid}\t{rtype}\t{ryear}\t{', '.join(rmiss)}"
-                    for rid, rtype, ryear, rmiss in missing_rows
-                ]
-                write_report(
-                    report_path,
-                    "missing fields: entry_id\ttype\tyear\tfields",
-                    rows,
-                )
-                logger.log(f"\n📄 Missing fields report: {report_path}")
+            save(
+                "missing_fields.txt",
+                "missing fields: entry_id\ttype\tyear\tfields",
+                [f"{rid}\t{rtype}\t{ryear}\t{', '.join(rmiss)}" for rid, rtype, ryear, rmiss in missing_rows],
+                "Missing fields",
+            )
 
         # Title case
-        titlecase_rows = []
         if args.title_case or args.title_apply or args.title_interactive:
             logger.log("\n")
             style = get_style(args.title_style)
@@ -350,36 +349,24 @@ def run(args: argparse.Namespace) -> None:
                 interactive=args.title_interactive,
                 log=logger.log,
             )
-            if titlecase_rows and not args.title_apply and not args.title_interactive:
-                report_path = report_dir / f"{base_name}.title_case.txt"
-                rows = [
-                    f"{eid}\t{current}\t{suggested}"
-                    for eid, current, suggested in titlecase_rows
-                ]
-                write_report(
-                    report_path,
-                    "title case: entry_id\tcurrent\tsuggested",
-                    rows,
-                )
-                logger.log(f"\n📄 Title case report: {report_path}")
+            applied = args.title_apply or args.title_interactive
+            save(
+                "title_case.txt",
+                "title case: entry_id\tcurrent\tsuggested",
+                [] if applied else [f"{eid}\t{current}\t{suggested}" for eid, current, suggested in titlecase_rows],
+                "Title case",
+            )
 
         # Citation key legibility
-        key_rows = []
         if args.check_keys:
             logger.log("\n")
             key_rows = check_citation_keys(args.input, log=logger.log)
-            if key_rows:
-                report_path = report_dir / f"{base_name}.citation_keys.txt"
-                rows = [
-                    f"{eid}\t{issue_type}\t{detail}"
-                    for eid, issue_type, detail in key_rows
-                ]
-                write_report(
-                    report_path,
-                    "citation keys: entry_id\tissue_type\tdetail",
-                    rows,
-                )
-                logger.log(f"\n📄 Citation key report: {report_path}")
+            save(
+                "citation_keys.txt",
+                "citation keys: entry_id\tissue_type\tdetail",
+                [f"{eid}\t{issue_type}\t{detail}" for eid, issue_type, detail in key_rows],
+                "Citation key",
+            )
 
         # Field names, values, duplicates
         if args.check_fields:
@@ -390,18 +377,14 @@ def run(args: argparse.Namespace) -> None:
                 extra_fields=parse_list_arg(args.known_fields),
                 log=logger.log,
             )
-            if field_rows:
-                report_path = report_dir / f"{base_name}.field_issues.txt"
-                rows = [f"{eid}\t{kind}\t{detail}" for eid, kind, detail in field_rows]
-                write_report(
-                    report_path,
-                    "field issues: entry_id\tissue_type\tdetail",
-                    rows,
-                )
-                logger.log(f"\n📄 Field issues report: {report_path}")
+            save(
+                "field_issues.txt",
+                "field issues: entry_id\tissue_type\tdetail",
+                [f"{eid}\t{kind}\t{detail}" for eid, kind, detail in field_rows],
+                "Field issues",
+            )
 
         # Smart protection
-        protection_rows = []
         if args.quote:
             logger.log("\n")
             extra_vocab: List[str] = []
@@ -417,17 +400,12 @@ def run(args: argparse.Namespace) -> None:
                 min_length=args.protection_min_length,
                 log=logger.log,
             )
-            if protection_rows:
-                report_path = report_dir / f"{base_name}.smart_protection.txt"
-                rows = [
-                    f"{eid}\t{word}\t{reason}" for eid, word, reason in protection_rows
-                ]
-                write_report(
-                    report_path,
-                    "smart protection: entry_id\tword\treason",
-                    rows,
-                )
-                logger.log(f"\n📄 Smart protection report: {report_path}")
+            save(
+                "smart_protection.txt",
+                "smart protection: entry_id\tword\treason",
+                [f"{eid}\t{word}\t{reason}" for eid, word, reason in protection_rows],
+                "Smart protection",
+            )
 
 
 if __name__ == "__main__":

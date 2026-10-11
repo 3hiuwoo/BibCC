@@ -5,14 +5,14 @@ This module provides a consistent logging strategy across all tools:
 - Automatic log file generation (no manual --output needed)
 - Simultaneous stdout and file output
 - Consistent log file naming convention
-- Reports and logs stored in a ``.bibcc/`` folder next to the input file
+- Reports and logs stored in ``.bibcc/<input name>/`` next to the input file
 
 Usage:
     from bibcc.logging_utils import Logger
 
     # Create logger that auto-generates log file from input file
     logger = Logger("checker", input_file="refs/my.bib")
-    # -> Creates: refs/.bibcc/logs/my.bib.checker.log
+    # -> Creates: refs/.bibcc/my.bib/logs/checker.log
 
     # Log messages (goes to both stdout and file)
     logger.log("Processing...")
@@ -26,7 +26,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
-from typing import IO, List, Optional
+from typing import IO, List, Optional, Tuple
 
 # ---------------------------------------------------------------------------
 # Format constants — shared across all BibCC tools
@@ -48,24 +48,97 @@ SEPARATOR_THIN: str = "─"
 OUTPUT_DIR_NAME: str = ".bibcc"
 """Name of the per-directory folder holding reports and logs."""
 
+NESTED_REPORTS_DIR: str = "reports"
+"""For an input already inside a ``.bibcc/`` tree: the sibling folder for its reports."""
 
-def get_output_dir(
-    input_file: Optional[str | Path] = None,
+REPORT_KINDS: Tuple[str, ...] = (
+    "add.txt", "citation_keys.txt", "complete.diff", "conflicts.txt", "extra_pdfs.txt",
+    "field_issues.txt", "format.diff", "incomplete_entries.txt", "missing_fields.txt",
+    "missing_pdfs.txt", "missing_venues.txt", "missing_venues.yaml", "published.txt",
+    "rename_report.txt", "scholar_urls.txt", "smart_protection.txt", "title_case.txt",
+    "title_report.txt", "upgrade.diff", "upgrade.txt", "venue_check.txt",
+)
+"""Every report file name; the flat ``.bibcc/NAME.KIND`` files of 0.3 are moved by these."""
+
+TOOL_NAMES: Tuple[str, ...] = (
+    "adder", "checker", "completer", "composer", "formatter", "librarian",
+    "scholar.cite", "scholar.titles", "upgrader",
+)
+
+
+def report_dir(
+    path: Optional[str | Path] = None,
     override: Optional[str | Path] = None,
+    create: bool = True,
 ) -> Path:
-    """Return (and create) the directory for reports about *input_file*.
+    """Return (and create) the directory for the reports about *path*.
 
-    Resolution order: *override* if given, else ``<input dir>/.bibcc/``, else
-    ``./.bibcc/`` when there is no input file.
+    *path* is a ``.bib`` file or a directory; its reports go to
+    ``.bibcc/NAME/`` next to it.  *override* (``--log-dir``) takes the place
+    of that ``.bibcc/``.  A *path* that is already inside a ``.bibcc/`` tree
+    gets ``reports/NAME/`` next to it, so ``.bibcc`` folders never nest.
+    Without *path*: ``./.bibcc/`` (or *override*).  With *create* false, the
+    directory is only named, not made.
     """
-    if override:
-        out = Path(override)
-    elif input_file:
-        out = Path(input_file).resolve().parent / OUTPUT_DIR_NAME
+    if path is None:
+        out = Path(override) if override else Path.cwd() / OUTPUT_DIR_NAME
     else:
-        out = Path.cwd() / OUTPUT_DIR_NAME
-    out.mkdir(parents=True, exist_ok=True)
+        p = Path(path).resolve()
+        if override:
+            out = Path(override) / p.name
+        elif OUTPUT_DIR_NAME in p.parent.parts:
+            out = p.parent / NESTED_REPORTS_DIR / p.name
+        else:
+            out = p.parent / OUTPUT_DIR_NAME / p.name
+    if create:
+        out.mkdir(parents=True, exist_ok=True)
     return out
+
+
+def report_path(path: Optional[str | Path], kind: str, override: Optional[str | Path] = None) -> Path:
+    """``report_dir(path, override) / kind``, for one of :data:`REPORT_KINDS`."""
+    return report_dir(path, override) / kind
+
+
+def remove_report(path: Path) -> None:
+    """Delete a report that this run has nothing for, so no stale findings stay behind."""
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        pass
+
+
+def migrate_legacy_reports(path: Optional[str | Path]) -> List[Tuple[Path, Path]]:
+    """Move 0.3's flat reports and logs about *path* into its report directory.
+
+    ``.bibcc/NAME.KIND`` becomes ``.bibcc/NAME/KIND`` and
+    ``.bibcc/logs/NAME.TOOL.log`` becomes ``.bibcc/NAME/logs/TOOL.log``.
+    Files are moved, never deleted (a filled-in missing-venues YAML is user
+    work), and a file whose new name is taken stays where it is.  Returns
+    the ``(old, new)`` pairs that were moved.
+    """
+    if path is None:
+        return []
+    p = Path(path).resolve()
+    legacy = p.parent / OUTPUT_DIR_NAME
+    if OUTPUT_DIR_NAME in p.parent.parts or not legacy.is_dir():
+        return []
+    pairs = [(legacy / f"{p.name}.{kind}", Path(kind)) for kind in REPORT_KINDS]
+    pairs += [(legacy / "logs" / f"{p.name}.{tool}.log", Path("logs") / f"{tool}.log") for tool in TOOL_NAMES]
+    moved: List[Tuple[Path, Path]] = []
+    for old, rel in pairs:
+        if not old.is_file():
+            continue
+        new = legacy / p.name / rel
+        if new.exists():
+            continue
+        new.parent.mkdir(parents=True, exist_ok=True)
+        old.rename(new)
+        moved.append((old, new))
+    logs = legacy / "logs"
+    if moved and logs.is_dir() and not any(logs.iterdir()):
+        logs.rmdir()
+    return moved
 
 
 # ---------------------------------------------------------------------------
@@ -97,10 +170,13 @@ class Logger:
     Unified logger that writes to both stdout and a log file.
 
     The log file is automatically named based on the input file and tool name:
-        <input dir>/.bibcc/logs/<input_file>.<tool_name>.log
+        <input dir>/.bibcc/<input_file>/logs/<tool_name>.log
 
     If no input file is provided, uses:
-        ./.bibcc/logs/<tool_name>_<timestamp>.log
+        ./.bibcc/logs/<tool_name>.log
+
+    The first run on an input moves its 0.3-style flat reports into the new
+    layout and logs what it moved.
     """
 
     def __init__(
@@ -117,7 +193,8 @@ class Logger:
         Args:
             tool_name: Name of the tool (e.g., "checker", "completer")
             input_file: Path to the input file being processed
-            log_dir: Directory for log files (default: <input dir>/.bibcc/logs/)
+            log_dir: The ``--log-dir`` override, which takes the place of
+                ``.bibcc/`` (default: ``.bibcc/`` next to the input)
             log_suffix: Suffix for log file (default: ".log")
             enabled: Whether file logging is enabled (default: True)
         """
@@ -130,20 +207,10 @@ class Logger:
         if not enabled:
             return
 
-        if log_dir:
-            log_dir_path = Path(log_dir)
-        else:
-            log_dir_path = get_output_dir(input_file) / "logs"
+        moved = [] if log_dir else migrate_legacy_reports(input_file)
+        log_dir_path = report_dir(input_file or None, log_dir) / "logs"
         log_dir_path.mkdir(parents=True, exist_ok=True)
-
-        # Determine log file path
-        if input_file:
-            input_path = Path(input_file)
-            base_name = input_path.name
-            self._log_path = log_dir_path / f"{base_name}.{tool_name}{log_suffix}"
-        else:
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            self._log_path = log_dir_path / f"{tool_name}_{timestamp}{log_suffix}"
+        self._log_path = log_dir_path / f"{tool_name}{log_suffix}"
 
         # Open log file
         try:
@@ -160,6 +227,11 @@ class Logger:
         except IOError as e:
             print(f"⚠️  Could not create log file {self._log_path}: {e}")
             self._file = None
+        if moved:
+            target = log_dir_path.parent
+            self.log(f"📦 Moved {len(moved)} reports and logs from the old .bibcc/ layout to {target}:")
+            for old, new in moved:
+                self.log(f"   {old.relative_to(target.parent)} → {new.relative_to(target.parent)}")
 
     @property
     def log_path(self) -> Optional[Path]:

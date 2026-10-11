@@ -217,7 +217,7 @@ def test_cli_dry_run_writes_diff_only(tmp_path: Path):
     bib = _write(tmp_path / "refs.bib", MESSY)
     main(["format", str(bib)])
     assert bib.read_text() == MESSY
-    diff = (tmp_path / ".bibcc" / "refs.bib.format.diff").read_text()
+    diff = (tmp_path / ".bibcc" / "refs.bib" / "format.diff").read_text()
     assert "+  month   = jun," in diff
 
 

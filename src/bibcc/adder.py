@@ -22,13 +22,13 @@ upgrade`` replaces these interim entries once the proceedings are out.
 instead (``missing``: when no official BibTeX can be had; ``all``: also when
 the official site cannot be reached).  Such entries carry a comment that
 ``bibcc upgrade`` looks for, to replace them with the official BibTeX later.
-Each identifier's outcome goes to ``.bibcc/<output>.add.txt``, and the papers
+Each identifier's outcome goes to ``.bibcc/<output>/add.txt``, and the papers
 left to do by hand are listed at the end of the log.
 
 Papers already present in the ``--against`` bibliography or the staging
 file (same DOI, arXiv ID, or title, including empty entries) are skipped.
 Venues missing from the library are proposed in
-``.bibcc/<output>.missing_venues.yaml`` (merged on every run).
+``.bibcc/<output>/missing_venues.yaml`` (merged on every run).
 
 New entries are appended to the staging file only; move them into the
 topic files yourself after reviewing them.
@@ -57,8 +57,9 @@ from bibcc.checkers.smart_protection import find_unprotected_terms, protect_term
 from bibcc.completer import EntryCompletion, complete_entry
 from bibcc.crosscheck import venue_fields_from_crossref
 from bibcc.helptext import ENV_S2, ENV_VENUES, VENUES_HELP, HelpFormatter, epilog
-from bibcc.logging_utils import SEPARATOR_THIN, SEPARATOR_WIDTH, Logger, get_output_dir, write_report
-from bibcc.missing_venues import JOURNAL_FIELDS, PROCEEDINGS_FIELDS, MissingVenue, write_missing_venues
+from bibcc.logging_utils import SEPARATOR_THIN, SEPARATOR_WIDTH, Logger, write_report
+from bibcc.logging_utils import report_dir as reports_for
+from bibcc.missing_venues import JOURNAL_FIELDS, PROCEEDINGS_FIELDS, MissingVenue, update_command, write_missing_venues
 from bibcc.official import (
     Official,
     OfficialLookup,
@@ -653,7 +654,7 @@ def _locate(
 
 @dataclass
 class AddOutcome:
-    """What happened to one identifier; a row of ``.bibcc/<output>.add.txt``."""
+    """What happened to one identifier; a row of ``.bibcc/<output>/add.txt``."""
 
     identifier: str
     status: str  # official, interim, metadata, empty, failed, or duplicate
@@ -723,7 +724,7 @@ def add_papers(
     proceedings not out yet), ``all`` also when the official site cannot be
     reached.  Such entries carry a :data:`METADATA_MARK` comment so ``bibcc
     upgrade`` can replace them later.  Every identifier's outcome is written
-    to ``.bibcc/<output>.add.txt``, and those left to do by hand (empty
+    to ``.bibcc/<output>/add.txt``, and those left to do by hand (empty
     entries, failures) are listed at the end of the log.
 
     Returns ``{"added": [(identifier, key)], "empty": [(identifier, key,
@@ -861,13 +862,13 @@ def add_papers(
         output.parent.mkdir(parents=True, exist_ok=True)
         write_bib(output, new_text)
 
-    output_dir = get_output_dir(output, report_dir)
-    yaml_path = output_dir / f"{output.name}.missing_venues.yaml"
+    output_dir = reports_for(output, report_dir)
+    yaml_path = output_dir / "missing_venues.yaml"
     if proposals and not dry_run:
-        rerun = f"bibcc complete {output} --in-place --update-venues"
+        rerun = update_command(output)
         counts = write_missing_venues(yaml_path, proposals, library, rerun)
         log(f"\n📝 {counts['new']} venues missing from the library proposed in {yaml_path}")
-    report = output_dir / f"{output.name}.add.txt"
+    report = output_dir / "add.txt"
     write_report(report, REPORT_HEADER, [o.row() for o in outcomes])
 
     log(f"\n{SEPARATOR_THIN * SEPARATOR_WIDTH}")
@@ -932,7 +933,7 @@ and completes it from the venue library:
 
 These entries carry a comment that says so; 'bibcc upgrade' replaces them
 when the official BibTeX becomes available. The command lists whatever is
-left to do by hand at the end of the run and in .bibcc/OUTPUT.add.txt.
+left to do by hand at the end of the run and in .bibcc/OUTPUT/add.txt.
 
 The command formats each entry like the rest of the bibliography: Title
 Case, {{braces}} around acronyms and technical terms, -- page ranges, month
@@ -959,9 +960,9 @@ staging file (same DOI, arXiv ID, or title, including empty entries).""",
             ],
             outputs=[
                 ("OUTPUT", f"Staging file that the command appends new entries to (default: {DEFAULT_OUTPUT})"),
-                (".bibcc/OUTPUT.add.txt", "Each paper's outcome, source, and where to get its BibTeX"),
-                (".bibcc/OUTPUT.missing_venues.yaml", "Fill-in records for venues that aren't in the library"),
-                (".bibcc/logs/OUTPUT.adder.log", "Everything printed to the terminal"),
+                (".bibcc/OUTPUT/add.txt", "Each paper's outcome, source, and where to get its BibTeX"),
+                (".bibcc/OUTPUT/missing_venues.yaml", "Fill-in records for venues that aren't in the library"),
+                (".bibcc/OUTPUT/logs/adder.log", "Everything printed to the terminal"),
             ],
             exit_status="0 if the command adds every paper (possibly as an empty entry or from\n"
             "metadata) or skips it as a duplicate, 1 if a lookup or download fails and\n"
@@ -1043,8 +1044,8 @@ staging file (same DOI, arXiv ID, or title, including empty entries).""",
         "--log-dir",
         default="",
         metavar="DIR",
-        help="Directory for the log, the report, and the missing-venues YAML (default: .bibcc/ "
-        "next to the staging file).",
+        help="Directory to use instead of .bibcc/ next to the staging file; the log, the report, "
+        "and the missing-venues YAML go to DIR/OUTPUT/.",
     )
     return parser
 

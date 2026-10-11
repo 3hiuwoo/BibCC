@@ -66,7 +66,9 @@ from bibcc.logging_utils import (
     SEPARATOR_THIN,
     SEPARATOR_WIDTH,
     Logger,
-    get_output_dir,
+    migrate_legacy_reports,
+    remove_report,
+    report_dir,
 )
 
 _BOM = "\ufeff"
@@ -518,7 +520,7 @@ def format_paths(
     """Format every .bib file under *paths*.
 
     Without *in_place*, *output*, or *check* this is a dry run that writes a
-    ``.bibcc/<file>.format.diff`` per changed file.  *check* writes nothing.
+    ``.bibcc/<file>/format.diff`` per changed file.  *check* writes nothing.
 
     Returns ``{"changed": [path], "unchanged": [path], "failed": [(path, error)]}``.
     """
@@ -547,21 +549,26 @@ def format_paths(
 
         if check:
             log(f"{'✏️  would reformat' if is_changed else '✅'} {path}: {status}")
-        elif output is not None:
+            continue
+        if log_dir is None:
+            migrate_legacy_reports(path)
+        diff_path = report_dir(path, log_dir, create=False) / "format.diff"
+        if output is not None:
             write_bib(output, result.text)
+            remove_report(diff_path)
             log(f"✅ {path} → {output}: {status}")
         elif in_place:
             if is_changed:
                 write_bib(path, result.text)
+            remove_report(diff_path)
             log(f"✅ {path}: {status}")
+        elif is_changed:
+            diff_path.parent.mkdir(parents=True, exist_ok=True)
+            diff_path.write_text(unified_diff(text, result.text, path), encoding="utf-8")
+            log(f"✏️  {path}: {status}. Diff: {diff_path}")
         else:
-            diff_path = get_output_dir(path, log_dir) / f"{path.name}.format.diff"
-            if is_changed:
-                diff_path.write_text(unified_diff(text, result.text, path), encoding="utf-8")
-                log(f"✏️  {path}: {status}. Diff: {diff_path}")
-            else:
-                diff_path.unlink(missing_ok=True)
-                log(f"✅ {path}: {status}")
+            remove_report(diff_path)
+            log(f"✅ {path}: {status}")
 
     log(SEPARATOR_THIN * SEPARATOR_WIDTH)
     verb = "would change" if check or not (in_place or output is not None) else "changed"
@@ -628,8 +635,8 @@ can't be parsed, or have duplicate keys. Without --in-place, --output, or
                  "bibcc format refs.bib --in-place --sort-fields --sort-entries --indent tab"),
             ],
             outputs=[
-                (".bibcc/FILE.format.diff", "Dry run: the changes for each changed file"),
-                (".bibcc/logs/PATH.formatter.log", "Everything printed to the terminal (not written with --check)"),
+                (".bibcc/FILE/format.diff", "Dry run: the changes for each changed file"),
+                (".bibcc/PATH/logs/formatter.log", "Everything printed to the terminal (not written with --check)"),
             ],
             exit_status="0 on success, 1 if a file fails (or, with --check, would change),\n"
             "2 on usage errors.",
@@ -694,7 +701,7 @@ can't be parsed, or have duplicate keys. Without --in-place, --output, or
         "--log-dir",
         default="",
         metavar="DIR",
-        help="Directory for diffs and logs (default: .bibcc/ next to each input file).",
+        help="Directory to use instead of .bibcc/ next to each input file; diffs go to DIR/FILE/.",
     )
     return parser
 
@@ -719,11 +726,8 @@ def run(args: argparse.Namespace) -> None:
     )
     log_dir = Path(args.log_dir) if args.log_dir else None
     first = Path(args.paths[0])
-    logger_dir = log_dir
-    if logger_dir is None and first.is_dir():
-        logger_dir = first.resolve() / OUTPUT_DIR_NAME / "logs"
 
-    with Logger("formatter", input_file=first, log_dir=logger_dir, enabled=not args.check) as logger:
+    with Logger("formatter", input_file=first, log_dir=log_dir, enabled=not args.check) as logger:
         summary = format_paths(
             args.paths,
             options,

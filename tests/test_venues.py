@@ -179,7 +179,7 @@ def test_missing_venues_yaml_round_trips_into_library(tmp_path: Path, library: V
         "}\n"
     )
     complete_main(str(bib), str(bib), dry_run=True, library=library, log=lambda _: None)
-    missing_yaml = tmp_path / ".bibcc" / "new.bib.missing_venues.yaml"
+    missing_yaml = tmp_path / ".bibcc" / "new.bib" / "missing_venues.yaml"
     text = missing_yaml.read_text()
     assert "# from 2025 edition" in text
     assert "# from bib" in text
@@ -276,7 +276,7 @@ def test_complete_gives_interim_entries_only_event_fields(tmp_path: Path, librar
     text = bib.read_text()
     assert "venue = {Nashville, TN, USA}" in text.replace("  ", " ")
     assert "publisher" not in text and "issn" not in text
-    conflicts = (tmp_path / ".bibcc" / "refs.bib.conflicts.txt").read_text()
+    conflicts = (tmp_path / ".bibcc" / "refs.bib" / "conflicts.txt").read_text()
     assert "A_B_CVPR2025\tmonth\tEXISTING=July\tLIBRARY=June" in conflicts
     assert f"A_B_CVPR2025\tbooktitle\tEXISTING={CVF_NAME}\tLIBRARY={XPLORE_NAME}" in conflicts
     assert any("Interim booktitles" in line for line in lines)
@@ -289,7 +289,7 @@ def test_complete_reports_conflicts_in_dry_run(tmp_path: Path, library: VenueLib
     lines = []
     complete_main(str(bib), str(bib), dry_run=True, library=library, log=lines.append)
     assert any("existing='Someone', library='IEEE'" in line for line in lines)
-    assert "A\tpublisher\tEXISTING=Someone" in (tmp_path / ".bibcc" / "refs.bib.conflicts.txt").read_text()
+    assert "A\tpublisher\tEXISTING=Someone" in (tmp_path / ".bibcc" / "refs.bib" / "conflicts.txt").read_text()
 
 
 # ------------------------------------------------------ missing-venues YAML

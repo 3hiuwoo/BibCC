@@ -2,7 +2,7 @@
 Fill-in YAML for venues missing from the venue library.
 
 ``bibcc complete``, ``bibcc add``, and ``bibcc upgrade`` all write
-``.bibcc/<file>.missing_venues.yaml`` in the library's schema, so
+``.bibcc/<file>/missing_venues.yaml`` in the library's schema, so
 ``bibcc complete <file> --update-venues`` can merge it once it is filled in.
 
 Each field is pre-filled from, highest priority first:
@@ -44,6 +44,7 @@ from bibcc.venues import (
     Venue,
     VenueLibrary,
     _venue_from_dict,
+    find_project_library,
     normalize_venue,
     previous_edition,
 )
@@ -295,6 +296,16 @@ HEADER = """\
 # Merging skips records with no field (and no interim booktitle) filled in.
 # Every run merges into this file and keeps what you fill in.
 """
+
+
+def update_command(bib_file: str | Path, write: str = "--in-place") -> str:
+    """The ``bibcc complete`` command that merges the filled-in YAML of *bib_file*.
+
+    Names ``--scope project`` when *bib_file* has a project library, which is
+    where its coauthors' venue records belong.
+    """
+    scope = " --scope project" if find_project_library(bib_file) is not None else ""
+    return f"bibcc complete {bib_file} {write} --update-venues{scope}"
 
 
 def write_missing_venues(

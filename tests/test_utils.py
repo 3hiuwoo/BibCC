@@ -57,7 +57,7 @@ def test_librarian_rename_skips_titles_shared_by_several_entries(tmp_path: Path)
         "Other_A_PR2024.pdf",
     ]
     assert any("LwF_Li_ECCV2016, LwF_Li_TPAMI2018" in line for line in logs)
-    report = (tmp_path / ".bibcc" / "refs.bib.rename_report.txt").read_text(encoding="utf-8")
+    report = (tmp_path / ".bibcc" / "refs.bib" / "rename_report.txt").read_text(encoding="utf-8")
     assert "1 ambiguous" in report
 
 

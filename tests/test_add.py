@@ -366,7 +366,7 @@ def test_add_proposes_missing_venue_in_yaml(web, library, tmp_path):
     summary = add_papers(["https://aclanthology.org/2023.acl-long.1/"], out, library, delay=0,
                          log=lambda _: None)
     assert summary["added"]
-    yaml_text = (tmp_path / ".bibcc" / "added.bib.missing_venues.yaml").read_text()
+    yaml_text = (tmp_path / ".bibcc" / "added.bib" / "missing_venues.yaml").read_text()
     assert "99th Annual Meeting" in yaml_text
     assert "Toronto, Canada" in yaml_text  # collected from the official BibTeX
 

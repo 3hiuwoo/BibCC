@@ -33,7 +33,7 @@ from bibcc.logging_utils import (
     SEPARATOR_LIGHT,
     SEPARATOR_WIDTH,
     Logger,
-    get_output_dir,
+    report_dir,
 )
 from bibcc.sources import (
     ARXIV_MISSING,
@@ -237,8 +237,8 @@ def cmd_cite(
             log(f"        {url}")
     log(SEPARATOR_LIGHT * SEPARATOR_WIDTH)
 
-    output_dir = get_output_dir(input_path, log_dir)
-    url_list_path = output_dir / f"{input_path.name}.scholar_urls.txt"
+    output_dir = report_dir(input_path, log_dir)
+    url_list_path = output_dir / "scholar_urls.txt"
 
     with open(url_list_path, "w", encoding="utf-8") as f:
         f.write("# Google Scholar URLs for citation lookup\n")
@@ -877,8 +877,7 @@ def cmd_titles(
     """Run title checking command flow."""
     log = log or print
 
-    base_name = bib_file.name
-    output_path = get_output_dir(bib_file) / f"{base_name}.title_report.txt"
+    output_path = report_dir(bib_file) / "title_report.txt"
 
     filter_ids: Optional[List[str]] = None
     retry_report_path: Optional[str] = None
@@ -946,7 +945,7 @@ you pass --include-filled.
 
 Modes:
   default        List a Google Scholar search URL for each entry, and save
-                 the URLs to .bibcc/INPUT.scholar_urls.txt. With --output,
+                 the URLs to .bibcc/INPUT/scholar_urls.txt. With --output,
                  also add an empty 'citation = {}' field to fill in by hand.
   --open         Also open the URLs in the browser, --batch-size at a time.
   --interactive  For each entry, open its search page (you can skip or
@@ -964,8 +963,8 @@ byte for byte.""",
                 ("Update counts that are already filled in", "bibcc scholar cite refs.bib -i --include-filled"),
             ],
             outputs=[
-                (".bibcc/INPUT.scholar_urls.txt", "Entry keys, titles, and Google Scholar URLs"),
-                (".bibcc/logs/INPUT.scholar.cite.log", "Everything printed to the terminal"),
+                (".bibcc/INPUT/scholar_urls.txt", "Entry keys, titles, and Google Scholar URLs"),
+                (".bibcc/INPUT/logs/scholar.cite.log", "Everything printed to the terminal"),
             ],
         ),
         formatter_class=HelpFormatter,
@@ -1004,7 +1003,7 @@ byte for byte.""",
         type=str,
         default="",
         metavar="DIR",
-        help="Directory for reports and logs (default: .bibcc/ next to the input file).",
+        help="Directory to use instead of .bibcc/ next to the input file; reports go to DIR/INPUT/.",
     )
 
     p_titles = subparsers.add_parser(
@@ -1032,12 +1031,12 @@ API is behind a bot challenge.""",
             examples=[
                 ("Check every title", "bibcc scholar titles refs.bib"),
                 ("Re-check the lookups that failed last time",
-                 "bibcc scholar titles refs.bib --retry-errors .bibcc/refs.bib.title_report.txt"),
+                 "bibcc scholar titles refs.bib --retry-errors .bibcc/refs.bib/title_report.txt"),
                 ("Check only two entries", "bibcc scholar titles refs.bib --ids KeyA,KeyB"),
             ],
             outputs=[
-                (".bibcc/INPUT.title_report.txt", "Case differences, failed lookups, and unknown titles"),
-                (".bibcc/logs/INPUT.scholar.titles.log", "Everything printed to the terminal"),
+                (".bibcc/INPUT/title_report.txt", "Case differences, failed lookups, and unknown titles"),
+                (".bibcc/INPUT/logs/scholar.titles.log", "Everything printed to the terminal"),
             ],
             env=[ENV_S2],
         ),
