@@ -160,15 +160,32 @@ def format_entry(entry_type: str, key: str, fields: Dict[str, str]) -> str:
 # ------------------------------------------------------------------- keys
 
 
+_LATEX_LETTERS = re.compile(r"\\(ss|ae|AE|oe|OE|aa|AA|l|L|o|O|i|j)(?![A-Za-z])")
+# \'e  \"{u}  {\^ o}: symbol accents, with or without braces around the letter.
+_LATEX_SYMBOL_ACCENT = re.compile(r"\\['`^\"~=.]\s*(?:\{\s*([A-Za-z])\s*\}|([A-Za-z]))")
+# \k{a}  \v S  \c{c}: letter accents, which need braces or a space before the letter.
+_LATEX_LETTER_ACCENT = re.compile(r"\\[uvHckbdrt](?:\s*\{\s*([A-Za-z])\s*\}|\s+([A-Za-z]))")
+
+
+def decode_latex_letters(text: str) -> str:
+    """``Zaj\\k{a}c`` → ``Zajac``: LaTeX accents and special letters as their ASCII base letters.
+
+    Braces are kept, so that name splitting still sees ``{...}`` groups.
+    """
+    text = _LATEX_LETTERS.sub(lambda m: {"ss": "ss", "aa": "a", "AA": "A"}.get(m.group(1), m.group(1)), text)
+    text = _LATEX_SYMBOL_ACCENT.sub(lambda m: m.group(1) or m.group(2), text)
+    return _LATEX_LETTER_ACCENT.sub(lambda m: m.group(1) or m.group(2), text)
+
+
 def _ascii_name(text: str) -> str:
-    text = re.sub(r"\\[a-zA-Z]+|\\.", "", text)
+    text = re.sub(r"\\[a-zA-Z]+|\\.", "", decode_latex_letters(text))
     text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode()
     return re.sub(r"[^A-Za-z'\-]", "", text)
 
 
 def first_author_surname(author: str) -> str:
     """Surname of the first author, ASCII-folded, particles joined (``vandeVen``)."""
-    first = re.split(r"\s+and\s+", author.strip())[0]
+    first = decode_latex_letters(re.split(r"\s+and\s+", author.strip())[0])
     if "," in first:
         surname = first.split(",")[0]
     else:

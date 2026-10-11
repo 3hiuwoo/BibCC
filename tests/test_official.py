@@ -280,3 +280,105 @@ def test_official_from_url(web):
     assert official_from_url("https://ieeexplore.ieee.org/document/11095062/").official.provider == "IEEE Xplore"
     assert "OpenReview" in official_from_url("https://openreview.net/forum?id=x").error
     assert "unsupported URL" in official_from_url("https://example.com/paper").error
+
+
+def test_official_from_url_reads_legacy_cvf_page_with_br_tags(web):
+    page = "https://openaccess.thecvf.com/content_iccv_2017/html/He_Mask_R-CNN_ICCV_2017_paper.html"
+    web.routes["He_Mask_R-CNN_ICCV_2017_paper.html"] = (_fixture("cvf_iccv2017_paper.html"), None)
+    found = official_from_url(page)
+    assert found.official.provider == "CVF Open Access" and found.official.interim == "cvf"
+    assert "<br" not in found.official.text
+    assert found.official.text.startswith("@InProceedings{He_2017_ICCV,\nauthor = ")
+    entry_type, fields = official_fields(found.official.text)
+    assert entry_type == "inproceedings"
+    assert fields["title"] == "Mask R-CNN & Friends"
+    assert fields["author"].startswith("He, Kaiming and Gkioxari, Georgia")
+    assert fields["year"] == "2017"
+
+
+NEURIPS_HASH = "000f947dcaff8fbffcc3f53a1314f358"
+NEURIPS_PAGE = f"https://proceedings.neurips.cc/paper_files/paper/2021/hash/{NEURIPS_HASH}-Abstract.html"
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        f"https://proceedings.neurips.cc/paper/2021/hash/{NEURIPS_HASH}-Abstract.html",
+        f"https://papers.nips.cc/paper/2021/hash/{NEURIPS_HASH}-Abstract.html",
+        f"https://papers.nips.cc/paper_files/paper/2021/hash/{NEURIPS_HASH}-Abstract.html",
+        f"http://papers.nips.cc/paper/2021/hash/{NEURIPS_HASH}-Abstract.html",
+        NEURIPS_PAGE,
+    ],
+)
+def test_official_from_url_normalizes_legacy_neurips_urls(web, url):
+    web.routes["proceedings.neurips.cc/paper_files/paper/2021/hash/"] = ("", None)
+    web.routes[f"proceedings.neurips.cc/paper_files/paper/2021/file/{NEURIPS_HASH}-Bibtex.bib"] = (
+        _fixture("neurips_000f947d.bib"), None)
+    found = official_from_url(url)
+    assert found.official.provider == "NeurIPS Proceedings"
+    assert found.official.url == NEURIPS_PAGE
+    assert found.official.text.startswith("@")
+    assert web.calls and all(c.startswith("https://proceedings.neurips.cc/paper_files/paper/2021/") for c in web.calls)
+
+
+def test_official_from_url_keeps_conference_suffix_and_skips_download(web):
+    url = f"https://papers.nips.cc/paper/2024/hash/{NEURIPS_HASH}-Abstract-Conference.html"
+    found = official_from_url(url, download=False)
+    assert found.official.url == (
+        f"https://proceedings.neurips.cc/paper_files/paper/2024/hash/{NEURIPS_HASH}-Abstract-Conference.html")
+    assert web.calls == []
+    web.routes["proceedings.neurips.cc/paper_files/paper/2024/hash/"] = ("", None)
+    web.routes[f"proceedings.neurips.cc/paper_files/paper/2024/file/{NEURIPS_HASH}-Bibtex.bib"] = (
+        _fixture("neurips_000f947d.bib"), None)
+    assert official_from_url(url).official.provider == "NeurIPS Proceedings"
+
+
+# --------------------------------------------------------------- OpenReview
+
+SDLORA = "SD-LoRA: Scalable Decoupled Low-Rank Adaptation for Class Incremental Learning"
+
+
+def _openreview_notes(drop_bibtex=False):
+    notes = json.loads(_fixture("openreview_sdlora.json"))
+    if drop_bibtex:
+        for note in notes["notes"]:
+            note["content"].pop("_bibtex", None)
+    return json.dumps(notes)
+
+
+def _iclr_2025_record():
+    return _record(title=SDLORA, year="2025", booktitle="ICLR 2025")
+
+
+def test_openreview_no_matching_paper_is_a_reason(web):
+    web.routes["proceedings.iclr.cc/paper_files/paper/2025"] = (_fixture("iclr_2025_listing.html"), None)
+    web.routes["api2.openreview.net"] = (json.dumps({"notes": []}), None)
+    found = find_official(_iclr_2025_record())
+    assert found.official is None and not found.error
+    assert found.reason == "no accepted paper with this title on OpenReview"
+
+
+def test_openreview_accepted_paper_without_bibtex(web):
+    web.routes["proceedings.iclr.cc/paper_files/paper/2025"] = (_fixture("iclr_2025_listing.html"), None)
+    web.routes["api2.openreview.net"] = (_openreview_notes(drop_bibtex=True), None)
+    found = find_official(_iclr_2025_record())
+    assert found.official is None and not found.error
+    assert found.reason == "OpenReview has the accepted paper but no BibTeX export for it"
+    assert found.manual_url == "https://openreview.net/forum?id=5U1rlpX68A"
+
+
+@pytest.mark.parametrize(
+    "response",
+    [
+        (None, "HTTP 403: Forbidden"),
+        (None, "HTTP 429: Too Many Requests"),
+        (None, "Network error: [Errno 8] nodename nor servname provided, or not known"),
+        ("<!DOCTYPE html><html>challenge</html>", None),
+    ],
+)
+def test_openreview_blocked_or_unreachable_is_an_error(web, response):
+    web.routes["proceedings.iclr.cc/paper_files/paper/2025"] = (_fixture("iclr_2025_listing.html"), None)
+    web.routes["api2.openreview.net"] = response
+    found = find_official(_iclr_2025_record())
+    assert found.official is None
+    assert found.error.startswith("OpenReview: ")

@@ -292,6 +292,13 @@ def _arxiv(arxiv_id: str, download: bool) -> OfficialLookup:
 # -------------------------------------------------------------- listings
 
 
+def _bibref_text(block: str) -> str:
+    """Text of a CVF ``bibref`` block; older pages break its lines with ``<br>`` tags."""
+    text = re.sub(r"<br\s*/?>[ \t]*(?:\r?\n)?", "\n", block, flags=re.IGNORECASE)
+    text = re.sub(r"<[^>]+>", "", text)
+    return html.unescape(text).strip()
+
+
 def _cvf_entries(page: str) -> list[Tuple[str, str, str]]:
     """``(title, html_url, bibtex)`` for each paper of a CVF listing page."""
     out = []
@@ -300,7 +307,7 @@ def _cvf_entries(page: str) -> list[Tuple[str, str, str]]:
         bib = re.search(r'<div class="bibref[^"]*">(.*?)</div>', chunk, re.S)
         if link and bib:
             out.append((clean_text(link.group(2)), urllib.parse.urljoin(_CVF, link.group(1)),
-                        html.unescape(bib.group(1)).strip()))
+                        _bibref_text(bib.group(1))))
     return out
 
 
@@ -396,11 +403,15 @@ def _openreview(record: Record, title: str, family: str, year: str) -> OfficialL
     if not bibtex:
         found, error = openreview_search(title, VenueLibrary())
         if error:
-            return OfficialLookup(error=f"OpenReview: {error}")
+            return OfficialLookup(error=f"OpenReview: {error}", manual_url=url)
         if found:
-            bibtex, url = found.extra.get("bibtex", ""), found.extra.get("openreview_url", "")
+            bibtex, url = found.extra.get("bibtex", ""), found.extra.get("openreview_url", "") or url
+            if not bibtex:
+                return OfficialLookup(
+                    reason="OpenReview has the accepted paper but no BibTeX export for it", manual_url=url
+                )
     if not bibtex:
-        return OfficialLookup(reason="no accepted paper with this title on OpenReview")
+        return OfficialLookup(reason="no accepted paper with this title on OpenReview", manual_url=url)
     official_here = family == "ICLR" and year.isdigit() and int(year) < ICLR_PROCEEDINGS_SINCE
     interim = "" if official_here or family not in OPENREVIEW_FAMILIES else INTERIM_OPENREVIEW
     return OfficialLookup(official=Official("OpenReview", url, bibtex.strip(), interim=interim))
@@ -547,16 +558,19 @@ def official_from_url(url: str, download: bool = True) -> OfficialLookup:
         if error:
             return OfficialLookup(error=f"CVF Open Access: {error}", manual_url=u)
         m = re.search(r'<div class="bibref[^"]*">(.*?)</div>', content or "", re.S)
-        text, error = _bibtex_or_error(html.unescape(m.group(1)) if m else "", "CVF Open Access")
+        text, error = _bibtex_or_error(_bibref_text(m.group(1)) if m else "", "CVF Open Access")
         if error:
             return OfficialLookup(error=error, manual_url=u)
         return OfficialLookup(official=Official("CVF Open Access", u, text, interim=INTERIM_CVF))
     if re.search(r"proceedings\.mlr\.press/v\d+/[^/]+\.html", u):
         return _pmlr_paper(u, download)
-    m = re.search(r"(papers\.nips\.cc|proceedings\.neurips\.cc|proceedings\.iclr\.cc)/paper_files/paper/\d{4}/hash/", u)
+    m = re.match(r"^(?:https?://)?(?:www\.)?(papers\.nips\.cc|proceedings\.neurips\.cc|proceedings\.iclr\.cc)"
+                 r"(?:/paper_files)?/paper/(\d{4}/hash/.+)$", u)
     if m:
-        provider = "ICLR Proceedings" if "iclr" in m.group(1) else "NeurIPS Proceedings"
-        return _proceedings_paper(provider, u, download)
+        # Older NeurIPS links use the papers.nips.cc host or omit /paper_files; both redirect here.
+        family = "ICLR" if "iclr" in m.group(1) else "NeurIPS"
+        page = f"{_PROCEEDINGS_SITES[family]}/paper_files/paper/{m.group(2)}"
+        return _proceedings_paper(f"{family} Proceedings", page, download)
     m = re.search(r"aclanthology\.org/([^/?#]+?)(?:\.pdf|\.bib)?/?$", u)
     if m:
         return _acl(m.group(1), download)

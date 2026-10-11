@@ -27,6 +27,7 @@ import html
 import json
 import os
 import re
+import ssl
 import time
 import urllib.error
 import urllib.parse
@@ -46,6 +47,9 @@ _S2_BASE = "https://api.semanticscholar.org/graph/v1/paper"
 _ARXIV_API = "https://export.arxiv.org/api/query"
 # Error prefix from arxiv_record() when arXiv answered but has no such paper.
 ARXIV_MISSING = "arXiv has no paper"
+# Seconds before the first retry of a transport failure; doubled each time, up to the cap.
+_TRANSPORT_BACKOFF = 1.0
+_TRANSPORT_BACKOFF_MAX = 8.0
 _ATOM = {"atom": "http://www.w3.org/2005/Atom", "arxiv": "http://arxiv.org/schemas/atom"}
 
 # DBLP conference stream names whose key abbreviation differs from upper-casing.
@@ -85,9 +89,23 @@ def fetch_url(
     """Fetch *url* and return ``(content, error)``.
 
     HTTP 429/503 responses are retried *retries* times with exponential
-    backoff (or the server's ``Retry-After``).
+    backoff (or the server's ``Retry-After``).  Transient transport failures
+    (network errors, timeouts, connection resets, and SSL errors other than
+    certificate verification failures) are retried
+    ``max(retries, 1)`` times with a shorter backoff.  Other HTTP errors are
+    never retried.
     """
     attempt = 0
+
+    def retry_transport(cause: object = None) -> bool:
+        nonlocal attempt
+        # A certificate that fails verification fails again; only dropped connections are transient.
+        if isinstance(cause, ssl.SSLCertVerificationError) or attempt >= max(retries, 1):
+            return False
+        time.sleep(min(_TRANSPORT_BACKOFF * 2**attempt, _TRANSPORT_BACKOFF_MAX))
+        attempt += 1
+        return True
+
     while True:
         try:
             # gzip makes the large proceedings listings (NeurIPS: 4 MB) several times faster.
@@ -108,9 +126,17 @@ def fetch_url(
                 continue
             return None, f"HTTP {e.code}: {e.reason}"
         except urllib.error.URLError as e:
+            if retry_transport(e.reason):
+                continue
             return None, f"Network error: {e.reason}"
         except TimeoutError:
+            if retry_transport():
+                continue
             return None, "Request timed out"
+        except (ConnectionResetError, ssl.SSLError) as e:
+            if retry_transport(e):
+                continue
+            return None, f"{type(e).__name__}: {e}"
         except Exception as e:  # noqa: BLE001 - report any failure as a fetch error
             return None, f"{type(e).__name__}: {e}"
 
@@ -623,8 +649,10 @@ def openreview_search(
     data, error = fetch_json(f"{_OPENREVIEW_API}?term={query}&content=title&source=forum&limit=10")
     if error:
         return None, error
+    if not isinstance(data, dict):
+        return None, "unexpected response from OpenReview"
     best = None
-    for note in (data or {}).get("notes") or []:
+    for note in data.get("notes") or []:
         content = note.get("content") or {}
         if not titles_match(title, clean_text(_note_value(content, "title"))):
             continue
@@ -716,16 +744,21 @@ def find_published_by_title(
 ) -> Tuple[Optional[Record], Optional[str]]:
     """Accepted OpenReview paper or non-preprint CrossRef record with exactly *title*.
 
-    Returns ``(record_or_None, crossref_error_or_None)``.
+    Returns ``(record_or_None, error_or_None)``.  The error is CrossRef's as
+    is, or, when OpenReview failed too, ``"OpenReview: ...; CrossRef: ..."``.
     """
+    openreview_error = None
     if not skip_openreview:
-        record, _ = openreview_search(title, library)
+        record, openreview_error = openreview_search(title, library)
         if record:
             return record, None
     record, error = crossref_search(title)
     if record and record.entry_type != "misc":
         record.source = "CrossRef (title search)"
         return record, None
+    if openreview_error:
+        parts = [f"OpenReview: {openreview_error}"] + ([f"CrossRef: {error}"] if error else [])
+        return None, "; ".join(parts)
     return None, error
 
 

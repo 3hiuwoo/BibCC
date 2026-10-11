@@ -455,6 +455,20 @@ def test_add_cli_reports_failures(web, tmp_path, monkeypatch):
         ("Varol, G{\\\"u}l", "Varol"),
         ("Jos\u00e9 M\u00fcller", "Muller"),
         ("Long-Kai Huang", "Huang"),
+        # The LaTeX and Unicode spellings of a name give the same key part.
+        ("Zaj\\k{a}c, Micha{\\l}", "Zajac"),
+        ("Zaj{\\k{a}}c, M.", "Zajac"),
+        ("Zaj\u0105c, Micha\u0142", "Zajac"),
+        ("{\\v{S}}imon, Petr", "Simon"),
+        ("\\v Simon, Petr", "Simon"),
+        ("\u0160imon, Petr", "Simon"),
+        ("M{\\\"u}ller, A.", "Muller"),
+        ("M\\\"{u}ller, A.", "Muller"),
+        ("Ke{\\c{s}}ki{\\c{n}}, B.", "Keskin"),
+        ("{\\O}stergaard, J.", "Ostergaard"),
+        ("Lindstr{\\o}m, K.", "Lindstrom"),
+        ("Stra{\\ss}e, H.", "Strasse"),
+        ("Aaron {\\AA}berg", "Aberg"),
     ],
 )
 def test_first_author_surname(author, expected):
