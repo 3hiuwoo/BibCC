@@ -30,14 +30,17 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
 from typing import List
 
+from bibcc.bibedit import BibEditError, read_bib, scan
 from bibcc.checkers import (
     DEFAULT_ENTRY_TYPES,
     DEFAULT_JOURNAL_FIELDS,
     DEFAULT_PROCEEDINGS_FIELDS,
     MIN_TERM_LENGTH,
+    apply_protection,
     check_citation_keys,
     check_field_issues,
     check_missing_fields,
@@ -65,14 +68,22 @@ Run quality checks on a .bib file. Each check has its own option, and you can
 combine any number of checks in one run. By default, only the missing-fields
 check (for month) runs.
 
-The command never changes the file, except with --title-apply and
---title-interactive, which rewrite only the title values. Reports go to
+The command never changes the file, except with --title-apply,
+--title-interactive, and --quote-apply, which rewrite only the title values.
+Empty entries (BibCC's placeholders for papers without official BibTeX) have
+no fields to check; the command lists them, and --strict counts them as
+findings. Reports go to
 .bibcc/INPUT/ next to the input file (only for checks that find something;
 a check that finds nothing removes its old report), and the log goes to
 .bibcc/INPUT/logs/.
 
 With --check-venues, the command checks the venue library instead, and you
 don't need an input file."""
+
+EXIT_STATUS = """\
+0 if the checks ran (with --strict, only if they found nothing), 1 with
+--strict if a check found something or the file has empty entries, 2 on usage
+errors."""
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -92,6 +103,10 @@ def build_parser() -> argparse.ArgumentParser:
                  "bibcc check refs.bib --check-fields --against bib/"),
                 ("Run every check on the file at once",
                  "bibcc check refs.bib --title-case --quote --check-keys --check-fields"),
+                ("Brace your own terms in the titles, then report what else needs braces",
+                 "bibcc check refs.bib --quote-apply --quote-terms LoRA,CLIP"),
+                ("Fail (exit status 1) if any check finds something, for scripts",
+                 "bibcc check refs.bib --fields '' --check-keys --check-fields --strict"),
                 ("Check the venue library itself", "bibcc check --check-venues"),
             ],
             outputs=[
@@ -102,6 +117,7 @@ def build_parser() -> argparse.ArgumentParser:
                 (".bibcc/INPUT/field_issues.txt", "Unknown fields, bad values, and duplicates"),
                 (".bibcc/INPUT/logs/checker.log", "Everything printed to the terminal"),
             ],
+            exit_status=EXIT_STATUS,
             env=[ENV_VENUES],
         ),
         formatter_class=HelpFormatter,
@@ -112,6 +128,11 @@ def build_parser() -> argparse.ArgumentParser:
         nargs="?",  # Make optional for --check-venues mode
         default="",
         help="The .bib file to check (not needed with --check-venues).",
+    )
+    parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="Exit with status 1 if a check finds something or the file has empty entries.",
     )
 
     missing = parser.add_argument_group("missing fields (runs by default)")
@@ -176,6 +197,13 @@ def build_parser() -> argparse.ArgumentParser:
         "--quote",
         action="store_true",
         help="Report words to protect with {braces}.",
+    )
+    quote.add_argument(
+        "--quote-apply",
+        action="store_true",
+        help="Wrap the --quote-terms and --quote-vocab-file terms in braces wherever they appear "
+        "in a title with the same case, and then report what else needs braces (implies "
+        "--quote). The built-in vocabulary and the other suggestions are never applied.",
     )
     quote.add_argument(
         "--quote-terms",
@@ -305,18 +333,35 @@ def run(args: argparse.Namespace) -> None:
 
     if not args.input:
         build_parser().error("give an input .bib file, or pass --check-venues to check the venue library")
+    if not Path(args.input).is_file():
+        build_parser().error(f"no such file: {args.input}")
+    if args.quote_apply and not (args.quote_terms or args.quote_vocab_file):
+        build_parser().error("--quote-apply needs terms: pass --quote-terms, --quote-vocab-file, or both")
+    findings = 0
 
     # Create logger for bib file checking
     with Logger("checker", input_file=args.input) as logger:
         reports = report_dir(args.input)
 
         def save(kind: str, header: str, rows: List[str], label: str) -> None:
+            nonlocal findings
+            findings += len(rows)
             path = reports / kind
             if rows:
                 write_report(path, header, rows)
                 logger.log(f"\n📄 {label} report: {path}")
             else:
                 remove_report(path)
+
+        try:
+            empty = [e.key for e in scan(read_bib(args.input)) if not e.fields]
+        except BibEditError:
+            empty = []
+        if empty:
+            findings += len(empty)
+            logger.log(f"📭 {len(empty)} empty entries have no fields, so the checks skip them: {', '.join(empty)}")
+            logger.log(f"   To fill them, paste their official BibTeX or run "
+                       f"'bibcc add --retry --output {args.input}'.\n")
 
         required_fields = parse_list_arg(args.fields)
         entry_types = [
@@ -385,7 +430,13 @@ def run(args: argparse.Namespace) -> None:
             )
 
         # Smart protection
-        if args.quote:
+        if args.quote_apply:
+            logger.log("\n")
+            own_terms = set(parse_list_arg(args.quote_terms))
+            if args.quote_vocab_file:
+                own_terms |= load_vocab_file(Path(args.quote_vocab_file), log=logger.log, keep_case=True)
+            apply_protection(args.input, own_terms, log=logger.log)
+        if args.quote or args.quote_apply:
             logger.log("\n")
             extra_vocab: List[str] = []
             if args.quote_vocab_file:
@@ -406,6 +457,8 @@ def run(args: argparse.Namespace) -> None:
                 [f"{eid}\t{word}\t{reason}" for eid, word, reason in protection_rows],
                 "Smart protection",
             )
+    if args.strict and findings:
+        sys.exit(1)
 
 
 if __name__ == "__main__":

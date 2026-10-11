@@ -18,6 +18,7 @@ from typing import Callable, Dict, Iterable, List, Optional, Set, Tuple
 
 import bibtexparser
 
+from bibcc.bibedit import BibEditError, read_bib, set_fields, write_bib
 from bibcc.logging_utils import SEPARATOR_LIGHT, SEPARATOR_WIDTH
 
 DEFAULT_VOCAB: Set[str] = {
@@ -95,8 +96,9 @@ MIN_TERM_LENGTH = 2
 def load_vocab_file(
     path: Path,
     log: Callable[[str], None] = print,
+    keep_case: bool = False,
 ) -> Set[str]:
-    """Load vocabulary terms from a newline-delimited file."""
+    """Load vocabulary terms from a newline-delimited file (lower-cased unless *keep_case*)."""
     vocab: Set[str] = set()
     if not path.exists():
         log(f"⚠️  Vocab file '{path}' not found; skipping.")
@@ -105,7 +107,7 @@ def load_vocab_file(
         for line in f:
             term = line.strip()
             if term:
-                vocab.add(term.lower())
+                vocab.add(term if keep_case else term.lower())
     return vocab
 
 
@@ -283,3 +285,44 @@ def check_smart_protection(
         log(f"✅ No unprotected terms in {len(bib_db.entries)} entries.")
 
     return protection_rows
+
+
+def apply_protection(
+    input_path: str,
+    terms: Iterable[str],
+    log: Optional[Callable[[str], None]] = None,
+) -> List[Tuple[str, str, str]]:
+    """Wrap *terms* (case-sensitive, as given) in braces in the titles of *input_path*.
+
+    Only the title values change, and the edit is verified before the file
+    is written.  Returns ``(entry_id, old_title, new_title)`` for each title
+    changed; nothing is written if the edit cannot be verified.
+    """
+    log = log or print
+    terms = sorted({t for t in terms if t})
+    log(f"🔒 Protecting {len(terms)} terms in the titles of {input_path}...\n")
+    text = read_bib(input_path)
+    parser = bibtexparser.bparser.BibTexParser(common_strings=True)
+    changed: List[Tuple[str, str, str]] = []
+    for entry in bibtexparser.loads(text, parser=parser).entries:
+        title = entry.get("title")
+        if not title:
+            continue
+        new = " ".join(protect_terms(title, terms).split())
+        if new != " ".join(title.split()):
+            changed.append((entry["ID"], " ".join(title.split()), new))
+    if not changed:
+        log("✅ Every occurrence of the terms is already in braces.")
+        return []
+    try:
+        new_text, _ = set_fields(text, {eid: {"title": new} for eid, _, new in changed})
+    except BibEditError as e:
+        log(f"❌ Could not apply the term protection safely: {e}")
+        log("   Nothing was written.")
+        return []
+    write_bib(input_path, new_text)
+    for eid, _, new in changed:
+        log(f"{eid:<30} | {new}")
+    log(SEPARATOR_LIGHT * SEPARATOR_WIDTH)
+    log(f"✏️  Protected terms in {len(changed)} titles of {input_path}.")
+    return changed

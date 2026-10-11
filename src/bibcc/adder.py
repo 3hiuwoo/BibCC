@@ -45,7 +45,6 @@ import csv
 import re
 import sys
 import time
-import unicodedata
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Dict, Iterable, List, Optional, Set, Tuple
@@ -53,7 +52,7 @@ from typing import Callable, Dict, Iterable, List, Optional, Set, Tuple
 import bibtexparser
 
 from bibcc.bibedit import BibEditError, month_macro, page_range, read_bib, scan, write_bib
-from bibcc.checkers.citation_keys import abbreviate_venue
+from bibcc.checkers.citation_keys import abbreviate_venue, first_author_surname
 from bibcc.checkers.smart_protection import find_unprotected_terms, protect_terms
 from bibcc.completer import EntryCompletion, complete_entry
 from bibcc.crosscheck import venue_fields_from_crossref
@@ -111,7 +110,6 @@ FIELD_ORDER = [
     "url",
 ]
 
-_NAME_PARTICLES = {"van", "von", "de", "der", "den", "di", "da", "del", "della", "du", "dos", "la", "le", "ter", "ten"}
 # Official BibTeX fields that may hold a bare & % # _ or a unicode dash.
 _TEXT_FIELDS = ("title", "journal", "booktitle", "publisher", "series", "venue")
 # Header of the comment written above an empty entry; BibIndex reads the lines after it.
@@ -159,47 +157,6 @@ def format_entry(entry_type: str, key: str, fields: Dict[str, str]) -> str:
 
 
 # ------------------------------------------------------------------- keys
-
-
-_LATEX_LETTERS = re.compile(r"\\(ss|ae|AE|oe|OE|aa|AA|l|L|o|O|i|j)(?![A-Za-z])")
-# \'e  \"{u}  {\^ o}: symbol accents, with or without braces around the letter.
-_LATEX_SYMBOL_ACCENT = re.compile(r"\\['`^\"~=.]\s*(?:\{\s*([A-Za-z])\s*\}|([A-Za-z]))")
-# \k{a}  \v S  \c{c}: letter accents, which need braces or a space before the letter.
-_LATEX_LETTER_ACCENT = re.compile(r"\\[uvHckbdrt](?:\s*\{\s*([A-Za-z])\s*\}|\s+([A-Za-z]))")
-
-
-def decode_latex_letters(text: str) -> str:
-    """``Zaj\\k{a}c`` → ``Zajac``: LaTeX accents and special letters as their ASCII base letters.
-
-    Braces are kept, so that name splitting still sees ``{...}`` groups.
-    """
-    text = _LATEX_LETTERS.sub(lambda m: {"ss": "ss", "aa": "a", "AA": "A"}.get(m.group(1), m.group(1)), text)
-    text = _LATEX_SYMBOL_ACCENT.sub(lambda m: m.group(1) or m.group(2), text)
-    return _LATEX_LETTER_ACCENT.sub(lambda m: m.group(1) or m.group(2), text)
-
-
-def _ascii_name(text: str) -> str:
-    text = re.sub(r"\\[a-zA-Z]+|\\.", "", decode_latex_letters(text))
-    text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode()
-    return re.sub(r"[^A-Za-z'\-]", "", text)
-
-
-def first_author_surname(author: str) -> str:
-    """Surname of the first author, ASCII-folded, particles joined (``vandeVen``)."""
-    first = decode_latex_letters(re.split(r"\s+and\s+", author.strip())[0])
-    if "," in first:
-        surname = first.split(",")[0]
-    else:
-        tokens = first.split()
-        if not tokens:
-            return ""
-        parts = [tokens[-1]]
-        i = len(tokens) - 2
-        while i >= 1 and tokens[i].lower() in _NAME_PARTICLES:
-            parts.insert(0, tokens[i])
-            i -= 1
-        surname = "".join(parts)
-    return _ascii_name(surname.replace(" ", "").replace("{", "").replace("}", ""))
 
 
 def suggest_method(title: str) -> str:

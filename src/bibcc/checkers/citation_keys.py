@@ -21,6 +21,7 @@ Usage:
 from __future__ import annotations
 
 import re
+import unicodedata
 from typing import Callable, Dict, List, Optional, Set, Tuple
 
 import bibtexparser
@@ -37,6 +38,50 @@ _KEY_PATTERN = re.compile(
     r"^(?:[A-Za-z]+:)?(?P<method>[A-Za-z0-9+\-]+)_(?P<author>[A-Za-z][A-Za-z'\-]*)"
     r"_(?P<venue>[A-Za-z]+)(?P<year>\d{4})$"
 )
+
+# ------------------------------------------------------------------ names
+
+_NAME_PARTICLES = {"van", "von", "de", "der", "den", "di", "da", "del", "della", "du", "dos", "la", "le", "ter", "ten"}
+_LATEX_LETTERS = re.compile(r"\\(ss|ae|AE|oe|OE|aa|AA|l|L|o|O|i|j)(?![A-Za-z])")
+# \'e  \"{u}  {\^ o}: symbol accents, with or without braces around the letter.
+_LATEX_SYMBOL_ACCENT = re.compile(r"\\['`^\"~=.]\s*(?:\{\s*([A-Za-z])\s*\}|([A-Za-z]))")
+# \k{a}  \v S  \c{c}: letter accents, which need braces or a space before the letter.
+_LATEX_LETTER_ACCENT = re.compile(r"\\[uvHckbdrt](?:\s*\{\s*([A-Za-z])\s*\}|\s+([A-Za-z]))")
+
+
+def decode_latex_letters(text: str) -> str:
+    """``Zaj\\k{a}c`` → ``Zajac``: LaTeX accents and special letters as their ASCII base letters.
+
+    Braces are kept, so that name splitting still sees ``{...}`` groups.
+    """
+    text = _LATEX_LETTERS.sub(lambda m: {"ss": "ss", "aa": "a", "AA": "A"}.get(m.group(1), m.group(1)), text)
+    text = _LATEX_SYMBOL_ACCENT.sub(lambda m: m.group(1) or m.group(2), text)
+    return _LATEX_LETTER_ACCENT.sub(lambda m: m.group(1) or m.group(2), text)
+
+
+def _ascii_name(text: str) -> str:
+    text = re.sub(r"\\[a-zA-Z]+|\\.", "", decode_latex_letters(text))
+    text = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode()
+    return re.sub(r"[^A-Za-z'\-]", "", text)
+
+
+def first_author_surname(author: str) -> str:
+    """Surname of the first author, ASCII-folded, particles joined (``vandeVen``)."""
+    first = decode_latex_letters(re.split(r"\s+and\s+", author.strip())[0])
+    if "," in first:
+        surname = first.split(",")[0]
+    else:
+        tokens = first.split()
+        if not tokens:
+            return ""
+        parts = [tokens[-1]]
+        i = len(tokens) - 2
+        while i >= 1 and tokens[i].lower() in _NAME_PARTICLES:
+            parts.insert(0, tokens[i])
+            i -= 1
+        surname = "".join(parts)
+    return _ascii_name(surname.replace(" ", "").replace("{", "").replace("}", ""))
+
 
 # Known venue abbreviations mapped from common full names
 # This is used to verify the VENUE part against the actual booktitle/journal
@@ -170,6 +215,24 @@ def _match_venue_abbreviation(
     return None
 
 
+def _author_issue(key_author: str, author: str) -> Optional[str]:
+    """A mismatch reason when the key's AUTHOR part is not the first author's surname.
+
+    Part of a compound surname is accepted (``Rocamora`` or ``Abad`` for
+    ``Abad Rocamora``, ``Ven`` for ``van de Ven``).
+    """
+    expected = first_author_surname(author)
+    if not expected or not author.strip():
+        return None
+    pieces = [p.lower() for p in re.findall(r"[A-Z]?[a-z]+|[A-Z]+(?![a-z])", re.sub(r"['\-]", " ", expected))]
+    if not pieces:
+        return None
+    joined = {"".join(pieces[i:]) for i in range(len(pieces))} | {"".join(pieces[:i]) for i in range(1, len(pieces))}
+    if re.sub(r"[^a-z]", "", key_author.lower()) in joined:
+        return None
+    return f"key author '{key_author}' but the first author's surname is '{expected}'"
+
+
 _PREPRINT_TYPES = {"misc", "unpublished", "techreport", "online", "preprint"}
 _PREPRINT_VENUE = re.compile(r"\b(arxiv|corr|preprint)\b", re.IGNORECASE)
 
@@ -213,7 +276,8 @@ def check_citation_keys(
 
     Returns:
         List of ``(entry_id, issue_type, detail)`` tuples where issue_type is
-        one of ``"format"``, ``"venue_mismatch"``, or ``"year_mismatch"``.
+        one of ``"format"``, ``"author_mismatch"``, ``"venue_mismatch"``, or
+        ``"year_mismatch"``.
     """
     log = log or print
     log(f"🔑 Checking citation key legibility in {input_path}...\n")
@@ -241,6 +305,11 @@ def check_citation_keys(
             issues.append((entry_id, "format", detail))
             continue
 
+        author_issue = _author_issue(match.group("author"), entry.get("author", ""))
+        if author_issue:
+            log(f"{entry_id:<45} | {'author_mismatch':<18} | {author_issue}")
+            issues.append((entry_id, "author_mismatch", author_issue))
+
         # Validate year matches entry year
         key_year = match.group("year")
         entry_year = entry.get("year", "").strip()
@@ -264,11 +333,14 @@ def check_citation_keys(
         log(f"✅ All {total} citation keys follow the convention.")
     else:
         format_count = sum(1 for _, t, _ in issues if t == "format")
+        author_count = sum(1 for _, t, _ in issues if t == "author_mismatch")
         venue_count = sum(1 for _, t, _ in issues if t == "venue_mismatch")
         year_count = sum(1 for _, t, _ in issues if t == "year_mismatch")
         parts = []
         if format_count:
             parts.append(f"format: {format_count}")
+        if author_count:
+            parts.append(f"author mismatch: {author_count}")
         if venue_count:
             parts.append(f"venue mismatch: {venue_count}")
         if year_count:
