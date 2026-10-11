@@ -248,6 +248,9 @@ def test_add_title_of_iclr_paper_not_in_proceedings_gets_openreview_bibtex(web, 
     assert entry["title"].startswith("{SD-LoRA}: Scalable")
     assert any("interim BibTeX from OpenReview" in line for line in lines)
     assert any("proceedings.iclr.cc/paper_files/paper/2025" in call for call in web.calls)
+    row = (tmp_path / ".bibcc" / "added.bib" / "add.txt").read_text().splitlines()[1].split("\t")
+    assert row[1] == "interim" and row[6] == "wait"
+    assert any(line.startswith("\n⏳ 1 interim entry: `bibcc upgrade") for line in lines)
 
 
 def test_add_arxiv_finds_published_version_via_crossref_search(web, library, tmp_path):

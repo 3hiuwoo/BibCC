@@ -112,13 +112,42 @@ class OfficialLookup:
     ``official`` is set when it was found (``text`` is empty without
     downloading).  Otherwise ``reason`` says why there is none and
     ``manual_url`` where a person may get it; ``error`` is set instead when a
-    site could not be reached, so trying again later may help.
+    site could not be reached, so trying again later may help.  ``waiting``
+    says that the official BibTeX does not exist yet (the proceedings are
+    not out), so no one can get it now.
     """
 
     official: Optional[Official] = None
     reason: str = ""
     manual_url: str = ""
     error: str = ""
+    waiting: bool = False
+
+
+# What to do next about a paper or entry; the ``next`` column of the add, upgrade, and published reports.
+NEXT_RETRY = "retry"  # a site could not be reached: run the command again later
+NEXT_BY_HAND = "by hand"  # the official BibTeX exists but BibCC cannot download it: get it from the URL
+NEXT_WAIT = "wait"  # no official BibTeX exists yet: `bibcc upgrade` picks it up once it is out
+NEXT_CHECK = "check"  # the paper was not found: check the identifier
+NEXT_UPGRADE = "upgrade"  # a better official BibTeX can be downloaded now: run `bibcc upgrade`
+
+
+def next_step(lookup: OfficialLookup) -> str:
+    """The ``next`` value for a lookup that found no official BibTeX (``""`` if it found one)."""
+    if lookup.official is not None:
+        return ""
+    if lookup.error:
+        return NEXT_RETRY
+    return NEXT_WAIT if lookup.waiting else NEXT_BY_HAND
+
+
+_TRANSIENT = re.compile(r"Network error|timed out|HTTP (?:429|5\d\d)|ConnectionResetError|SSLError|bot protection",
+                        re.I)
+
+
+def next_for_error(error: str) -> str:
+    """The ``next`` value for a paper that failed with *error*: retry for network trouble, else check."""
+    return NEXT_RETRY if _TRANSIENT.search(error or "") else NEXT_CHECK
 
 
 def clear_cache() -> None:
@@ -317,7 +346,8 @@ def _cvf(title: str, family: str, year: str) -> OfficialLookup:
     listing = f"{_CVF}/{family}{year}?day=all"
     content, error = _get(listing, timeout=_LISTING_TIMEOUT, cache=True)
     if error and error.startswith("HTTP 404"):
-        return OfficialLookup(reason=f"CVF Open Access has no {family} {year} papers yet", manual_url=f"{_CVF}/menu")
+        return OfficialLookup(reason=f"CVF Open Access has no {family} {year} papers yet", manual_url=f"{_CVF}/menu",
+                              waiting=True)
     if error:
         return OfficialLookup(error=f"CVF Open Access: {error}", manual_url=listing)
     for paper_title, url, bibtex in _cvf_entries(content or ""):
@@ -342,7 +372,7 @@ def _pmlr(title: str, family: str, year: str, download: bool) -> OfficialLookup:
     if error:
         return OfficialLookup(error=f"PMLR: {error}", manual_url=f"{_PMLR}/")
     if volume is None:
-        return OfficialLookup(reason=f"PMLR has no {family} {year} volume yet", manual_url=f"{_PMLR}/")
+        return OfficialLookup(reason=f"PMLR has no {family} {year} volume yet", manual_url=f"{_PMLR}/", waiting=True)
     listing = f"{_PMLR}/{volume}/"
     content, error = _get(listing, timeout=_LISTING_TIMEOUT, cache=True)
     if error:
@@ -374,13 +404,13 @@ def _proceedings_site(title: str, family: str, year: str, download: bool) -> Off
     listing = f"{site}/paper_files/paper/{year}"
     content, error = _get(listing, timeout=_LISTING_TIMEOUT, cache=True)
     if error and error.startswith("HTTP 404"):
-        return OfficialLookup(reason=f"the {family} {year} proceedings are not out yet", manual_url=site)
+        return OfficialLookup(reason=f"the {family} {year} proceedings are not out yet", manual_url=site, waiting=True)
     if error:
         return OfficialLookup(error=f"{provider}: {error}", manual_url=listing)
     for m in re.finditer(r'<a title="paper title" href="([^"]+-Abstract[^"]*\.html)">(.*?)</a>', content or "", re.S):
         if titles_match(title, clean_text(m.group(2))):
             return _proceedings_paper(provider, urllib.parse.urljoin(site, m.group(1)), download)
-    return OfficialLookup(reason=f"not in the {family} {year} proceedings yet", manual_url=listing)
+    return OfficialLookup(reason=f"not in the {family} {year} proceedings yet", manual_url=listing, waiting=True)
 
 
 def _proceedings_paper(provider: str, page: str, download: bool) -> OfficialLookup:
@@ -445,6 +475,7 @@ def _first(*lookups) -> OfficialLookup:
     """First lookup that found something; else the last one, with earlier errors kept."""
     last = OfficialLookup()
     errors = []
+    waiting = False
     for make in lookups:
         last = make()
         if last.official:
@@ -453,8 +484,11 @@ def _first(*lookups) -> OfficialLookup:
             return last
         if last.error:
             errors.append(last.error)
+        waiting = waiting or last.waiting
     if errors and not last.error:
         last.error = "; ".join(errors)
+    # The proceedings that would have it are not out yet, even if a later source did not have it either.
+    last.waiting = waiting
     return last
 
 
@@ -485,7 +519,8 @@ def find_official(record: Record, download: bool = True, interim: bool = True) -
             found, error = crossref_search(title, prefix="10.1109")
             if found:
                 return _xplore_for_doi(found.doi, found, download)
-            return OfficialLookup(error=f"CrossRef: {error}" if error else "", reason="not in IEEE Xplore yet")
+            return OfficialLookup(error=f"CrossRef: {error}" if error else "", reason="not in IEEE Xplore yet",
+                                  waiting=not error)
         steps = [from_xplore]
         if interim:
             steps.append(lambda: _cvf(title, family, year))
@@ -498,7 +533,7 @@ def find_official(record: Record, download: bool = True, interim: bool = True) -
         if error:
             return OfficialLookup(error=f"CrossRef: {error}")
         return OfficialLookup(reason="not on SpringerLink yet (the ECVA site has no BibTeX)",
-                              manual_url="https://www.ecva.net/papers.php")
+                              manual_url="https://www.ecva.net/papers.php", waiting=True)
 
     if family in ("NeurIPS", "ICLR"):
         steps = []
@@ -506,7 +541,8 @@ def find_official(record: Record, download: bool = True, interim: bool = True) -
             steps.append(lambda: _proceedings_site(title, family, year, download))
         if interim or (family == "ICLR" and year.isdigit() and int(year) < ICLR_PROCEEDINGS_SINCE):
             steps.append(lambda: _openreview(record, title, family, year))
-        return _first(*steps) if steps else OfficialLookup(reason=f"not in the {family} {year} proceedings yet")
+        return _first(*steps) if steps else OfficialLookup(reason=f"not in the {family} {year} proceedings yet",
+                                                           waiting=True)
 
     if family in PMLR_FAMILIES:
         steps = [lambda: _pmlr(title, family, year, download)]

@@ -22,8 +22,9 @@ upgrade`` replaces these interim entries once the proceedings are out.
 instead (``missing``: when no official BibTeX can be had; ``all``: also when
 the official site cannot be reached).  Such entries carry a comment that
 ``bibcc upgrade`` looks for, to replace them with the official BibTeX later.
-Each identifier's outcome goes to ``.bibcc/<output>/add.txt``, and the papers
-left to do by hand are listed at the end of the log.
+Each identifier's outcome goes to ``.bibcc/<output>/add.txt`` (its ``next``
+column says what to do next), and the papers left to do are listed at the end
+of the log, grouped by that column.
 
 Papers already present in the ``--against`` bibliography or the staging
 file (same DOI, arXiv ID, or title, including empty entries) are skipped.
@@ -61,11 +62,17 @@ from bibcc.logging_utils import SEPARATOR_THIN, SEPARATOR_WIDTH, Logger, write_r
 from bibcc.logging_utils import report_dir as reports_for
 from bibcc.missing_venues import JOURNAL_FIELDS, PROCEEDINGS_FIELDS, MissingVenue, update_command, write_missing_venues
 from bibcc.official import (
+    NEXT_BY_HAND,
+    NEXT_CHECK,
+    NEXT_RETRY,
+    NEXT_WAIT,
     Official,
     OfficialLookup,
     family_of,
     find_official,
     interim_source_of,
+    next_for_error,
+    next_step,
     official_fields,
     official_from_url,
     record_from_official,
@@ -848,14 +855,23 @@ class AddOutcome:
     url: str = ""
     # For an empty entry or a failed download: the --fallback level that builds an entry instead.
     fallback: str = ""
+    # What to do next (one of the NEXT_* values of bibcc.official), or "" when nothing is left to do.
+    next: str = ""
 
     def row(self) -> str:
-        cells = (self.identifier, self.status, self.key, self.title, self.detail, self.url)
+        cells = (self.identifier, self.status, self.key, self.title, self.detail, self.url, self.next)
         return "\t".join(" ".join(c.split()) for c in cells)
 
 
-REPORT_HEADER = "add: identifier\tstatus\tkey\ttitle\tdetail\tget it"
+REPORT_HEADER = "add: identifier\tstatus\tkey\ttitle\tdetail\tget it\tnext"
 LEFT_TO_DO = ("empty", "failed")
+# The groups of the list at the end of the log, in order: (next, heading).
+_LEFT_TO_DO_GROUPS = (
+    (NEXT_BY_HAND, "By hand now: get the official BibTeX from the URL"),
+    (NEXT_RETRY, "Retry later: a site could not be reached"),
+    (NEXT_CHECK, "Check the identifier"),
+    (NEXT_WAIT, "Wait for the publisher: there's no official BibTeX yet"),
+)
 
 
 def _use_metadata(lookup: OfficialLookup, fallback: str) -> bool:
@@ -867,24 +883,38 @@ def _use_metadata(lookup: OfficialLookup, fallback: str) -> bool:
     return fallback in (FALLBACK_MISSING, FALLBACK_ALL)
 
 
-def _log_left_to_do(outcomes: List[AddOutcome], report: Path, log: Callable[[str], None]) -> None:
+def _log_left_to_do(outcomes: List[AddOutcome], report: Path, output: Path, log: Callable[[str], None]) -> None:
     todo = [o for o in outcomes if o.status in LEFT_TO_DO]
+    interim = sum(1 for o in outcomes if o.status == "interim")
+    if interim:
+        what = "interim entry: `bibcc upgrade OUTPUT` replaces it" if interim == 1 else \
+            "interim entries: `bibcc upgrade OUTPUT` replaces them"
+        log(f"\n⏳ {interim} {what.replace('OUTPUT', str(output))} once the final version is out.")
     if not todo:
         return
-    log(f"\n✋ {len(todo)} left to do by hand (also listed in {report}):")
-    for o in todo:
-        name = f"{o.identifier} ({o.title})" if o.title and o.title != o.identifier else o.identifier
-        if o.status == "empty":
-            log(f"   📭 {name}: empty entry {o.key}; paste its official BibTeX into it ({o.detail})")
-        else:
-            log(f"   ❌ {name}: {o.detail}")
-        if o.url:
-            log(f"      get it: {o.url}")
-        if o.fallback:
-            log(f"      or run again with --fallback {o.fallback} to build the entry from metadata")
-        elif o.status == "failed" and not o.key and not o.url and not o.title:
-            log("      check the identifier, or try the paper's DOI or exact title (no fallback can build "
-                "an entry for a paper that was not found)")
+    log(f"\n✋ {len(todo)} left to do (also listed in {report}, with what to do in its next column):")
+    for step, heading in _LEFT_TO_DO_GROUPS:
+        group = [o for o in todo if (o.next or NEXT_CHECK) == step]
+        if not group:
+            continue
+        log(f"\n   {heading} ({len(group)}):")
+        for o in group:
+            name = f"{o.identifier} ({o.title})" if o.title and o.title != o.identifier else o.identifier
+            if o.status == "empty":
+                log(f"   📭 {name}: empty entry {o.key}; paste its official BibTeX into it ({o.detail})")
+            else:
+                log(f"   ❌ {name}: {o.detail}")
+            if o.url:
+                log(f"      get it: {o.url}")
+            if o.fallback:
+                log(f"      or run again with --fallback {o.fallback} to build the entry from metadata")
+            elif o.status == "failed" and not o.key and not o.url and not o.title:
+                log("      check the identifier, or try the paper's DOI or exact title (no fallback can build "
+                    "an entry for a paper that was not found)")
+        if step == NEXT_RETRY:
+            log(f"      to look them up again, run `bibcc add --retry --output {output}` later")
+        elif step == NEXT_WAIT:
+            log(f"      `bibcc add --retry --output {output}` fills them in once the proceedings are out")
 
 
 def add_papers(
@@ -999,6 +1029,7 @@ def add_papers(
     def fail(identifier: str, error: str, **outcome: str) -> None:
         log(f"   ❌ {error}")
         failed.append((identifier, error))
+        outcome.setdefault("next", next_for_error(error))
         outcomes.append(AddOutcome(identifier, "failed", detail=error, **outcome))
 
     looked_up = False
@@ -1057,10 +1088,10 @@ def add_papers(
             proposals.extend(venue_proposals(built, None, library, key, record))
             index.add({"ID": key, **built.fields, "eprint": record.arxiv_id}, str(output))
             outcome = AddOutcome(identifier, "metadata", key, title, f"built from {record.source} metadata: {why}",
-                                 lookup.manual_url)
+                                 lookup.manual_url, next=next_step(lookup))
         elif lookup.official is None and lookup.error:
             fail(identifier, f"could not get the official BibTeX: {lookup.error} (nothing written; try again later)",
-                 key=target, title=title, url=lookup.manual_url, fallback=FALLBACK_ALL)
+                 key=target, title=title, url=lookup.manual_url, fallback=FALLBACK_ALL, next=NEXT_RETRY)
             continue
         elif lookup.official is None and target:
             log(f"   📭 still no official BibTeX ({lookup.reason}); the empty entry {target} stays")
@@ -1068,7 +1099,7 @@ def add_papers(
                 log(f"      get it from {lookup.manual_url}")
             empty.append((identifier, target, lookup.reason))
             outcomes.append(AddOutcome(identifier, "empty", target, title, lookup.reason, lookup.manual_url,
-                                       fallback=FALLBACK_MISSING))
+                                       fallback=FALLBACK_MISSING, next=next_step(lookup)))
             continue
         elif lookup.official is None:
             key = fixed_key or suggest_key(record.entry_type, record.fields, index.keys, **key_parts)
@@ -1078,7 +1109,7 @@ def add_papers(
                 log(f"      get it from {lookup.manual_url}")
             index.add({"ID": key, "title": title, "doi": record.doi, "eprint": record.arxiv_id}, str(output))
             outcome = AddOutcome(identifier, "empty", key, title, lookup.reason, lookup.manual_url,
-                                 fallback=FALLBACK_MISSING)
+                                 fallback=FALLBACK_MISSING, next=next_step(lookup))
         else:
             official = lookup.official
             built = build_entry(official, library, keep_title=keep_title, doi=record.doi)
@@ -1097,7 +1128,7 @@ def add_papers(
             index.add({"ID": key, **built.fields, "eprint": record.arxiv_id}, str(output))
             detail = official.provider + (f" ({lookup.reason})" if lookup.reason else "")
             outcome = AddOutcome(identifier, "interim" if official.interim else "official", key, title, detail,
-                                 official.url)
+                                 official.url, next=NEXT_WAIT if official.interim else "")
         if hint.key and target and hint.key != target:
             notes.append(f"fills the empty entry {target}, which keeps its key (the manifest says {hint.key})")
         try:
@@ -1154,7 +1185,7 @@ def add_papers(
     populated, placeholders = entry_counts(new_text)
     log(f"{output}: {populated + placeholders} entries ({populated} with fields, {placeholders} empty)"
         + (" after this run" if dry_run else ""))
-    _log_left_to_do(outcomes, report, log)
+    _log_left_to_do(outcomes, report, output, log)
     if (added or filled) and not dry_run:
         log("\n💡 Review the keys (METHOD is a guess unless a manifest gives it), then run:")
         if placeholders:
@@ -1211,7 +1242,9 @@ and completes it from the venue library:
 
 These entries carry a comment that says so; 'bibcc upgrade' replaces them
 when the official BibTeX becomes available. The command lists whatever is
-left to do by hand at the end of the run and in .bibcc/OUTPUT/add.txt.
+left to do at the end of the run and in .bibcc/OUTPUT/add.txt, grouped by
+what to do next (the next column): get the BibTeX by hand, retry later,
+check the identifier, or wait until the proceedings are out.
 
 The command formats each entry like the rest of the bibliography: Title
 Case, {{braces}} around acronyms and technical terms, -- page ranges, month

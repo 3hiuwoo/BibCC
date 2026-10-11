@@ -195,6 +195,8 @@ def test_upgrade_reports_accepted_but_unindexed(web, library, sample_bib: Path):
     assert sample_bib.read_text() == original
     report = (sample_bib.parent / ".bibcc" / "sample.bib" / "upgrade.txt").read_text()
     assert "PANDA_Raghavan_arXiv2025\tunchanged" in report
+    assert report.splitlines()[0] == "upgrade: entry_id\tstatus\tdetail\tnext"
+    assert report.splitlines()[1].endswith("\twait")
 
 
 def test_upgrade_keeps_preprint_without_official_bibtex(web, library, sample_bib: Path):
@@ -217,6 +219,8 @@ def test_upgrade_keeps_preprint_without_official_bibtex(web, library, sample_bib
     assert "published in Proceedings of the AAAI Conference on Artificial Intelligence (2025)" in reason
     assert "AAAI blocks" in reason and "https://doi.org/10.1609/aaai.v39i1.30001" in reason
     assert sample_bib.read_text() == original
+    report = (sample_bib.parent / ".bibcc" / "sample.bib" / "upgrade.txt").read_text()
+    assert report.splitlines()[1].endswith("\tby hand")
 
 
 def test_upgrade_interim_cvf_entry_to_xplore(web, library, tmp_path):
@@ -245,6 +249,8 @@ def test_upgrade_interim_entry_waits_for_proceedings(web, library, tmp_path):
     assert reason.startswith("proceedings not available yet")
     assert not any("thecvf.com" in c for c in web.calls)  # no interim source for an interim entry
     assert bib.read_text() == CVF_ENTRY
+    report = (tmp_path / ".bibcc" / "cvpr.bib" / "upgrade.txt").read_text()
+    assert report.splitlines()[1].endswith("\twait")
 
 
 def test_upgrade_proposes_link_for_unknown_interim_name(web, tmp_path):
@@ -284,8 +290,11 @@ def test_report_only_lists_published_versions_without_downloading(web, library, 
     summary = report_published([str(folder)], library, delay=0, log_dir=tmp_path / "out", log=lambda _: None)
     rows = {row[1]: row for row in summary["published"]}
     assert set(rows) == {"Unified_Kumar_CVPR2025", "PANDA_Raghavan_arXiv2025"}
-    assert rows["Unified_Kumar_CVPR2025"][4:] == ("IEEE Xplore", "https://ieeexplore.ieee.org/document/11095062")
+    assert rows["Unified_Kumar_CVPR2025"][4:] == (
+        "IEEE Xplore", "https://ieeexplore.ieee.org/document/11095062", "upgrade"
+    )
     assert rows["PANDA_Raghavan_arXiv2025"][2] == "published"
+    assert rows["PANDA_Raghavan_arXiv2025"][6] == "upgrade"
     assert rows["PANDA_Raghavan_arXiv2025"][5].endswith("-Abstract-Conference.html")
     assert {p.name: p.read_text() for p in folder.glob("*.bib")} == before
     assert not any(XPLORE_EXPORT in c or c.endswith(".bib") for c in web.calls)

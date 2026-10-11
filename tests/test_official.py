@@ -6,6 +6,8 @@ from bibcc import official, sources
 from bibcc.official import (
     find_official,
     interim_source_of,
+    next_for_error,
+    next_step,
     official_fields,
     official_from_url,
     record_from_official,
@@ -143,7 +145,24 @@ def test_cvpr_not_in_xplore_gets_interim_cvf_bibtex(web):
     assert found.official.url.endswith("Ahmed_Towards_Source-Free_Machine_Unlearning_CVPR_2025_paper.html")
     assert "Ahmed_2025_CVPR" in found.official.text
     # Without interim sources (as for upgrade) there is nothing yet.
-    assert find_official(record, interim=False).official is None
+    assert next_step(found) == ""
+    later = find_official(record, interim=False)
+    assert later.official is None and next_step(later) == "wait"
+
+
+def test_cvpr_with_no_cvf_listing_yet_waits(web):
+    web.routes["query.bibliographic"] = (json.dumps({"message": {"items": []}}), None)
+    web.routes["openaccess.thecvf.com/CVPR2026?day=all"] = (None, "HTTP 404: Not Found")
+    found = find_official(_record(title=CVF_TITLE, year="2026", booktitle="CVPR 2026"))
+    assert found.official is None and found.waiting and next_step(found) == "wait"
+
+
+def test_cvpr_in_neither_xplore_nor_cvf_waits_for_xplore(web):
+    web.routes["query.bibliographic"] = (json.dumps({"message": {"items": []}}), None)
+    web.routes["openaccess.thecvf.com/CVPR2025?day=all"] = (_fixture("cvf_cvpr2025_listing.html"), None)
+    found = find_official(_record(title="A Paper the Listing Lacks", year="2025", booktitle="CVPR 2025"))
+    # IEEE Xplore may still add it, so it counts as waiting rather than lost.
+    assert found.official is None and next_step(found) == "wait"
 
 
 def test_cvf_listing_is_fetched_once(web):
@@ -179,6 +198,7 @@ def test_eccv_not_on_springerlink_has_no_official_bibtex(web):
     found = find_official(_record(title="Some ECCV Paper", year="2026", booktitle="ECCV 2026"))
     assert found.official is None and not found.error
     assert "SpringerLink" in found.reason and "ecva.net" in found.manual_url
+    assert next_step(found) == "wait"
 
 
 @pytest.mark.parametrize("prefix,publisher", [("10.1609", "AAAI"), ("10.1145", "ACM"), ("10.1016", "Elsevier")])
@@ -186,6 +206,7 @@ def test_blocked_publishers(web, prefix, publisher):
     found = find_official(_record(doi=f"{prefix}/x.1"))
     assert found.official is None and not found.error
     assert publisher in found.reason and found.manual_url == f"https://doi.org/{prefix}/x.1"
+    assert next_step(found) == "by hand"
     assert web.calls == []
 
 
@@ -244,6 +265,7 @@ def test_pmlr_volume_not_out_yet(web):
     web.routes["proceedings.mlr.press/"] = (_fixture("pmlr_index.html"), None)
     found = find_official(_record(title="T", year="2027", booktitle="ICML 2027"), interim=False)
     assert found.official is None and "no ICML 2027 volume" in found.reason
+    assert next_step(found) == "wait"
 
 
 def test_acl_and_ijcai_dois(web):
@@ -268,6 +290,22 @@ def test_network_errors_are_errors_not_reasons(web):
     web.routes["citation-needed.springer.com"] = (None, "HTTP 503: Service Unavailable")
     found = find_official(_record(doi="10.1007/978-3-031-72667-5_1"))
     assert found.official is None and "503" in found.error
+    assert next_step(found) == "retry"
+
+
+@pytest.mark.parametrize(
+    "error,expected",
+    [
+        ("not found (Semantic Scholar: HTTP 429: Too Many Requests)", "retry"),
+        ("Network error: [Errno 8] nodename nor servname provided", "retry"),
+        ("Request timed out", "retry"),
+        ("IEEE Xplore: unexpected response (bot protection?)", "retry"),
+        ("not found (no source has a paper with this exact title)", "check"),
+        ("key CLE_Zhou_AAAI2025 from the manifest is already used in refs.bib", "check"),
+    ],
+)
+def test_next_for_error(error, expected):
+    assert next_for_error(error) == expected
 
 
 # ------------------------------------------------------------------- URLs

@@ -428,11 +428,21 @@ identifier,method,venue,year,key
 10.1609/aaai.v39i1.30001,,,,CLE_Zhou_AAAI2025
 ```
 
-#### What's left to do by hand
+#### What's left to do <a id="next-steps"></a>
 
 The end of each run lists the papers that still need you: empty entries to fill in, and failed papers. Each item has the paper's title, the URL to get the BibTeX from, and the `--fallback` level that would have built the entry. After you get the missing BibTeX, add it as described in [Add BibTeX that you downloaded yourself](#local-bibtex), or run `add --retry` later.
 
-`.bibcc/OUTPUT/add.txt` has one row per paper, with these tab-separated columns: identifier, outcome (`official`, `interim`, `metadata`, `empty`, `failed`, or `duplicate`), key, title, detail, and URL. A script or an agent can pick up the rows to work on.
+The list is grouped by what to do next. The same word is in the `next` column of the reports of `add` and `upgrade`, so that a script or an agent can sort the papers without reading the details. The following table describes each value.
+
+| `next` | Meaning | What to do |
+| --- | --- | --- |
+| `by hand` | The official BibTeX exists, but BibCC can't download it (AAAI, ACM, and Elsevier, for example) | Get it from the URL, and add it with `bibcc add FILE.bib` |
+| `retry` | A site couldn't be reached, or a rate limit was hit | Run `bibcc add --retry` (or `bibcc upgrade`) later |
+| `check` | No source has the paper, or the paper can't be added as given | Check the identifier, or try the paper's DOI or exact title |
+| `wait` | There's no official BibTeX yet: the proceedings aren't out, or the entry uses interim CVF or OpenReview BibTeX | Run `bibcc add --retry` or `bibcc upgrade` once the proceedings are out |
+| `upgrade` | `upgrade --report-only` found official BibTeX that can be downloaded now | Run `bibcc upgrade FILE.bib --in-place` |
+
+`.bibcc/OUTPUT/add.txt` has one row per paper, with these tab-separated columns: identifier, outcome (`official`, `interim`, `metadata`, `empty`, `failed`, or `duplicate`), key, title, detail, URL, and `next` (empty when nothing is left to do). A script or an agent can pick up the rows to work on.
 
 #### Rate limits
 
@@ -485,9 +495,9 @@ Three kinds of entries are candidates:
 - Completes venue fields from the venue library, and proposes missing venues in `.bibcc/INPUT/missing_venues.yaml`. When an interim booktitle is replaced by a proceedings name that the library doesn't link to it yet, the YAML file proposes the link, so that `complete` recognizes the interim name next time.
 - Is a whole-entry replacement, checked like other edits: the rest of the file, including comments above the entry, stays byte for byte. The only exception is the comment that marks a metadata entry, which is removed.
 
-`upgrade` keeps a preprint whose published version has no downloadable BibTeX (AAAI, ACM, and Elsevier papers, and ECCV papers that aren't on SpringerLink yet), and the report gives the venue and where to get the BibTeX by hand. Preprints without a published version are listed as unchanged. If the arXiv comment says that the paper was accepted (for example, "Accepted at AAAI 2026") but it isn't indexed yet, the report includes that comment. Lookups that hit a rate limit are listed as failed; run `upgrade` again later or set `S2_API_KEY`.
+`upgrade` keeps a preprint whose published version has no downloadable BibTeX (AAAI, ACM, and Elsevier papers, and ECCV papers that aren't on SpringerLink yet), and the report gives the venue and where to get the BibTeX by hand. Preprints without a published version are listed as unchanged. If the arXiv comment says that the paper was accepted (for example, "Accepted at AAAI 2026") but it isn't indexed yet, the report includes that comment. Lookups that hit a rate limit are listed as failed; run `upgrade` again later or set `S2_API_KEY`. The tab-separated columns of `.bibcc/INPUT/upgrade.txt` are entry ID, status (`upgraded`, `unchanged`, or `failed`), detail, and `next` (see [What's left to do](#next-steps)).
 
-**Report only.** `--report-only` checks any number of `.bib` files and directories (searched recursively) and writes `.bibcc/PATH/published.txt`. The report lists every candidate that now has a published version, with its venue, the official BibTeX source, and its URL (or why there's none). It downloads no BibTeX and changes nothing.
+**Report only.** `--report-only` checks any number of `.bib` files and directories (searched recursively) and writes `.bibcc/PATH/published.txt`. The report lists every candidate that now has a published version, with its venue, the official BibTeX source, and its URL (or why there's none). It downloads no BibTeX and changes nothing. Its last column, `next`, is `upgrade` for an entry that `upgrade` can replace now, and `by hand`, `wait`, or `retry` otherwise.
 
 <details>
 <summary>All <code>upgrade</code> options</summary>

@@ -83,11 +83,16 @@ def test_default_is_official_only_and_says_which_level_would_cover_each_paper(we
     ]
     assert rows[0][5] == f"https://doi.org/{AAAI}"
     assert rows[1][3] == "Class-Incremental Learning: A Survey" and "503" in rows[1][4]
+    assert [r[6] for r in rows] == ["by hand", "retry", "check"]
 
     log = "\n".join(lines)
-    todo = log[log.index("✋ 3 left to do by hand"):]
+    todo = log[log.index("✋ 3 left to do"):]
     assert "--fallback missing" in todo and "--fallback all" in todo
     assert "check the identifier" in todo
+    groups = [todo.index(h) for h in ("By hand now", "Retry later", "Check the identifier (1)")]
+    assert groups == sorted(groups)
+    assert todo.index(AAAI) < groups[1] < todo.index(TPAMI) < groups[2] < todo.index("No Such Paper Anywhere")
+    assert "bibcc add --retry --output" in todo
 
 
 def test_fallback_missing_builds_blocked_paper_from_crossref(web, library, tmp_path):

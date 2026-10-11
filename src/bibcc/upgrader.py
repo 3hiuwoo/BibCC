@@ -66,7 +66,18 @@ from bibcc.bibedit import BibEditError, read_bib, replace_entry, unified_diff, w
 from bibcc.helptext import ENV_S2, ENV_VENUES, VENUES_HELP, HelpFormatter, epilog
 from bibcc.logging_utils import SEPARATOR_THIN, SEPARATOR_WIDTH, Logger, remove_report, report_dir, write_report
 from bibcc.missing_venues import MissingVenue, update_command, write_missing_venues
-from bibcc.official import Official, OfficialLookup, find_official, interim_source_of
+from bibcc.official import (
+    NEXT_CHECK,
+    NEXT_RETRY,
+    NEXT_UPGRADE,
+    NEXT_WAIT,
+    Official,
+    OfficialLookup,
+    find_official,
+    interim_source_of,
+    next_for_error,
+    next_step,
+)
 from bibcc.sources import (
     Record,
     clean_text,
@@ -93,6 +104,9 @@ _REPLACED_FIELDS = {
     "editor", "address", "doi",
 }
 _INTERIM_URL = re.compile(r"openreview\.net|thecvf\.com", re.IGNORECASE)
+
+UPGRADE_HEADER = "upgrade: entry_id\tstatus\tdetail\tnext"
+PUBLISHED_HEADER = "published versions: file\tentry_id\tstatus\tvenue\tofficial BibTeX source\turl\tnext"
 
 PREPRINT = "preprint"
 METADATA = "metadata"
@@ -281,6 +295,7 @@ def upgrade_bib(
     upgraded: List[Tuple[str, str]] = []
     unchanged: List[Tuple[str, str]] = []
     failed: List[Tuple[str, str]] = []
+    next_of: Dict[str, str] = {}
     proposals: List[MissingVenue] = []
     new_text = text
 
@@ -297,11 +312,14 @@ def upgrade_bib(
             if error:
                 log(f"   ❌ {error}")
                 failed.append((key, error))
+                next_of[key] = next_for_error(error)
             else:
                 log("   ⏳ no published version found")
                 unchanged.append((key, notes[0] if notes else "no published version found"))
+                next_of[key] = NEXT_WAIT
             continue
         if lookup.official is None:
+            next_of[key] = next_step(lookup)
             if lookup.error:
                 log(f"   ❌ could not get the official BibTeX: {lookup.error}")
                 failed.append((key, lookup.error))
@@ -313,6 +331,7 @@ def upgrade_bib(
                 reason = f"still no official BibTeX: {lookup.reason}{where}"
             else:
                 reason = f"proceedings not available yet: {lookup.reason}{where}"
+                next_of[key] = NEXT_WAIT
             log(f"   ⏳ kept: {reason}")
             unchanged.append((key, reason))
             continue
@@ -324,6 +343,7 @@ def upgrade_bib(
         except BibEditError as e:
             log(f"   ❌ {e}")
             failed.append((key, str(e)))
+            next_of[key] = NEXT_CHECK
             continue
         if kind == METADATA:
             new_text = drop_metadata_comment(new_text, key)
@@ -340,10 +360,10 @@ def upgrade_bib(
 
     output_dir = report_dir(input_path, log_dir)
     report = output_dir / "upgrade.txt"
-    rows = [f"{k}\tupgraded\t{s}" for k, s in upgraded]
-    rows += [f"{k}\tunchanged\t{r}" for k, r in unchanged]
-    rows += [f"{k}\tfailed\t{e}" for k, e in failed]
-    write_report(report, "upgrade: entry_id\tstatus\tdetail", rows)
+    rows = [f"{k}\tupgraded\t{s}\t" for k, s in upgraded]
+    rows += [f"{k}\tunchanged\t{r}\t{next_of.get(k, '')}" for k, r in unchanged]
+    rows += [f"{k}\tfailed\t{e}\t{next_of.get(k, '')}" for k, e in failed]
+    write_report(report, UPGRADE_HEADER, rows)
     if proposals:
         yaml_path = output_dir / "missing_venues.yaml"
         rerun = update_command(input_path)
@@ -401,8 +421,9 @@ def report_published(
     """
     log = log or print
     files = _bib_files(paths, log)
-    published: List[Tuple[str, str, str, str, str, str]] = []
+    published: List[Tuple[str, str, str, str, str, str, str]] = []
     failed: List[Tuple[str, str, str]] = []
+    failed_next: Dict[Tuple[str, str], str] = {}
     checked = 0
     for file in files:
         parser = bibtexparser.bparser.BibTexParser(common_strings=True)
@@ -430,6 +451,7 @@ def report_published(
             if lookup.error and lookup.official is None:
                 log(f"❌ {file}: {key}: {lookup.error}")
                 failed.append((str(file), key, lookup.error))
+                failed_next[(str(file), key)] = NEXT_RETRY
                 continue
             if lookup.official is None and kind != PREPRINT:
                 continue  # interim or metadata entry whose official BibTeX is not out yet
@@ -438,10 +460,12 @@ def report_published(
                 status = "interim" if lookup.official.interim else "published"
                 if kind == METADATA and not lookup.official.interim:
                     status = "official BibTeX available"
-                row = (str(file), key, status, label, lookup.official.provider, lookup.official.url)
+                step = NEXT_WAIT if lookup.official.interim and kind != PREPRINT else NEXT_UPGRADE
+                row = (str(file), key, status, label, lookup.official.provider, lookup.official.url, step)
                 log(f"📗 {key}: {status} — {label}; {lookup.official.provider}: {lookup.official.url}")
             else:
-                row = (str(file), key, "published, no official BibTeX", label, lookup.reason, lookup.manual_url)
+                row = (str(file), key, "published, no official BibTeX", label, lookup.reason, lookup.manual_url,
+                       next_step(lookup))
                 log(f"📙 {key}: published — {label}; no official BibTeX ({lookup.reason})")
             published.append(row)
 
@@ -449,8 +473,10 @@ def report_published(
     report = report_dir(first, log_dir) / "published.txt"
     write_report(
         report,
-        "published versions: file\tentry_id\tstatus\tvenue\tofficial BibTeX source\turl",
-        ["\t".join(row) for row in published] + [f"{f}\t{k}\tfailed\t{e}" for f, k, e in failed],
+        PUBLISHED_HEADER,
+        ["\t".join(row) for row in published]
+        + [f"{f}\t{k}\tfailed\t{e}\t\t\t{failed_next.get((f, k)) or next_for_error(e)}"
+           for f, k, e in failed],
     )
     log(f"\n{SEPARATOR_THIN * SEPARATOR_WIDTH}")
     log(f"Checked {checked} candidates in {len(files)} files: {len(published)} have a published "
@@ -513,7 +539,7 @@ downloads no BibTeX and changes nothing.""",
                  "bibcc upgrade --report-only bib/ extra.bib"),
             ],
             outputs=[
-                (".bibcc/INPUT/upgrade.txt", "Upgraded, unchanged, and failed entries"),
+                (".bibcc/INPUT/upgrade.txt", "Upgraded, unchanged, and failed entries, with what to do next"),
                 (".bibcc/INPUT/upgrade.diff", "Dry run: the changes that the command would make"),
                 (".bibcc/INPUT/missing_venues.yaml", "Fill-in records for venues that aren't in the library"),
                 (".bibcc/PATH/published.txt", "--report-only: entries with a published version"),
