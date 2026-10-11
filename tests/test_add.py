@@ -715,3 +715,36 @@ def test_add_cli_retry_needs_no_identifiers(web, tmp_path, monkeypatch, capsys):
     assert e.value.code == 2
     main(["add", "--retry", "--venues", str(MIAA_VENUES)])
     assert "Retrying 0 papers" in capsys.readouterr().out
+
+
+def test_fill_empty_entry_under_other_comments():
+    from bibcc.adder import BibIndex, fill_empty_entry
+
+    text = (
+        "@article{A_X_TPAMI2024,\n  title = {First},\n}\n\n"
+        "% TODO: switch to official bibtex\n"
+        f"{EMPTY_ENTRY_MARK} could be downloaded; paste it into the entry below, keeping the key.\n"
+        "%   title:  Continual Learning for Everyone\n"
+        f"%   doi:    {AAAI_DOI}\n"
+        "@inproceedings{CLE_Zhou_AAAI2025,\n}\n"
+    )
+    index = BibIndex()
+    index.add_text(text, "added.bib")
+    assert index.find(doi=AAAI_DOI).key == "CLE_Zhou_AAAI2025"
+    filled = fill_empty_entry(text, "CLE_Zhou_AAAI2025", "@inproceedings{CLE_Zhou_AAAI2025,\n  title = {T},\n}")
+    assert "% TODO: switch to official bibtex\n@inproceedings{CLE_Zhou_AAAI2025,\n  title = {T},\n}" in filled
+    assert EMPTY_ENTRY_MARK not in filled and "%   doi:" not in filled
+
+
+def test_metadata_mark_under_other_comments():
+    from bibcc.adder import METADATA_MARK, drop_metadata_comment, metadata_keys
+
+    text = (
+        "% TODO: switch to official bibtex\n"
+        f"{METADATA_MARK}; it was built from metadata.\n%   source: CrossRef\n"
+        "@article{A_X_TPAMI2024,\n  title = {First},\n}\n"
+    )
+    assert metadata_keys(text) == {"A_X_TPAMI2024"}
+    assert drop_metadata_comment(text, "A_X_TPAMI2024") == (
+        "% TODO: switch to official bibtex\n@article{A_X_TPAMI2024,\n  title = {First},\n}\n"
+    )

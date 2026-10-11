@@ -216,17 +216,27 @@ def _title_key(title: str) -> str:
     return normalize_for_comparison(clean_title_for_search(title))
 
 
+def _mark_offset(text: str, start: int, mark: str = EMPTY_ENTRY_MARK) -> Optional[int]:
+    """Offset of the *mark* line in the comment block above the entry at *start*.
+
+    Other comment lines (a ``% TODO`` note, say) may come before it.
+    """
+    block_start, _ = _comment_above(text, start)
+    region = text[block_start:start]
+    i = region.find(mark)
+    if i < 0:
+        return None
+    return block_start + region.rfind("\n", 0, i) + 1
+
+
 def _empty_entry_info(text: str, start: int) -> Dict[str, str]:
-    """``title``/``doi``/``arxiv`` from the BibCC comment just above an empty entry."""
-    lines = text[:start].rstrip("\n").splitlines()
-    block: List[str] = []
-    while lines and lines[-1].lstrip().startswith("%"):
-        block.insert(0, lines.pop())
-    if not block or not block[0].startswith(EMPTY_ENTRY_MARK):
+    """``title``/``doi``/``arxiv`` from the BibCC comment above an empty entry."""
+    mark = _mark_offset(text, start)
+    if mark is None:
         return {}
     info = {}
-    for line in block[1:]:
-        m = re.match(r"^%\s+(title|doi|arxiv):\s*(.+?)\s*$", line)
+    for line in text[mark:start].splitlines()[1:]:
+        m = re.match(r"^\s*%\s+(title|doi|arxiv):\s*(.+?)\s*$", line)
         if m:
             info[m.group(1)] = m.group(2)
     return info
@@ -564,8 +574,7 @@ def metadata_keys(text: str) -> Set[str]:
     """Keys of the entries in *text* that ``bibcc add`` built from metadata."""
     keys = set()
     for span in scan(text):
-        _, lines = _comment_above(text, span.start)
-        if lines and lines[0].startswith(METADATA_MARK):
+        if _mark_offset(text, span.start, METADATA_MARK) is not None:
             keys.add(span.key)
     return keys
 
@@ -575,9 +584,9 @@ def drop_metadata_comment(text: str, key: str) -> str:
     for span in scan(text):
         if span.key != key:
             continue
-        block_start, lines = _comment_above(text, span.start)
-        if lines and lines[0].startswith(METADATA_MARK):
-            return text[:block_start] + text[text.rfind("\n", 0, span.start) + 1:]
+        mark = _mark_offset(text, span.start, METADATA_MARK)
+        if mark is not None:
+            return text[:mark] + text[text.rfind("\n", 0, span.start) + 1:]
     return text
 
 
@@ -752,8 +761,8 @@ def fill_empty_entry(text: str, key: str, entry_text: str) -> str:
     if len(matches) != 1 or matches[0].fields:
         raise BibEditError(f"expected one empty entry '{key}'")
     span = matches[0]
-    block_start, comment = _comment_above(text, span.start)
-    start = block_start if comment and comment[0].startswith(EMPTY_ENTRY_MARK) else span.start
+    mark = _mark_offset(text, span.start)
+    start = span.start if mark is None else mark
     new_text = text[:start] + entry_text.strip() + text[span.end:]
     if [s.key for s in scan(new_text)] != [s.key for s in spans]:
         raise BibEditError("filling the empty entry changed the sequence of citation keys")
