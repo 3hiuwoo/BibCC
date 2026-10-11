@@ -2,6 +2,8 @@
 
 Notable changes to BibCC. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/). The version number lives in [`src/bibcc/__init__.py`](src/bibcc/__init__.py) only.
 
+## [0.3.0] - Unreleased
+
 ## [0.2.0] - 2026-10-11
 
 The first packaged version. BibCC becomes an installable `bibcc` command, gains commands to fetch, upgrade, and format entries, and edits files minimally and verifiably.
@@ -74,4 +76,5 @@ The first packaged version. BibCC becomes an installable `bibcc` command, gains 
 
 Unversioned scripts run with `python bibcc.py`: `check` (missing fields, title case, term protection, citation keys, template fields), `complete` with Python templates, `librarian`, `scholar`, and `compose`.
 
+[0.3.0]: https://github.com/3hiuwoo/BibCC/compare/v0.2.0...HEAD
 [0.2.0]: https://github.com/3hiuwoo/BibCC/compare/7632476...v0.2.0
