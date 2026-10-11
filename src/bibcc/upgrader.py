@@ -1,7 +1,7 @@
 """
 Replace preprints and interim entries with the official BibTeX of their published version.
 
-Two kinds of entries are candidates:
+Three kinds of entries are candidates:
 
 * **Preprints**: ``@misc`` / ``@unpublished`` entries, or entries whose
   journal is arXiv/CoRR.  The published version is looked up the same way
@@ -11,6 +11,9 @@ Two kinds of entries are candidates:
 * **Interim entries**: conference papers cited with the CVF Open Access or
   OpenReview booktitle (see :mod:`bibcc.venues`), whose proceedings
   (IEEE Xplore, NeurIPS, ICLR, PMLR) may now be out.
+* **Metadata entries**: entries ``bibcc add --fallback`` built from API
+  metadata, marked by the comment above them; the comment is removed once
+  the entry is replaced by official (or interim) BibTeX.
 
 An entry is only replaced by downloaded official BibTeX (see
 :mod:`bibcc.official`).  A preprint whose published version has no
@@ -50,7 +53,15 @@ from typing import Callable, Dict, List, Optional, Tuple
 
 import bibtexparser
 
-from bibcc.adder import BuiltEntry, build_entry, format_entry, suggest_key, venue_proposals
+from bibcc.adder import (
+    BuiltEntry,
+    build_entry,
+    drop_metadata_comment,
+    format_entry,
+    metadata_keys,
+    suggest_key,
+    venue_proposals,
+)
 from bibcc.bibedit import BibEditError, read_bib, replace_entry, unified_diff, write_bib
 from bibcc.helptext import ENV_S2, ENV_VENUES, VENUES_HELP, HelpFormatter, epilog
 from bibcc.logging_utils import SEPARATOR_THIN, SEPARATOR_WIDTH, Logger, get_output_dir, write_report
@@ -84,6 +95,7 @@ _REPLACED_FIELDS = {
 _INTERIM_URL = re.compile(r"openreview\.net|thecvf\.com", re.IGNORECASE)
 
 PREPRINT = "preprint"
+METADATA = "metadata"
 
 
 def is_preprint(entry: Dict[str, str]) -> bool:
@@ -95,8 +107,14 @@ def is_preprint(entry: Dict[str, str]) -> bool:
     return bool(_PREPRINT_VENUE.search(venue))
 
 
-def candidate_kind(entry: Dict[str, str], library: VenueLibrary) -> str:
-    """``"preprint"``, an interim source (``"cvf"``, ``"openreview"``), or ``""``."""
+def candidate_kind(entry: Dict[str, str], library: VenueLibrary, from_metadata: bool = False) -> str:
+    """``"metadata"``, ``"preprint"``, an interim source (``"cvf"``, ``"openreview"``), or ``""``.
+
+    *from_metadata* is True for an entry ``bibcc add`` built from metadata
+    (see :func:`bibcc.adder.metadata_keys`).
+    """
+    if from_metadata:
+        return METADATA
     if is_preprint(entry):
         return PREPRINT
     if entry.get("ENTRYTYPE", "").lower() != "inproceedings":
@@ -222,7 +240,9 @@ def _lookup_for(
             return None, None, error, notes
         return record, find_official(record, download=download), None, notes
     record = record_from_entry(entry)
-    return record, find_official(record, download=download, interim=False), None, []
+    # Interim BibTeX is still better than metadata; an interim entry is upgraded later.
+    interim = kind == METADATA
+    return record, find_official(record, download=download, interim=interim), None, []
 
 
 def _venue_label(record: Record) -> str:
@@ -248,12 +268,15 @@ def upgrade_bib(
     text = read_bib(input_path)
     parser = bibtexparser.bparser.BibTexParser(common_strings=True)
     entries = bibtexparser.loads(text, parser=parser).entries
+    marked = metadata_keys(text)
     candidates = [
-        (e, kind) for e in entries if (not ids or e["ID"] in ids) and (kind := candidate_kind(e, library))
+        (e, kind) for e in entries
+        if (not ids or e["ID"] in ids) and (kind := candidate_kind(e, library, e["ID"] in marked))
     ]
-    n_interim = sum(1 for _, kind in candidates if kind != PREPRINT)
-    log(f"🔎 {len(candidates) - n_interim} preprints and {n_interim} interim entries "
-        f"out of {len(entries)} in {input_path}.")
+    n_preprint = sum(1 for _, kind in candidates if kind == PREPRINT)
+    n_metadata = sum(1 for _, kind in candidates if kind == METADATA)
+    log(f"🔎 {n_preprint} preprints, {len(candidates) - n_preprint - n_metadata} interim entries, and "
+        f"{n_metadata} entries built from metadata out of {len(entries)} in {input_path}.")
 
     upgraded: List[Tuple[str, str]] = []
     unchanged: List[Tuple[str, str]] = []
@@ -265,7 +288,8 @@ def upgrade_bib(
         if n and delay:
             time.sleep(delay)
         key = entry["ID"]
-        log(f"\n📄 {key}" + ("" if kind == PREPRINT else f" ({kind} booktitle)"))
+        label = {PREPRINT: "", METADATA: " (built from metadata)"}.get(kind, f" ({kind} booktitle)")
+        log(f"\n📄 {key}{label}")
         record, lookup, error, notes = _lookup_for(entry, kind, library, download=True)
         for note in notes:
             log(f"   ℹ️  {note}")
@@ -285,6 +309,8 @@ def upgrade_bib(
             where = f"; get it from {lookup.manual_url}" if lookup.manual_url else ""
             if kind == PREPRINT:
                 reason = f"published in {_venue_label(record)}, no official BibTeX: {lookup.reason}{where}"
+            elif kind == METADATA:
+                reason = f"still no official BibTeX: {lookup.reason}{where}"
             else:
                 reason = f"proceedings not available yet: {lookup.reason}{where}"
             log(f"   ⏳ kept: {reason}")
@@ -299,8 +325,10 @@ def upgrade_bib(
             log(f"   ❌ {e}")
             failed.append((key, str(e)))
             continue
+        if kind == METADATA:
+            new_text = drop_metadata_comment(new_text, key)
         found = venue_proposals(built, official, library, key, record)
-        if kind != PREPRINT and not official.interim:
+        if kind not in (PREPRINT, METADATA) and not official.interim:
             found = _link_proposals(entry, kind, built, library, found)
         proposals.extend(found)
         log(f"   ✅ {official.provider}: @{built.entry_type} in {built.venue_name} ({built.year})")
@@ -331,7 +359,7 @@ def upgrade_bib(
         if diff:
             diff_path.write_text(diff, encoding="utf-8")
             log(f"🧪 Dry run. Preview: {diff_path}")
-            log("💡 To write the changes, run with --output <file.bib> or --in-place")
+            log("💡 To write the changes, run with --output FILE.bib or --in-place.")
         log(f"Report: {report}")
     elif upgraded:
         write_bib(output_path, new_text)
@@ -376,12 +404,14 @@ def report_published(
     for file in files:
         parser = bibtexparser.bparser.BibTexParser(common_strings=True)
         try:
-            entries = bibtexparser.loads(read_bib(file), parser=parser).entries
+            text = read_bib(file)
+            entries = bibtexparser.loads(text, parser=parser).entries
+            marked = metadata_keys(text)
         except Exception as e:  # noqa: BLE001 - a broken file should not stop the report
             log(f"⚠️  Could not read {file}: {e}")
             continue
         for entry in entries:
-            kind = candidate_kind(entry, library)
+            kind = candidate_kind(entry, library, entry["ID"] in marked)
             if not kind:
                 continue
             if checked and delay:
@@ -399,10 +429,12 @@ def report_published(
                 failed.append((str(file), key, lookup.error))
                 continue
             if lookup.official is None and kind != PREPRINT:
-                continue  # interim entry whose proceedings are not out yet
-            label = _venue_label(record) if kind == PREPRINT else record.fields.get("booktitle", "")
+                continue  # interim or metadata entry whose official BibTeX is not out yet
+            label = _venue_label(record) if kind in (PREPRINT, METADATA) else record.fields.get("booktitle", "")
             if lookup.official:
                 status = "interim" if lookup.official.interim else "published"
+                if kind == METADATA and not lookup.official.interim:
+                    status = "official BibTeX available"
                 row = (str(file), key, status, label, lookup.official.provider, lookup.official.url)
                 log(f"📗 {key}: {status} — {label}; {lookup.official.provider}: {lookup.official.url}")
             else:
@@ -421,64 +453,71 @@ def report_published(
     log(f"Checked {checked} candidates in {len(files)} files: {len(published)} have a published "
         f"version; {len(failed)} failed. Report: {report}")
     if published:
-        log("💡 Run `bibcc upgrade <file> --in-place` to replace them.")
+        log("💡 To replace them, run `bibcc upgrade FILE.bib --in-place`.")
     return {"published": published, "failed": failed, "checked": checked}
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="""\
-Find preprints and interim entries in a .bib file that have since been
-published, and replace them with the official BibTeX of the published
-version.
+Find preprints and interim entries in a .bib file that are now published,
+and replace them with the official BibTeX of the published version.
 
 Preprints are @misc, @unpublished, @techreport, @online, and @preprint
 entries without a venue, and any entry whose journal or booktitle is arXiv,
-CoRR, or a preprint. Their published version is looked up the same way as in
-'bibcc add': the DOI linked from arXiv or known to Semantic Scholar, an
-accepted OpenReview paper, the DBLP key Semantic Scholar reports, or a
-CrossRef record with the same title.
+CoRR, or a preprint. The command looks up their published version the same
+way as 'bibcc add': the DOI linked from arXiv or known to Semantic Scholar,
+an accepted OpenReview paper, the DBLP key that Semantic Scholar reports, or
+a CrossRef record with the same title.
 
 Interim entries are conference papers cited with the CVF Open Access
-booktitle (CVPR, ICCV, WACV) or the OpenReview one (NeurIPS, ICLR from
-2024, ICML): the venue library's interim names, or an openreview.net or
-thecvf.com url. They are replaced once the paper is in IEEE Xplore, the
-NeurIPS or ICLR proceedings, or PMLR.
+booktitle (CVPR, ICCV, and WACV) or the OpenReview one (NeurIPS, ICLR 2024
+and later, and ICML): the venue library's interim names, or an openreview.net
+or thecvf.com URL. The command replaces them when the paper is in IEEE
+Xplore, the NeurIPS or ICLR proceedings, or PMLR.
 
-An entry is only replaced by downloaded official BibTeX (see 'bibcc add -h'
-for the sources). A preprint whose published version has none (AAAI, ACM,
-Elsevier, ECCV papers not on SpringerLink yet) is kept, and listed with the
+Metadata entries are the ones that 'bibcc add --fallback' built from API
+metadata, marked by a '% BibCC: not the official BibTeX' comment before them
+(keep the comment when you move the entry). The command replaces them, and
+removes the comment, when their official BibTeX (or interim CVF or
+OpenReview BibTeX) becomes available for download.
+
+The command replaces an entry only with downloaded official BibTeX (for the
+sources, see 'bibcc add -h'). If the published version of a preprint has no
+official BibTeX (AAAI, ACM, Elsevier, and ECCV papers that aren't on
+SpringerLink yet), the command keeps the preprint and lists it with the
 venue and where to get the BibTeX by hand. The replacement keeps the
 citation key (so \\cite commands keep working), keeps your title when it
 matches the published one, keeps custom fields such as citation, drops
-preprint fields (eprint, archiveprefix, primaryclass, the arXiv, OpenReview,
-or CVF url), and adds venue fields from the venue library. The rest of the
-file stays byte for byte. Venues missing from the library are proposed in a
-fill-in YAML, together with the interim booktitles the upgrade linked to
-their proceedings.
+preprint fields (eprint, archiveprefix, primaryclass, and the arXiv,
+OpenReview, or CVF URL), and adds venue fields from the venue library. The
+rest of the file stays byte for byte. The command proposes venues that are
+missing from the library in a fill-in YAML file, together with the interim
+booktitles that the upgrade linked to their proceedings.
 
-Without --output or --in-place this is a dry run that writes the would-be
-changes as a diff. --report-only only lists the entries of any number of
-files and directories that now have a published version, with the venue and
-the URL of the official BibTeX; it downloads no BibTeX and changes nothing.""",
+Without --output or --in-place, the command does a dry run and writes the
+changes that it would make as a diff. With --report-only, the command only
+lists the entries of any number of files and directories that now have a
+published version, with the venue and the URL of the official BibTeX; it
+downloads no BibTeX and changes nothing.""",
         epilog=epilog(
             examples=[
-                ("preview: report and diff in .bibcc/", "bibcc upgrade refs.bib"),
-                ("replace the entries in the file itself", "bibcc upgrade refs.bib --in-place"),
-                ("only some entries, written to another file",
+                ("Preview the changes (writes a report and a diff in .bibcc/)", "bibcc upgrade refs.bib"),
+                ("Replace the entries in the file itself", "bibcc upgrade refs.bib --in-place"),
+                ("Upgrade only some entries, and write them to another file",
                  "bibcc upgrade refs.bib --ids KeyA,KeyB --output out.bib"),
-                ("which entries of a whole bibliography have been published?",
+                ("List which entries of a whole bibliography are now published",
                  "bibcc upgrade --report-only bib/ extra.bib"),
             ],
             outputs=[
-                (".bibcc/<input>.upgrade.txt", "upgraded, unchanged, and failed entries"),
-                (".bibcc/<input>.upgrade.diff", "dry run: the changes that would be made"),
-                (".bibcc/<input>.missing_venues.yaml", "fill-in records for venues not in the library"),
-                (".bibcc/<path>.published.txt", "--report-only: entries with a published version"),
-                (".bibcc/logs/<input>.upgrader.log", "everything printed to the terminal"),
+                (".bibcc/INPUT.upgrade.txt", "Upgraded, unchanged, and failed entries"),
+                (".bibcc/INPUT.upgrade.diff", "Dry run: the changes that the command would make"),
+                (".bibcc/INPUT.missing_venues.yaml", "Fill-in records for venues that aren't in the library"),
+                (".bibcc/PATH.published.txt", "--report-only: entries with a published version"),
+                (".bibcc/logs/INPUT.upgrader.log", "Everything printed to the terminal"),
             ],
-            exit_status="0 on success, 1 if any lookup or download failed (for example rate limits;\n"
-            "run again later or set S2_API_KEY), 2 on usage errors.",
+            exit_status="0 on success, 1 if a lookup or download fails (for example, because of rate\n"
+            "limits; run again later or set S2_API_KEY), 2 on usage errors.",
             env=[ENV_S2, ENV_VENUES],
         ),
         formatter_class=HelpFormatter,
@@ -487,21 +526,21 @@ the URL of the official BibTeX; it downloads no BibTeX and changes nothing.""",
         "paths",
         nargs="+",
         metavar="PATH",
-        help="The .bib file to upgrade (with --report-only: any number of .bib files and "
+        help="The .bib file to upgrade (with --report-only, any number of .bib files and "
         "directories).",
     )
     parser.add_argument(
         "--output",
         default="",
         metavar="FILE",
-        help="Write the upgraded file here (omit both --output and --in-place for a dry run).",
+        help="Write the upgraded file to FILE. For a dry run, omit both --output and --in-place.",
     )
-    parser.add_argument("--in-place", action="store_true", help="Write back to the input file.")
+    parser.add_argument("--in-place", action="store_true", help="Write the upgraded entries back to the input file.")
     parser.add_argument(
         "--report-only",
         action="store_true",
-        help="Only report entries that now have a published version and where its official "
-        "BibTeX is; download nothing and change nothing.",
+        help="Only report the entries that now have a published version, and where to find "
+        "its official BibTeX; download nothing and change nothing.",
     )
     parser.add_argument(
         "--ids",

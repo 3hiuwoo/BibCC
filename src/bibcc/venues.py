@@ -638,7 +638,7 @@ def open_library(
         if not create:
             where = Path(start or Path.cwd()).expanduser().resolve()
             raise LibraryNotFound(
-                f"no {PROJECT_LIBRARY_NAME} in {where} or its parent folders; create one in your "
+                f"no {PROJECT_LIBRARY_NAME} in {where} or its parent directories; create one in your "
                 "project root with: bibcc venues init --scope project"
             )
         path = Path.cwd() / PROJECT_LIBRARY_NAME

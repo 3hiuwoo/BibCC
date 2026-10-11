@@ -126,7 +126,7 @@ def compose_bibliographies(
         else:
             log("\n✅ No duplicate BibTeX IDs found across source files.")
 
-    log(f"\n🧩 Composed bibliography written to: {output_file}")
+    log(f"\n🧩 Wrote the composed bibliography to: {output_file}")
     log(f"   Source files: {len(bib_files)}")
     log(f"   Total entries: {total_entries}")
     log(f"   Duplicate IDs: {len(duplicate_ids)}")
@@ -141,29 +141,30 @@ def compose_bibliographies(
 def build_parser() -> argparse.ArgumentParser:
     """Build parser with composer subcommands."""
     compose_description = """\
-Merge every .bib file under INPUT_DIR (searched recursively, in path order)
-into OUTPUT_FILE, for example to give LaTeX one bibliography made from
+Merge every .bib file in INPUT_DIR (searched recursively, in path order)
+into OUTPUT_FILE; for example, to give LaTeX one bibliography made from
 per-topic files.
 
-Each file is copied unchanged, comments included, after a marker line:
+The command copies each file unchanged, comments included, after a marker
+line:
   % === source: path/file.bib ===
-Citation keys used in more than one file are reported. Files under .bibcc/
-folders and OUTPUT_FILE itself are skipped, so the output may live inside
-INPUT_DIR. OUTPUT_FILE is overwritten."""
+It reports citation keys that more than one file uses. It skips files in
+.bibcc/ directories and OUTPUT_FILE itself, so the output can live inside
+INPUT_DIR. The command overwrites OUTPUT_FILE."""
     compose_epilog = epilog(
         examples=[
-            ("merge bib/ into one file", "bibcc compose compose bib/ references.bib"),
-            ("the same, without the duplicate-key report",
+            ("Merge bib/ into one file", "bibcc compose compose bib/ references.bib"),
+            ("Do the same, without the duplicate-key report",
              "bibcc compose compose bib/ references.bib --no-dup-warning"),
         ],
         outputs=[
-            ("OUTPUT_FILE", "the merged bibliography"),
-            (".bibcc/logs/<output>.composer.log", "everything printed (next to OUTPUT_FILE)"),
+            ("OUTPUT_FILE", "The merged bibliography"),
+            (".bibcc/logs/OUTPUT_FILE.composer.log", "Everything printed to the terminal (next to OUTPUT_FILE)"),
         ],
     )
     parser = argparse.ArgumentParser(
-        description="Merge the .bib files of a folder tree into one file.\n"
-        "Run 'bibcc compose compose -h' for details.",
+        description="Merge the .bib files of a directory tree into one file.\n"
+        "For details, run 'bibcc compose compose -h'.",
         epilog=compose_epilog,
         formatter_class=HelpFormatter,
     )
@@ -171,7 +172,7 @@ INPUT_DIR. OUTPUT_FILE is overwritten."""
 
     p_compose = subparsers.add_parser(
         "compose",
-        help="Merge all .bib files under a folder into one file.",
+        help="Merge all .bib files in a directory tree into one file.",
         description=compose_description,
         epilog=compose_epilog,
         formatter_class=HelpFormatter,
@@ -191,7 +192,7 @@ INPUT_DIR. OUTPUT_FILE is overwritten."""
     p_compose.add_argument(
         "--no-dup-warning",
         action="store_true",
-        help="Do not report citation keys used in more than one file.",
+        help="Don't report citation keys that more than one file uses.",
     )
 
     return parser
@@ -207,7 +208,7 @@ def main() -> None:
         resolved_output = args.output_file.resolve()
 
         if resolved_output.suffix.lower() != ".bib":
-            parser.error("output_file must end with .bib")
+            parser.error("OUTPUT_FILE must end with .bib")
 
         with Logger("composer", input_file=str(resolved_output)) as logger:
             compose_bibliographies(

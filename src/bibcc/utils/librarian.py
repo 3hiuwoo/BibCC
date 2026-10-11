@@ -37,9 +37,9 @@ from bibcc.logging_utils import SEPARATOR_THIN, SEPARATOR_WIDTH, Logger, get_out
 
 _LISTING_HELP = """\
 The library LISTING is a text file with one PDF name per line, such as the
-output of 'ls ~/papers > papers.txt'. Other text on a line (the dates and
-sizes of a Windows 'dir' listing) is ignored, and UTF-8 and UTF-16 files
-are both read. PDF names must not contain spaces."""
+output of 'ls ~/papers > papers.txt'. The command ignores other text on a
+line (such as the dates and sizes of a Windows 'dir' listing), and it reads
+both UTF-8 and UTF-16 files. PDF names can't contain spaces."""
 
 # ---------------------------------------------------------------------------
 # Text normalisation
@@ -188,7 +188,7 @@ def cmd_missing(
             f.write(bib_entries[key]["raw"])
             f.write("\n\n")
 
-    log(f"\nMissing entries written to {output_file.name}")
+    log(f"\nWrote the missing entries to {output_file.name}")
 
     log("\nMissing keys:")
     for key in sorted(missing_keys):
@@ -219,7 +219,7 @@ def cmd_extra(
         for key in sorted(extra_keys):
             f.write(f"{key}.pdf\n")
 
-    log(f"\nExtra PDFs written to {output_file.name}")
+    log(f"\nWrote the extra PDFs to {output_file.name}")
 
     log("\nExtra keys:")
     for key in sorted(extra_keys):
@@ -236,7 +236,7 @@ def cmd_rename(
     log = logger.log
 
     if not pdf_folder.is_dir():
-        log(f"❌ PDF folder not found: {pdf_folder}")
+        log(f"❌ PDF directory not found: {pdf_folder}")
         return
 
     bib_entries = parse_bib_entries(bib_file)
@@ -250,7 +250,7 @@ def cmd_rename(
     ambiguous: List[Tuple[str, List[str]]] = []  # (old_name, candidate keys)
 
     prefix = "[DRY RUN] " if dry_run else ""
-    log(f"\n{prefix}Matching & renaming PDFs:\n")
+    log(f"\n{prefix}Matching and renaming PDFs:\n")
 
     for pdf in pdfs:
         query_norm = extract_title_from_filename(pdf.name)
@@ -300,7 +300,7 @@ def cmd_rename(
             log(f"  - {name}: {', '.join(keys)}")
 
     if dry_run:
-        log(f"\n{prefix}No files were renamed. Remove --dry-run to apply.")
+        log(f"\n{prefix}No files renamed. To rename them, run without --dry-run.")
 
     # Write report
     output_file = get_output_dir(bib_file) / f"{bib_file.name}.rename_report.txt"
@@ -308,7 +308,7 @@ def cmd_rename(
         f.write(
             f"% Rename report: {len(matched)} matched, {len(unmatched)} unmatched, {len(ambiguous)} ambiguous\n"
         )
-        f.write(f"% Source folder: {pdf_folder}\n")
+        f.write(f"% Source directory: {pdf_folder}\n")
         f.write(f"% {'DRY RUN — no files renamed' if dry_run else 'Applied'}\n\n")
 
         if matched:
@@ -326,7 +326,7 @@ def cmd_rename(
             for name, keys in ambiguous:
                 f.write(f"{name}\t{', '.join(keys)}\n")
 
-    log(f"\nRename report written to {output_file.name}")
+    log(f"\nWrote the rename report to {output_file.name}")
 
 
 # ---------------------------------------------------------------------------
@@ -338,15 +338,15 @@ def build_parser() -> argparse.ArgumentParser:
     """Build the argument parser with subcommands."""
     parser = argparse.ArgumentParser(
         description=f"""\
-Keep a folder of PDFs named after citation keys (ISPC_Wang_CVPR2024.pdf) in
-step with a .bib file. Run 'bibcc librarian <subcommand> -h' for details.
+Keep a directory of PDFs named after citation keys (ISPC_Wang_CVPR2024.pdf) in
+step with a .bib file. For details, run 'bibcc librarian SUBCOMMAND -h'.
 
 {_LISTING_HELP}""",
         epilog=epilog(
             examples=[
-                ("which entries have no PDF yet", "bibcc librarian missing refs.bib papers.txt"),
-                ("which PDFs have no entry", "bibcc librarian extra refs.bib papers.txt"),
-                ("rename downloaded PDFs to their citation keys (preview first)",
+                ("List the entries that have no PDF yet", "bibcc librarian missing refs.bib papers.txt"),
+                ("List the PDFs that have no entry", "bibcc librarian extra refs.bib papers.txt"),
+                ("Preview renaming downloaded PDFs to their citation keys",
                  "bibcc librarian rename refs.bib ~/Downloads/papers --dry-run"),
             ],
         ),
@@ -357,14 +357,14 @@ step with a .bib file. Run 'bibcc librarian <subcommand> -h' for details.
     # --- missing ---
     p_missing = subparsers.add_parser(
         "missing",
-        help="List bib entries whose PDF is not in the library.",
-        description=f"List the entries of BIB_FILE that have no <key>.pdf in the library.\n\n{_LISTING_HELP}",
+        help="List bib entries whose PDF isn't in the library.",
+        description=f"List the entries of BIB_FILE that have no KEY.pdf in the library.\n\n{_LISTING_HELP}",
         epilog=epilog(
-            examples=[("list entries without a PDF", "ls ~/papers > papers.txt\n"
+            examples=[("List entries without a PDF", "ls ~/papers > papers.txt\n"
                        "  bibcc librarian missing refs.bib papers.txt")],
             outputs=[
-                (".bibcc/<bib>.missing_pdfs.txt", "the full BibTeX entries without a PDF"),
-                (".bibcc/logs/<bib>.librarian.log", "everything printed to the terminal"),
+                (".bibcc/BIB_FILE.missing_pdfs.txt", "The full BibTeX entries without a PDF"),
+                (".bibcc/logs/BIB_FILE.librarian.log", "Everything printed to the terminal"),
             ],
         ),
         formatter_class=HelpFormatter,
@@ -376,13 +376,13 @@ step with a .bib file. Run 'bibcc librarian <subcommand> -h' for details.
     p_extra = subparsers.add_parser(
         "extra",
         help="List library PDFs that have no bib entry.",
-        description=f"List the PDFs in the library whose name is not a key in BIB_FILE.\n\n{_LISTING_HELP}",
+        description=f"List the PDFs in the library whose name isn't a key in BIB_FILE.\n\n{_LISTING_HELP}",
         epilog=epilog(
-            examples=[("list PDFs without an entry", "ls ~/papers > papers.txt\n"
+            examples=[("List PDFs without an entry", "ls ~/papers > papers.txt\n"
                        "  bibcc librarian extra refs.bib papers.txt")],
             outputs=[
-                (".bibcc/<bib>.extra_pdfs.txt", "PDF names without an entry"),
-                (".bibcc/logs/<bib>.librarian.log", "everything printed to the terminal"),
+                (".bibcc/BIB_FILE.extra_pdfs.txt", "PDF names without an entry"),
+                (".bibcc/logs/BIB_FILE.librarian.log", "Everything printed to the terminal"),
             ],
         ),
         formatter_class=HelpFormatter,
@@ -393,26 +393,26 @@ step with a .bib file. Run 'bibcc librarian <subcommand> -h' for details.
     # --- rename ---
     p_rename = subparsers.add_parser(
         "rename",
-        help="Rename downloaded PDFs to <citation key>.pdf by matching titles.",
+        help="Rename downloaded PDFs to CITATION_KEY.pdf by matching titles.",
         description="""\
-Rename the PDFs in PDF_FOLDER to <citation key>.pdf by matching the title in
+Rename the PDFs in PDF_FOLDER to CITATION_KEY.pdf by matching the title in
 each file name against the titles in BIB_FILE.
 
-File names are expected to end with the full title, as Zotero and similar
-tools export them: 'Author et al. - 2025 - Full Paper Title.pdf'. The text
-after the last ' - ' is taken as the title. Titles are compared ignoring
-case, braces, and punctuation, and must otherwise match exactly. Files are
-renamed in place; an existing <key>.pdf is never overwritten, and files
-without a match, or whose title several entries share, are listed and left
-alone.""",
+File names must end with the full title, as Zotero and similar tools export
+them: 'Author et al. - 2025 - Full Paper Title.pdf'. The command takes the
+text after the last ' - ' as the title. It compares titles ignoring case,
+braces, and punctuation, and they must otherwise match exactly. The command
+renames files in place and never overwrites an existing KEY.pdf. It doesn't
+rename files without a match or files whose title several entries share; it
+lists them instead.""",
         epilog=epilog(
             examples=[
-                ("preview the renames", "bibcc librarian rename refs.bib ~/Downloads/papers --dry-run"),
-                ("rename", "bibcc librarian rename refs.bib ~/Downloads/papers"),
+                ("Preview the renames", "bibcc librarian rename refs.bib ~/Downloads/papers --dry-run"),
+                ("Rename the PDFs", "bibcc librarian rename refs.bib ~/Downloads/papers"),
             ],
             outputs=[
-                (".bibcc/<bib>.rename_report.txt", "old and new names, and unmatched files"),
-                (".bibcc/logs/<bib>.librarian.log", "everything printed to the terminal"),
+                (".bibcc/BIB_FILE.rename_report.txt", "Old and new names, and unmatched files"),
+                (".bibcc/logs/BIB_FILE.librarian.log", "Everything printed to the terminal"),
             ],
         ),
         formatter_class=HelpFormatter,

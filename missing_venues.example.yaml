@@ -1,22 +1,24 @@
-# Example *.missing_venues.yaml
-# `bibcc complete refs.bib` writes this file to .bibcc/refs.bib.missing_venues.yaml
-# when entries use venues that are not in the venue library; `bibcc add` and
+# Example *.missing_venues.yaml file
+# When entries use venues that aren't in the venue library, `bibcc complete refs.bib`
+# writes this file to .bibcc/refs.bib.missing_venues.yaml. `bibcc add` and
 # `bibcc upgrade` write one for the entries they create.
-# Fill in the fields, then run (add --scope project for the project library):
+# To merge it, fill in the fields, and then run the following command (for the
+# project library, add --scope project):
 #   bibcc complete refs.bib --output out.bib --update-venues
 #
-# The schema is the same as the venue library (e.g. examples/venues/miaa.yaml):
+# The schema is the same as the venue library's (for example, examples/venues/miaa.yaml):
 #   journals:    year-agnostic, matched by name, alias, or ISSN
-#   proceedings: matched by name or alias AND the entry's publication year,
-#                or by an interim booktitle (CVF Open Access, OpenReview)
+#   proceedings: matched by name or alias together with the entry's publication
+#                year, or by an interim booktitle (CVF Open Access, OpenReview)
 #
+# The comment after a value says where the value comes from:
 # '# from bib'             value found in your entries
-# '# from official BibTeX' value from the official BibTeX that bibcc add/upgrade downloaded
-# '# from <year> edition'  value copied from the previous edition in the library
-# '# from CrossRef'        value CrossRef reports (bibcc complete --online, bibcc add)
-# '# auto-guessed'         inferred from the venue name; please verify
-# Records with no field (and no interim booktitle) filled in are skipped when merging.
-# The file is merged on every run: what you fill in is kept.
+# '# from official BibTeX' value from the official BibTeX that `bibcc add` or `bibcc upgrade` downloaded
+# '# from YEAR edition'    value copied from the previous edition in the library
+# '# from CrossRef'        value that CrossRef reports (`bibcc complete --online`, `bibcc add`)
+# '# auto-guessed'         value inferred from the venue name; verify it
+# When merging, BibCC skips records that have no field (and no interim booktitle) filled in.
+# BibCC merges this file on every run, so it keeps what you fill in.
 
 journals:
   - name: "IEEE Transactions on Example Journal"
@@ -24,14 +26,14 @@ journals:
     fields:
       publisher: "IEEE"  # auto-guessed
       issn: "1234-5678"  # from CrossRef
-      # address: ""  # optional, e.g., New York, NY, USA
+      # address: ""  # optional; for example, New York, NY, USA
 
 proceedings:
   - name: "2026 Example Conference on Something (EXC)"
     year: "2026"  # publication year, not necessarily the edition in the name
     aliases: ["Proceedings of the Example Conference (EXC)"]
     fields:
-      venue: ""  # e.g., "City, Country"
+      venue: ""  # for example, City, Country
       publisher: "IEEE"  # from 2025 edition
       month: "June"  # auto-guessed
       # isbn: ""
@@ -42,12 +44,12 @@ proceedings:
 
   # Proposed by `bibcc add` for a paper whose proceedings are now in IEEE Xplore.
   - name: "2026 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)"
-    # merging renames the library record 'Proceedings of the IEEE/CVF Conference on ...' (cvf booktitle) to this name
+    # Merging renames the library record 'Proceedings of the IEEE/CVF Conference on ...' (cvf booktitle) to this name.
     year: "2026"
     interim:  # booktitles CVF Open Access or OpenReview use for these proceedings
       cvf: "Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)"
     fields:
-      venue: ""  # e.g., City, Country
+      venue: ""  # for example, City, Country
       publisher: "IEEE"  # from 2025 edition
       month: "June"  # from 2025 edition
       isbn: ""
@@ -55,7 +57,7 @@ proceedings:
 
 # ---- Suggested corrections to library records (bibcc complete --online)
 # CrossRef disagrees with these library values. To apply one, move the record
-# into the section above it (journals: or proceedings:) and remove the '# '.
+# into its section earlier in this file (journals: or proceedings:) and remove the '# '.
 #
 #  - name: "2025 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)"
 #    year: "2025"
@@ -63,20 +65,20 @@ proceedings:
 #      venue: "Nashville, TN, USA"  # library has "Seattle, WA, USA"; CrossRef for Key_A_CVPR2025 (10.1109/...)
 #
 
-# Common fields reference:
+# Reference for common fields:
 #
 # For journals:
-#   - publisher: Publisher name (e.g., "IEEE", "Elsevier", "Springer")
-#   - issn: ISSN number
+#   - publisher: Publisher name (for example, "IEEE", "Elsevier", or "Springer")
+#   - issn: ISSN
 #   - address: Publisher location (optional)
 #
 # For proceedings:
-#   - venue: Conference location (e.g., "Seattle, WA, USA")
+#   - venue: Conference location (for example, "Seattle, WA, USA")
 #   - publisher: Publisher name
-#   - isbn: ISBN number
-#   - issn: ISSN number (if applicable)
-#   - month: Conference month (e.g., "June", "October")
+#   - isbn: ISBN
+#   - issn: ISSN (if applicable)
+#   - month: Conference month (for example, "June" or "October")
 #   - editor: Editor names in BibTeX format
 #   - series: Conference series name
 #   - address: Publisher location
-#   - day: Conference days (e.g., "21--27")
+#   - day: Conference days (for example, "21--27")

@@ -68,7 +68,7 @@ def interactive_fill(
     """Interactive mode: open URLs and prompt for citation counts."""
     log("\n🎯 Interactive Fill Mode")
     log(SEPARATOR_HEAVY * SEPARATOR_WIDTH)
-    log("For each entry, a Google Scholar tab will open.")
+    log("For each entry, a Google Scholar tab opens.")
     log("Enter the citation count, or:")
     log("  - Press Enter to skip (leave empty)")
     log("  - Type 'q' to quit and save progress")
@@ -144,7 +144,7 @@ def interactive_fill(
         return
     write_bib(output_path, new_text)
     updated_count = len(applied)
-    log(f"✅ Done! Updated {updated_count} entries.")
+    log(f"✅ Done. Updated {updated_count} entries.")
     log(f"   Saved to: {output_path}")
 
 
@@ -209,7 +209,7 @@ def cmd_cite(
                 entries_to_process.append(entry)
 
     if not entries_to_process:
-        log("\n✅ All entries already have citation values!")
+        log("\n✅ All entries already have citation values.")
         return
 
     if interactive:
@@ -285,12 +285,12 @@ def cmd_cite(
         patches[entry_id] = {"citation": ""}
 
     if dry_run:
-        log("\n🧪 Dry-run: Would add empty 'citation' field to these entries:")
+        log("\n🧪 Dry run: would add an empty 'citation' field to these entries:")
         for entry_id in list(patches.keys())[:10]:
             log(f"   {entry_id}")
         if len(patches) > 10:
             log(f"   ... and {len(patches) - 10} more")
-        log("\n💡 To write changes, run with --output <file.bib>")
+        log("\n💡 To write the changes, run with --output FILE.bib.")
         return
 
     output_path = Path(output_path).resolve()
@@ -304,9 +304,9 @@ def cmd_cite(
         log("   Nothing was written.")
         return
     write_bib(output_path, new_text)
-    log(f"✅ Done! Added empty 'citation' field to {len(applied)} entries.")
+    log(f"✅ Done. Added an empty 'citation' field to {len(applied)} entries.")
     log(f"   Output saved to: {output_path}")
-    log("\n💡 Now fill in the citation counts from Google Scholar results!")
+    log("\n💡 Now fill in the citation counts from the Google Scholar results.")
 
 
 # ======================
@@ -857,7 +857,7 @@ def check_titles(
                 log("")
 
     if not results:
-        log("✅ All titles verified - no issues found!")
+        log("✅ All titles verified: no issues found.")
 
     if output_path:
         _write_title_report(output_path, bib_path, total, case_diffs, with_errors, no_match)
@@ -923,12 +923,12 @@ def build_parser() -> argparse.ArgumentParser:
     """Build argument parser with scholar subcommands."""
     parser = argparse.ArgumentParser(
         description="""\
-Citation counts and title verification for a .bib file. Run
-'bibcc scholar <subcommand> -h' for details.""",
+Get citation counts and verify titles for a .bib file. For details, run
+'bibcc scholar SUBCOMMAND -h'.""",
         epilog=epilog(
             examples=[
-                ("fill citation counts, one paper at a time", "bibcc scholar cite refs.bib -i"),
-                ("check titles against the published ones", "bibcc scholar titles refs.bib"),
+                ("Fill in citation counts, one paper at a time", "bibcc scholar cite refs.bib -i"),
+                ("Check titles against the published ones", "bibcc scholar titles refs.bib"),
             ],
             env=[ENV_S2],
         ),
@@ -940,31 +940,32 @@ Citation counts and title verification for a .bib file. Run
         "cite",
         help="Look up citation counts on Google Scholar and store them in a 'citation' field.",
         description="""\
-Help record citation counts from Google Scholar in a 'citation' field.
-Entries that already have a non-empty citation field are skipped unless
---include-filled is given.
+Record citation counts from Google Scholar in a 'citation' field. The
+command skips entries that already have a non-empty citation field, unless
+you pass --include-filled.
 
 Modes:
-  default        list a Google Scholar search URL for each entry and save
-                 them to .bibcc/<input>.scholar_urls.txt; with --output, also
-                 add an empty 'citation = {}' field to fill in by hand
-  --open         also open the URLs in the browser, --batch-size at a time
-  --interactive  for each entry, open its search page (you can skip or quit),
-                 ask for the count, and write the counts to the input file
-                 (or to --output); quitting keeps the counts entered so far
+  default        List a Google Scholar search URL for each entry, and save
+                 the URLs to .bibcc/INPUT.scholar_urls.txt. With --output,
+                 also add an empty 'citation = {}' field to fill in by hand.
+  --open         Also open the URLs in the browser, --batch-size at a time.
+  --interactive  For each entry, open its search page (you can skip or
+                 quit), ask for the count, and write the counts to the input
+                 file (or to --output). If you quit, the command keeps the
+                 counts entered so far.
 
-Only citation fields are added or changed; the rest of the file stays byte
-for byte.""",
+The command adds or changes only citation fields; the rest of the file stays
+byte for byte.""",
         epilog=epilog(
             examples=[
-                ("list the search URLs", "bibcc scholar cite refs.bib"),
-                ("open them in the browser, ten at a time", "bibcc scholar cite refs.bib --open --batch-size 10"),
-                ("enter the counts interactively", "bibcc scholar cite refs.bib -i"),
-                ("update counts that are already filled in", "bibcc scholar cite refs.bib -i --include-filled"),
+                ("List the search URLs", "bibcc scholar cite refs.bib"),
+                ("Open the URLs in the browser, ten at a time", "bibcc scholar cite refs.bib --open --batch-size 10"),
+                ("Enter the counts interactively", "bibcc scholar cite refs.bib -i"),
+                ("Update counts that are already filled in", "bibcc scholar cite refs.bib -i --include-filled"),
             ],
             outputs=[
-                (".bibcc/<input>.scholar_urls.txt", "entry keys, titles, and Google Scholar URLs"),
-                (".bibcc/logs/<input>.scholar.cite.log", "everything printed to the terminal"),
+                (".bibcc/INPUT.scholar_urls.txt", "Entry keys, titles, and Google Scholar URLs"),
+                (".bibcc/logs/INPUT.scholar.cite.log", "Everything printed to the terminal"),
             ],
         ),
         formatter_class=HelpFormatter,
@@ -976,8 +977,8 @@ for byte.""",
         type=str,
         default="",
         metavar="FILE",
-        help="Write the file with citation fields here. Without it, the default mode is a "
-        "dry run and --interactive writes to the input file.",
+        help="Write the file with citation fields to FILE. Without --output, the default mode "
+        "is a dry run, and --interactive writes to the input file.",
     )
     p_cite.add_argument("--open", action="store_true", help="Open the search URLs in the browser.")
     p_cite.add_argument(
@@ -996,7 +997,7 @@ for byte.""",
         type=int,
         default=5,
         metavar="N",
-        help="With --open, URLs to open before waiting for Enter (default: 5).",
+        help="With --open, the number of URLs to open before waiting for Enter (default: 5).",
     )
     p_cite.add_argument(
         "--log-dir",
@@ -1011,32 +1012,32 @@ for byte.""",
         help="Compare titles with the published ones (CrossRef, arXiv, Semantic Scholar).",
         description="""\
 Compare each title in a .bib file with the published title, to catch
-capitalisation that differs from the original. Nothing in the .bib file is
-changed.
+capitalization that differs from the original. The command doesn't change
+the .bib file.
 
 Lookup order for each entry:
-  1. entries with a DOI are checked against CrossRef only
-  2. entries with an arXiv ID are checked against arXiv
-  3. otherwise, or when the arXiv title matches, Semantic Scholar is
-     searched by title
-  4. if nothing has matched, a CrossRef title search is the last resort
+  1. Entries with a DOI: CrossRef only.
+  2. Entries with an arXiv ID: arXiv.
+  3. Otherwise, or when the arXiv title matches: a Semantic Scholar search
+     by title.
+  4. If nothing has matched: a CrossRef title search, as the last resort.
 
-A title only counts as found when it matches exactly (ignoring case and
+A title counts as found only when it matches exactly (ignoring case and
 punctuation). The report lists case differences, failed lookups (network
-errors and rate limits), and titles no source knows. Pass that report to
---retry-errors to re-check only the failed lookups; the report is then
-updated in place. DBLP is not queried because its API is behind a bot
-challenge.""",
+errors and rate limits), and titles that no source knows. To re-check only
+the failed lookups, pass that report to --retry-errors; the command then
+updates the report in place. The command doesn't query DBLP, because its
+API is behind a bot challenge.""",
         epilog=epilog(
             examples=[
-                ("check every title", "bibcc scholar titles refs.bib"),
-                ("re-check the lookups that failed last time",
+                ("Check every title", "bibcc scholar titles refs.bib"),
+                ("Re-check the lookups that failed last time",
                  "bibcc scholar titles refs.bib --retry-errors .bibcc/refs.bib.title_report.txt"),
-                ("check two entries only", "bibcc scholar titles refs.bib --ids KeyA,KeyB"),
+                ("Check only two entries", "bibcc scholar titles refs.bib --ids KeyA,KeyB"),
             ],
             outputs=[
-                (".bibcc/<input>.title_report.txt", "case differences, failed lookups, unknown titles"),
-                (".bibcc/logs/<input>.scholar.titles.log", "everything printed to the terminal"),
+                (".bibcc/INPUT.title_report.txt", "Case differences, failed lookups, and unknown titles"),
+                (".bibcc/logs/INPUT.scholar.titles.log", "Everything printed to the terminal"),
             ],
             env=[ENV_S2],
         ),
@@ -1052,7 +1053,7 @@ challenge.""",
         help="Seconds to wait after each API request (default: 0.5).",
     )
     p_titles.add_argument(
-        "--quiet", "-q", action="store_true", help="Do not print per-entry progress."
+        "--quiet", "-q", action="store_true", help="Don't print per-entry progress."
     )
     p_titles.add_argument(
         "--retry-errors",

@@ -1,14 +1,14 @@
-# 📚 BibTeX Check & Complete (BibCC)
+# BibTeX Check and Complete (BibCC)
 
-A CLI toolkit to auto-complete missing BibTeX fields, check formatting quality, manage a reusable venue library, and align your PDF library with your bibliography.
+BibCC is a command-line toolkit that fills in missing BibTeX fields, checks bibliography quality, manages a reusable venue library, and aligns your PDF library with your bibliography.
 
-> 👋 Thanks for your attention!
+> Thanks for your interest in BibCC.
 >
-> BibCC started as a small tool for my own bibliography workflow, and I am happy to see a few stars on the project. Version 0.2 reworks it into a more universal, versatile, and robust toolkit: an editable venue library, minimal verified edits, fetching new papers, upgrading preprints, and whole-file formatting. I hope it helps anyone with the same needs. Issues and suggestions are welcome.
+> BibCC started as a small tool for my own bibliography workflow, and I'm happy to see a few stars on the project. Version 0.2 reworks it into a more universal, versatile, and robust toolkit: an editable venue library, minimal verified edits, fetching new papers, upgrading preprints, and whole-file formatting. I hope it helps anyone with the same needs. Issues and suggestions are welcome.
 
-## 🚀 Quick Start
+## Quick start
 
-BibCC is a Python command-line tool (Python 3.10+). Install it with [uv](https://docs.astral.sh/uv/):
+BibCC requires Python 3.10 or later. Install it with [uv](https://docs.astral.sh/uv/):
 
 ```bash
 uv tool install git+https://github.com/3hiuwoo/BibCC@v0.2.0   # a release (see Releases on GitHub)
@@ -16,78 +16,91 @@ uv tool install git+https://github.com/3hiuwoo/BibCC          # or the developme
 bibcc --help
 ```
 
-To update, run `uv tool upgrade bibcc` (for the development version), or install a newer tag with `uv tool install --force git+https://github.com/3hiuwoo/BibCC@vX.Y.Z`. To work on BibCC itself, see [Development](#development).
+To update the development version, run `uv tool upgrade bibcc`. To move to a newer release, run `uv tool install --force git+https://github.com/3hiuwoo/BibCC@vX.Y.Z`. To work on BibCC itself, see [Development](#development).
 
-**Your venue library.** `complete` fills venue fields (publisher, ISSN, location, month, ...) from a venue library, which BibCC does not ship. You build your own, starting from scratch or from a shared one (see [Venue Library](#venue-library)):
+### Set up your venue library
+
+`complete` fills in venue fields, such as publisher, ISSN, location, and month, from a venue library. BibCC doesn't ship one, so you build your own, either from scratch or from a shared library. For details, see [Venue library](#venue-library).
 
 ```bash
 bibcc venues examples        # list the shared libraries
 bibcc venues import miaa     # start your user library (~/.config/bibcc/venues.yaml) from one
-bibcc venues where           # which libraries apply here, and which one is written
+bibcc venues where           # show which libraries apply here, and which one is written
 ```
 
-`add` and `upgrade` download official BibTeX from publisher and proceedings sites (IEEE Xplore, Springer, PMLR, NeurIPS, ICLR, ACL Anthology, IJCAI, OpenReview, arXiv) after locating papers through CrossRef, arXiv, OpenReview, and Semantic Scholar. `scholar titles` and `complete --online` also go online. The other commands work offline.
+### Network access
 
-## 🧩 Commands
+`add` and `upgrade` locate papers through CrossRef, arXiv, OpenReview, and Semantic Scholar, and then download official BibTeX from publisher and proceedings sites: IEEE Xplore, Springer, PMLR, NeurIPS, ICLR, ACL Anthology, IJCAI, OpenReview, and arXiv. `scholar titles` and `complete --online` also go online. The other commands work offline.
 
-BibCC provides nine commands through a single entry point — `bibcc`:
+## Commands
+
+BibCC provides nine commands through a single entry point, `bibcc`:
 
 | Command | Description |
 | --- | --- |
-| `check` | Quality checks: missing fields, title case, term protection, citation keys, field typos and duplicates |
-| `complete` | Auto-fill missing BibTeX fields from the venue library and report conflicts |
-| `add` | Download the official BibTeX of new papers (DOI, arXiv ID, paper URL, or title) into a staging `.bib` |
-| `upgrade` | Replace preprints and interim entries with the official BibTeX of their published versions, keeping keys |
-| `format` | Reformat `.bib` files consistently: aligned fields, braced values, month macros, `--` page ranges |
-| `librarian` | Align PDF library with `.bib`: missing / extra / rename |
-| `scholar` | Citation counts and title verification via external APIs |
-| `compose` | Merge per-folder `.bib` files into a single bibliography |
-| `venues` | Manage your user and project venue libraries: `where`, `init`, `import`, `examples` |
+| [`check`](#check) | Run quality checks: missing fields, title case, term protection, citation keys, field typos, and duplicates |
+| [`complete`](#complete) | Fill in missing BibTeX fields from the venue library, and report conflicts |
+| [`add`](#add) | Download the official BibTeX of new papers (by DOI, arXiv ID, paper URL, or title) into a staging `.bib` file |
+| [`upgrade`](#upgrade) | Replace preprints and interim entries with the official BibTeX of their published versions, keeping the keys |
+| [`format`](#format) | Reformat `.bib` files consistently: aligned fields, braced values, month macros, and `--` page ranges |
+| [`librarian`](#librarian) | Compare a PDF library with a `.bib` file: find missing and extra PDFs, and rename PDFs to citation keys |
+| [`scholar`](#scholar) | Fill in citation counts and verify titles against online sources |
+| [`compose`](#compose) | Merge the `.bib` files of a directory tree into a single bibliography |
+| `venues` | Manage your user and project venue libraries: `where`, `init`, `import`, and `examples` |
 
-Run `bibcc <command> -h` for command-specific help, and `bibcc --version` for the installed version.
+For command-specific help, run `bibcc COMMAND -h`. To see the installed version, run `bibcc --version`.
 
-### Typical Workflow
+### Typical workflow
 
 ```bash
-# 1. fetch new papers into added.bib, then move the entries into your topic files
+# 1. Fetch new papers into added.bib, then move the entries into your topic files.
+#    (Official BibTeX only; add --fallback all to build the rest from metadata.)
 bibcc add 2501.13198 "Some Paper Title" --against bib/
-# 2. fill venue fields from the library
+# 2. Fill in venue fields from the library.
 bibcc complete bib/topic.bib --in-place
-# 3. check titles, braces, keys, field typos, and duplicates
+# 3. Check titles, braces, keys, field typos, and duplicates.
 bibcc check bib/topic.bib --title-case --quote --check-keys --check-fields --against bib/
-# 4. now and then: see which preprints have been published, then replace them
+# 4. Now and then, see which preprints have been published, and then replace them.
 bibcc upgrade --report-only bib/
 bibcc upgrade bib/topic.bib --in-place
-# 5. consistent layout across all files
+# 5. Give all files a consistent layout.
 bibcc format bib/ --in-place
-# 6. one file for LaTeX
+# 6. Merge everything into one file for LaTeX.
 bibcc compose compose bib/ references.bib
 ```
 
-`complete`, `upgrade`, and `format` run as a dry run unless you pass `--output` or `--in-place`. A dry run writes a diff to `.bibcc/` so you can review the changes first. `add` only appends to its staging file (`--dry-run` prints instead), and `librarian rename` takes `--dry-run` to preview.
+`complete`, `upgrade`, and `format` do a dry run unless you pass `--output` or `--in-place`. A dry run writes a diff to `.bibcc/` so that you can review the changes first. `add` only appends to its staging file (`--dry-run` prints the entries instead), and `librarian rename` takes `--dry-run` to preview the renames.
+
+Don't expect `add` to get official BibTeX for every paper. AAAI, ACM, and Elsevier block automated downloads, and IEEE Xplore and Springer sometimes rate-limit or bot-check requests. By default, those papers get an empty entry or are listed as failed, and the end of the run lists what's left to do by hand. If you don't need official BibTeX, pass `--fallback all`. For details, see [Entries built from metadata](#fallback-entries-built-from-metadata).
 
 ---
 
-### `check` — Quality Checks
+### Check quality with `check` <a id="check"></a>
 
-Run one or more quality checks on a `.bib` file. All checks are independent and can be combined in a single invocation.
+`check` runs one or more quality checks on a `.bib` file. The checks are independent, and you can combine any of them in one run.
 
-**Missing fields** — detect entries lacking required fields (`month` is checked by default; pass `--fields ""` to skip):
+#### Missing fields
+
+Find entries that lack required fields. `check` checks `month` by default; to skip this check, pass `--fields ""`.
 
 ```bash
 bibcc check input.bib
 bibcc check input.bib --fields month,publisher --entry-types inproceedings,article
 ```
 
-**Title case** — suggest APA-style title case corrections:
+#### Title case
+
+Suggest APA-style title case corrections:
 
 ```bash
 bibcc check input.bib --title-case
-bibcc check input.bib --title-case --title-apply          # apply changes in-place
+bibcc check input.bib --title-case --title-apply          # apply the changes in place
 bibcc check input.bib --title-case --title-interactive    # review each suggestion
 ```
 
-**Smart term protection** — suggest `{braces}` for technical terms, acronyms, and proper nouns:
+#### Term protection
+
+Suggest `{braces}` for technical terms, acronyms, and proper nouns:
 
 ```bash
 bibcc check input.bib --quote
@@ -95,15 +108,23 @@ bibcc check input.bib --quote --quote-terms Gaussian,BERT
 bibcc check input.bib --quote --quote-vocab-file my_terms.txt
 ```
 
-**Citation key legibility** — check that keys follow `METHOD_AUTHOR_VENUEYEAR`:
+#### Citation keys
+
+Check that keys follow the `METHOD_AUTHOR_VENUEYEAR` convention:
 
 ```bash
 bibcc check input.bib --check-keys
 ```
 
-The key's year is the year of the event. It may differ from the entry's `year` when the venue names the event year (`Computer Vision -- ECCV 2024`, published 2025), when an `@inproceedings` entry was published the year after the event, or when a preprint is keyed by the venue that accepted it (`..._AAAI2026` for a 2025 arXiv paper).
+The year in a key is the year of the event. It can differ from the entry's `year` in these cases:
 
-**Field names, values, and duplicates** — find mistakes BibTeX ignores silently:
+- The venue name includes the event year (`Computer Vision -- ECCV 2024`, published in 2025).
+- An `@inproceedings` entry was published the year after the event.
+- A preprint is keyed by the venue that accepted it (`..._AAAI2026` for a 2025 arXiv paper).
+
+#### Field names, values, and duplicates
+
+Find mistakes that BibTeX ignores silently:
 
 ```bash
 bibcc check input.bib --check-fields
@@ -111,20 +132,26 @@ bibcc check input.bib --check-fields --against bib/          # also look for dup
 bibcc check input.bib --check-fields --known-fields code,pdf  # accept extra field names
 ```
 
-- **Unknown fields**: names that are not standard BibTeX/biblatex fields or commonly exported ones (`abstract`, `keywords`, `numpages`, …). These are usually typos, which BibTeX drops without a warning. A likely correction is suggested: `'volumn' → did you mean 'volume'?`.
-- **Values**: empty values, years that are not four digits, single-hyphen page ranges (`12-15` → `12--15`), DOIs written as URLs or malformed, months that are not macros (`{June}` → `jun`), malformed ISSNs, and URLs without `http(s)://`.
-- **Duplicates**: the same paper (same DOI, arXiv ID, or title) or the same citation key twice, in the file or in the `--against` files. Conference and journal versions sometimes share a title, so check before deleting.
+`--check-fields` reports the following:
 
-`bibcc format` fixes page ranges and months automatically. The other issues are only reported.
+- **Unknown fields**: names that aren't standard BibTeX or biblatex fields or commonly exported ones (such as `abstract`, `keywords`, and `numpages`). These are usually typos, which BibTeX drops without a warning. `check` suggests a likely correction: `'volumn' → did you mean 'volume'?`.
+- **Values**: empty values, years that aren't four digits, single-hyphen page ranges (`12-15` → `12--15`), DOIs that are malformed or written as URLs, months that aren't macros (`{June}` → `jun`), malformed ISSNs, and URLs without `http://` or `https://`.
+- **Duplicates**: the same paper (same DOI, arXiv ID, or title) or the same citation key twice, in the file or in the `--against` files. Conference and journal versions sometimes share a title, so check before you delete one.
 
-**Venue library completeness** — check the venue library for missing fields:
+`bibcc format` fixes page ranges and months automatically. `check` only reports the other issues.
+
+#### Venue library completeness
+
+Check the venue library for records with missing fields:
 
 ```bash
 bibcc check --check-venues
 bibcc check --check-venues --journal-fields publisher,issn --proceedings-fields venue,month,isbn
 ```
 
-**Combine checks** in one run:
+#### Combine checks
+
+To run several checks at once, pass all their options:
 
 ```bash
 bibcc check input.bib --fields month --title-case --quote --check-keys --check-fields
@@ -138,20 +165,20 @@ bibcc check input.bib --fields month --title-case --quote --check-keys --check-f
 | `--fields FIELDS` | Comma-separated required fields (default: `month`) |
 | `--entry-types TYPES` | Comma-separated entry types to check (default: `inproceedings,article,proceedings,conference`) |
 | `--title-case` | Check title case (APA style) |
-| `--title-apply` | Apply title case changes in-place (implies `--title-case`) |
-| `--title-interactive` | Interactive review per suggestion (implies `--title-case`) |
+| `--title-apply` | Apply title case changes in place (implies `--title-case`) |
+| `--title-interactive` | Review each suggestion interactively (implies `--title-case`) |
 | `--title-style STYLE` | Title case style (default: `apa`) |
 | `--extra-stopwords WORDS` | Additional stopwords to keep lowercase |
-| `--quote` | Run smart term protection |
+| `--quote` | Run term protection |
 | `--quote-terms TERMS` | Extra terms to protect |
-| `--quote-vocab-file FILE` | Newline-delimited vocabulary file |
-| `--quote-no-default` | Disable built-in technical vocabulary |
+| `--quote-vocab-file FILE` | Vocabulary file with one term per line |
+| `--quote-no-default` | Turn off the built-in technical vocabulary |
 | `--protection-min-length N` | Minimum length for mixed-case, acronym, and number-bearing terms (default: `2`) |
 | `--check-keys` | Check citation key legibility |
 | `--check-fields` | Check field names, field values, and duplicates |
 | `--known-fields FIELDS` | Extra field names to accept with `--check-fields` |
 | `--against PATH` | With `--check-fields`, also look for duplicates in this `.bib` file or directory; repeatable |
-| `--check-venues` | Check the venue libraries for records missing fields: the user library and the nearest `.bibcc-venues.yaml`, each on its own (`--check-templates` still works) |
+| `--check-venues` | Check the venue libraries for records with missing fields: the user library and the nearest `.bibcc-venues.yaml`, each on its own (`--check-templates` still works) |
 | `--venues FILE` | Check only this venue library file |
 | `--journal-fields FIELDS` | Fields to check in journal records (default: `publisher,issn`) |
 | `--proceedings-fields FIELDS` | Fields to check in proceedings records (default: `venue,publisher,month`) |
@@ -160,106 +187,141 @@ bibcc check input.bib --fields month --title-case --quote --check-keys --check-f
 
 ---
 
-### `complete` — Auto-fill Missing Fields
+### Fill in missing fields with `complete` <a id="complete"></a>
 
-Fill missing BibTeX fields (publisher, ISSN, venue, month, …) from the venue library (see [Venue Library](#venue-library)). The library is the only source of added fields. Existing fields are never overwritten: differences are reported as conflicts in every mode, dry run included, and saved to `.bibcc/<input>.conflicts.txt`.
+`complete` fills in missing BibTeX fields, such as publisher, ISSN, venue, and month, from the [venue library](#venue-library). The library is the only source of added fields. `complete` never overwrites an existing field: it reports differences as conflicts in every mode, including dry runs, and saves them to `.bibcc/INPUT.conflicts.txt`.
 
 ```bash
-bibcc complete input.bib                    # preview as a diff (dry-run)
-bibcc complete input.bib --output out.bib   # write completed output
+bibcc complete input.bib                    # preview the changes as a diff (dry run)
+bibcc complete input.bib --output out.bib   # write the completed file to out.bib
 bibcc complete input.bib --in-place         # write back to input.bib
 ```
 
-Edits are **minimal and verified**: new fields are inserted before each entry's closing brace, using the entry's own indentation and `=` alignment, and nothing else in the file changes (comments, field order, LaTeX, line endings). The one exception: when a new field name is longer than an entry's aligned `=` column, that entry's column is widened so its fields stay aligned. Months are written as macros (`month = jun`), matching what `add` and `format` produce. Before writing, the result is re-parsed and checked to contain the same entries with only the intended fields changed. If that check fails, nothing is written. The same safe editing is used by `check --title-apply`/`--title-interactive` and `scholar cite`.
+Edits are minimal and verified:
 
-**Interim booktitles.** An entry citing a conference by its CVF Open Access or OpenReview booktitle (for example `Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)` for a paper now in IEEE Xplore) matches the library record of the published proceedings, but only gets the fields describing the event (`venue` and `month`). It is listed as an interim entry so `bibcc upgrade` can replace it with the official BibTeX.
+- `complete` inserts new fields before each entry's closing brace, using the entry's own indentation and `=` alignment. Nothing else in the file changes: comments, field order, LaTeX, and line endings stay as they are.
+- There's one exception: when a new field name is longer than an entry's aligned `=` column, `complete` widens that entry's column so that its fields stay aligned.
+- Months are written as macros (`month = jun`), which matches what `add` and `format` produce.
+- Before writing, `complete` parses the result again and checks that it contains the same entries, with only the intended fields changed. If that check fails, nothing is written.
 
-When venues are missing from the library, a `.bibcc/<input>.missing_venues.yaml` file is generated. Fields are pre-filled from existing entries in the same journal/conference, from the **previous edition** of the same conference (e.g. CVPR 2025 → CVPR 2026: publisher, ISSN, month), and from venue-name guesses, so you only fill in what couldn't be inferred. The file is merged, not overwritten, on every run: what you filled in is kept, new venues are appended, and venues the library now covers are dropped.
+`check --title-apply`, `check --title-interactive`, and `scholar cite` use the same safe editing.
 
-**`--online` (off by default).** CrossRef is asked about every entry with a DOI:
+**Interim booktitles.** Some entries cite a conference by its CVF Open Access or OpenReview booktitle, for example `Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)` for a paper that's now in IEEE Xplore. Such an entry matches the library record of the published proceedings, but only gets the fields that describe the event (`venue` and `month`). `complete` lists it as an interim entry so that `bibcc upgrade` can replace it with the official BibTeX.
 
-- it pre-fills more of the missing-venues YAML (`# from CrossRef`: publisher, ISSN, ISBN, location, month);
-- it compares each entry, and its library record, with CrossRef (venue name, year, volume, number, pages, DOI, publisher, ISSN, ISBN, location, month) and writes the differences to `.bibcc/<input>.venue_check.txt`, saying whether the entry, the library, or both differ. Entries without a DOI are listed as not checked;
-- when every checked paper of a venue agrees on a value that differs from the library, a correction is suggested, commented out, at the end of the YAML.
+**Missing venues.** When venues are missing from the library, `complete` generates a `.bibcc/INPUT.missing_venues.yaml` file. It pre-fills fields from these sources, so you only fill in what it couldn't infer:
 
-Fields are still only added from the library: CrossRef values become entries only after you review and merge them.
+- Existing entries in the same journal or conference.
+- The previous edition of the same conference (for example, CVPR 2025 → CVPR 2026: publisher, ISSN, and month).
+- Guesses from the venue name.
 
-**Workflow** — generate YAML, update the library, and complete:
+`complete` merges this file on every run instead of overwriting it: what you filled in is kept, new venues are appended, and venues that the library now covers are dropped.
+
+**Online check (`--online`, off by default).** `complete` asks CrossRef about every entry with a DOI, and does the following:
+
+- Pre-fills more of the missing-venues YAML file (marked `# from CrossRef`: publisher, ISSN, ISBN, location, and month).
+- Compares each entry, and its library record, with CrossRef (venue name, year, volume, number, pages, DOI, publisher, ISSN, ISBN, location, and month), and writes the differences to `.bibcc/INPUT.venue_check.txt`. The report says whether the entry, the library, or both differ. Entries without a DOI are listed as not checked.
+- When every checked paper of a venue agrees on a value that differs from the library, suggests a correction, commented out, at the end of the YAML file.
+
+Fields still come only from the library: CrossRef values reach your entries only after you review and merge them.
+
+#### Workflow
+
+To generate the YAML file, update the library, and complete the entries, do the following:
 
 ```bash
-# 1. Run to generate the YAML (pre-filled where possible)
+# 1. Generate the YAML file (pre-filled where possible).
 bibcc complete input.bib
 
-# 2. Fill in remaining fields in .bibcc/input.bib.missing_venues.yaml
+# 2. Fill in the remaining fields in .bibcc/input.bib.missing_venues.yaml.
 
-# 3. Merge into your user library and complete in one step
+# 3. Merge the file into your user library and complete the entries in one step...
 bibcc complete input.bib --output out.bib --update-venues
-#    ...or into the project's .bibcc-venues.yaml instead
+#    ...or merge it into the project's .bibcc-venues.yaml instead.
 bibcc complete input.bib --output out.bib --update-venues --scope project
 
-# Optional: let CrossRef pre-fill the YAML and check entries and library
+# Optional: let CrossRef pre-fill the YAML file and check the entries and the library.
 bibcc complete input.bib --online
 ```
 
-The log names the library file `--update-venues` writes to.
+The log names the library file that `--update-venues` writes to.
 
 <details>
 <summary>All <code>complete</code> options</summary>
 
 | Option | Description |
 | --- | --- |
-| `--output FILE` | Path to save the enhanced `.bib` file (omit for dry-run) |
+| `--output FILE` | Path to save the completed `.bib` file to (omit for a dry run) |
 | `--in-place` | Write the completed entries back to the input file |
 | `--log-dir DIR` | Directory for logs and reports (default: `.bibcc/` next to the input) |
 | `--venues FILE` | Use only this venue library file (default: the user library merged with the project's `.bibcc-venues.yaml`) |
-| `--update-venues` | Merge the filled-in `*.missing_venues.yaml` into the library before completing (`--update-templates` still works) |
-| `--scope user\|project` | Library `--update-venues` writes to: `user` (default) or `project` (the nearest `.bibcc-venues.yaml`) |
-| `--online` | Also query CrossRef: pre-fill the YAML and check entries with a DOI and their library records (report only) |
-| `--delay SECONDS` | With `--online`, wait between CrossRef requests (default: `1`) |
+| `--update-venues` | Merge the filled-in `*.missing_venues.yaml` file into the library before completing (`--update-templates` still works) |
+| `--scope user\|project` | Library that `--update-venues` writes to: `user` (default) or `project` (the nearest `.bibcc-venues.yaml`) |
+| `--online` | Also query CrossRef: pre-fill the YAML file, and check entries with a DOI and their library records (report only) |
+| `--delay SECONDS` | With `--online`, seconds to wait between CrossRef requests (default: `1`) |
 
 </details>
 
 ---
 
-### `add` — Add New Papers
+### Add new papers with `add` <a id="add"></a>
 
-Download the official BibTeX of papers given by DOI, arXiv ID/URL, paper page URL, or title, and append it to a staging file (`added.bib` by default). Review the entries there, then move them into your topic files.
+`add` downloads the official BibTeX of papers that you identify by DOI, arXiv ID or URL, paper page URL, or title, and appends it to a staging file (`added.bib` by default). Review the entries there, and then move them into your topic files. Not every paper has official BibTeX that can be downloaded; `--fallback` builds those entries from metadata instead. For details, see [When there's no official BibTeX](#when-there-is-no-official-bibtex).
 
 ```bash
 bibcc add 10.1109/TPAMI.2024.3429383 2501.13198 --against bib/
 bibcc add "SD-LoRA: Scalable Decoupled Low-Rank Adaptation for Class Incremental Learning" --against bib/
 bibcc add https://proceedings.mlr.press/v235/abad-rocamora24a.html   # a paper page
 bibcc add --from new_papers.txt --against bib/ --output added.bib   # one identifier per line
+bibcc add --from new_papers.txt --fallback all                      # metadata when there's no official BibTeX
 bibcc add 2501.13198 --dry-run                                        # print only
 ```
 
-For each paper, `add`:
+For each paper, `add` does the following:
 
-1. **Locates the paper.** DOIs come from CrossRef, arXiv IDs from the arXiv API, and titles are matched through Semantic Scholar, then OpenReview, CrossRef, and arXiv. A title only counts as found when it matches exactly (ignoring case and punctuation). Paper page URLs (IEEE Xplore, CVF Open Access, PMLR, NeurIPS, ICLR, ACL Anthology, IJCAI) go straight to that page's BibTeX.
-2. **Prefers the published version.** For an arXiv paper it looks for a published version: the DOI linked from arXiv or known to Semantic Scholar, an accepted OpenReview paper (ICLR, NeurIPS, ICML, …; "Submitted to" and withdrawn papers are ignored), the DBLP key Semantic Scholar reports (e.g. `conf/iclr/...25` → ICLR 2025), or a CrossRef record with the same title. Pass `--preprint` to keep the arXiv entry.
-3. **Skips duplicates.** Papers already in the `--against` files or directories (same DOI, arXiv ID, or title), or already in the staging file (empty entries included), are reported and skipped. A published paper whose preprint is already in your bibliography is flagged too.
-4. **Downloads the official BibTeX** from the publisher or proceedings site (see the table below). The metadata APIs only locate the paper; the entry itself is what the publisher offers.
-5. **Formats the entry like the rest of the bibliography.** Title Case (APA), braces around acronyms and technical terms (`{SD-LoRA}`), `--` page ranges, month macros (`month = jun`), escaped `&`/`%`/`_`, aligned `=`, and no `abstract` or `keywords`.
-6. **Completes venue fields from the venue library**, like `complete`: fields the official BibTeX lacks are added (e.g. `venue`, `issn`), and different values are reported, never overwritten. Venues missing from the library are proposed in `.bibcc/<output>.missing_venues.yaml`, pre-filled from the official BibTeX, the previous edition, and CrossRef.
-7. **Suggests a key** `METHOD_AUTHOR_VENUEYEAR`. METHOD is the title's `Name:` prefix, or else its first two content words, so check it.
+1. **Locates the paper.** DOIs come from CrossRef, arXiv IDs from the arXiv API, and titles are matched through Semantic Scholar, then OpenReview, CrossRef, and arXiv. A title only counts as found when it matches exactly (ignoring case and punctuation). Paper page URLs (IEEE Xplore, CVF Open Access, PMLR, NeurIPS, ICLR, ACL Anthology, and IJCAI) go straight to that page's BibTeX.
+1. **Prefers the published version.** For an arXiv paper, `add` looks for a published version: the DOI linked from arXiv or known to Semantic Scholar, an accepted OpenReview paper (such as ICLR, NeurIPS, or ICML; "Submitted to" and withdrawn papers are ignored), the DBLP key that Semantic Scholar reports (for example, `conf/iclr/...25` → ICLR 2025), or a CrossRef record with the same title. To keep the arXiv entry, pass `--preprint`.
+1. **Skips duplicates.** `add` reports and skips papers that are already in the `--against` files or directories (same DOI, arXiv ID, or title) or in the staging file, including empty entries. It also flags a published paper whose preprint is already in your bibliography.
+1. **Downloads the official BibTeX** from the publisher or proceedings site, as listed in [Where the official BibTeX comes from](#official-sources). The metadata APIs only locate the paper; the entry itself is what the publisher offers. This step often fails for some papers. For what happens then, see [When there's no official BibTeX](#when-there-is-no-official-bibtex).
+1. **Formats the entry like the rest of the bibliography**: APA title case, braces around acronyms and technical terms (`{SD-LoRA}`), `--` page ranges, month macros (`month = jun`), escaped `&`, `%`, and `_`, aligned `=`, and no `abstract` or `keywords`.
+1. **Completes venue fields from the venue library**, like `complete`: it adds the fields that the official BibTeX lacks (such as `venue` and `issn`), and reports different values instead of overwriting them. It proposes venues that are missing from the library in `.bibcc/OUTPUT.missing_venues.yaml`, pre-filled from the official BibTeX, the previous edition, and CrossRef.
+1. **Suggests a key** of the form `METHOD_AUTHOR_VENUEYEAR`. METHOD is the title's `Name:` prefix, or else its first two content words, so check it.
 
-**Where the official BibTeX comes from** (first match wins):
+#### Where the official BibTeX comes from <a id="official-sources"></a>
+
+`add` uses the first source in the following table that matches the paper:
 
 | Paper | Official BibTeX |
 | --- | --- |
-| CVPR, ICCV, WACV and their workshops, IEEE journals (DOI `10.1109`) | IEEE Xplore citation export |
-| ECCV, Springer and Nature journals (DOI `10.1007`, `10.1038`) | Springer citation export |
+| CVPR, ICCV, WACV, and their workshops; IEEE journals (DOI `10.1109`) | IEEE Xplore citation export |
+| ECCV; Springer and Nature journals (DOI `10.1007`, `10.1038`) | Springer citation export |
 | ICML, CoLLAs, and other PMLR venues | PMLR paper page |
 | NeurIPS | NeurIPS proceedings (`proceedings.neurips.cc`) |
 | ICLR from 2024 | ICLR proceedings (`proceedings.iclr.cc`) |
 | ICLR up to 2023 | OpenReview (its only proceedings) |
 | ACL Anthology venues (DOI `10.18653`), IJCAI (DOI `10.24963`) | ACL Anthology, IJCAI |
-| arXiv preprints | `arxiv.org/bibtex/<id>` |
-| AAAI, ACM, Elsevier (DOI `10.1609`, `10.1145`, `10.1016`) | none: they block automated downloads |
+| arXiv preprints | `arxiv.org/bibtex/ARXIV_ID` |
+| AAAI, ACM, Elsevier (DOI `10.1609`, `10.1145`, `10.1016`) | None: they block automated downloads |
 
-**Interim BibTeX.** Papers whose proceedings are not out yet get the BibTeX of the site they appear on first: CVF Open Access for CVPR, ICCV, and WACV papers not in IEEE Xplore yet, and OpenReview for NeurIPS, ICLR, and ICML papers not in the proceedings yet. A note says so, and `bibcc upgrade` replaces these entries once the proceedings are out.
+**Interim BibTeX.** Papers whose proceedings aren't out yet get the BibTeX of the site that they appear on first: CVF Open Access for CVPR, ICCV, and WACV papers that aren't in IEEE Xplore yet, and OpenReview for NeurIPS, ICLR, and ICML papers that aren't in the proceedings yet. A note says so, and `bibcc upgrade` replaces these entries once the proceedings are out.
 
-**Empty entries.** When no official BibTeX can be downloaded (AAAI, ACM, Elsevier, or ECCV papers not on SpringerLink yet), `add` writes an empty entry under the suggested key, with a comment saying what it is and where to get the BibTeX by hand:
+#### When there's no official BibTeX <a id="when-there-is-no-official-bibtex"></a>
+
+Expect this for a fair share of the papers in a typical survey. There are two cases:
+
+- **None to download**: AAAI, ACM, and Elsevier block automated downloads, ECCV papers aren't on SpringerLink for a while, and some publishers have no known BibTeX export.
+- **Site unreachable**: IEEE Xplore, Springer, CrossRef, and Semantic Scholar rate-limit requests, bot-check them, or time out now and then. Retrying later usually works.
+
+What `add` does in each case depends on `--fallback`:
+
+| `--fallback` | None to download | Site unreachable |
+| --- | --- | --- |
+| `none` (default) | Empty entry to fill in by hand | Nothing written; listed as failed (exit status 1) |
+| `missing` | Entry built from metadata | Nothing written; listed as failed (exit status 1) |
+| `all` | Entry built from metadata | Entry built from metadata |
+
+A paper that can't be located at all (an unknown DOI, or no exact title match) is always listed as failed, because there's no metadata to build an entry from.
+
+**Empty entries.** With `--fallback none`, `add` writes an empty entry under the suggested key, with a comment that says what it is and where to get the BibTeX by hand:
 
 ```bibtex
 % BibCC: no official BibTeX could be downloaded; paste it into the entry below, keeping the key.
@@ -272,9 +334,34 @@ For each paper, `add`:
 }
 ```
 
-When a site cannot be reached (network error, rate limit, bot protection), nothing is written for that paper and it is listed as failed, so running again later adds it.
+**Unreachable sites.** When a site can't be reached (because of a network error, a rate limit, or bot protection) and `--fallback` isn't `all`, `add` writes nothing for that paper and lists it as failed. To add it, run `add` again later.
 
-DBLP is not queried directly because its API is behind a bot challenge. Semantic Scholar allows few requests without a key; set `S2_API_KEY` for higher limits. Requests that hit a rate limit are retried with backoff. The large listing pages (CVF, PMLR, NeurIPS, ICLR) are fetched once per run.
+#### Entries built from metadata <a id="fallback-entries-built-from-metadata"></a>
+
+With `--fallback missing` or `--fallback all`, `add` builds the entry from the record that it located the paper by. For DOIs, that's CrossRef (title, authors, journal or booktitle, year, month, volume, number, pages, publisher, and DOI); otherwise it's Semantic Scholar, OpenReview, or arXiv. The entry is formatted like an official one and completed from the venue library. The library is trusted over the metadata, so its venue name and fields replace the metadata's, and the log lists each replacement. A comment above the entry marks it:
+
+```bibtex
+% BibCC: not the official BibTeX; it was built from metadata. `bibcc upgrade` replaces it once the official BibTeX can be downloaded.
+%   source: CrossRef
+%   reason: AAAI blocks automated BibTeX downloads
+%   get it: https://doi.org/10.1609/aaai.v39i1.29641
+@inproceedings{LearningVisual_Zhao_AAAI2024,
+  title     = {Learning Visual Abstract Reasoning through Dual-Stream Networks},
+  ...
+}
+```
+
+When you move the entry into a topic file, keep the comment. [`upgrade`](#upgrade) uses it to find these entries, and once their official BibTeX can be downloaded, it replaces them and removes the comment. Metadata is less reliable than the publisher's BibTeX (author name spellings, missing pages, and odd capitalization), so review these entries.
+
+#### What's left to do by hand
+
+The end of each run lists the papers that still need you: empty entries to fill in, and failed papers. Each item has the paper's title, the URL to get the BibTeX from, and the `--fallback` level that would have built the entry.
+
+`.bibcc/OUTPUT.add.txt` has one row per paper, with these tab-separated columns: identifier, outcome (`official`, `interim`, `metadata`, `empty`, `failed`, or `duplicate`), key, title, detail, and URL. A script or an agent can pick up the rows to work on.
+
+#### Rate limits
+
+`add` doesn't query DBLP directly, because its API is behind a bot challenge. Semantic Scholar allows few requests without a key; for higher limits, set `S2_API_KEY`. Requests that hit a rate limit are retried with backoff. The large listing pages (CVF, PMLR, NeurIPS, and ICLR) are fetched once per run.
 
 <details>
 <summary>All <code>add</code> options</summary>
@@ -283,46 +370,48 @@ DBLP is not queried directly because its API is behind a bot challenge. Semantic
 | --- | --- |
 | `IDENTIFIER ...` | DOIs, arXiv IDs or URLs, paper page URLs, or quoted titles |
 | `--from FILE` | Text file with one identifier per line (`#` starts a comment) |
-| `--against PATH` | `.bib` file or directory (recursive) to check for duplicates; repeatable |
-| `--output FILE` | Staging file new entries are appended to (default: `added.bib`) |
+| `--against PATH` | `.bib` file or directory (searched recursively) to check for duplicates; repeatable |
+| `--output FILE` | Staging file that new entries are appended to (default: `added.bib`) |
 | `--venues FILE` | Use only this venue library file (default: the user library merged with the project's `.bibcc-venues.yaml`) |
 | `--preprint` | Keep arXiv papers as preprints (arXiv's BibTeX) |
-| `--keep-title` | Do not title-case official titles (term protection still applies) |
-| `--dry-run` | Print the entries without writing the staging file or the missing-venues YAML |
-| `--delay SECONDS` | Wait between papers to respect API limits (default: `1`) |
-| `--log-dir DIR` | Directory for the log and the missing-venues YAML (default: `.bibcc/` next to the output) |
+| `--keep-title` | Don't title-case official titles (term protection still applies) |
+| `--fallback LEVEL` | Build entries from metadata when official BibTeX is unavailable: `none` (default), `missing`, or `all` (see [When there's no official BibTeX](#when-there-is-no-official-bibtex)) |
+| `--dry-run` | Print the entries without writing the staging file or the missing-venues YAML file |
+| `--delay SECONDS` | Seconds to wait between papers, to respect API limits (default: `1`) |
+| `--log-dir DIR` | Directory for the log, the report, and the missing-venues YAML file (default: `.bibcc/` next to the output) |
 
 </details>
 
 ---
 
-### `upgrade` — Preprints to Published Versions
+### Upgrade preprints to published versions with `upgrade` <a id="upgrade"></a>
 
-Find preprints and interim entries in a `.bib` file that have since been published, and replace them with the official BibTeX of the published version.
+`upgrade` finds preprints and interim entries in a `.bib` file that have since been published, and replaces them with the official BibTeX of the published version.
 
 ```bash
-bibcc upgrade input.bib                        # dry run: report + diff in .bibcc/
+bibcc upgrade input.bib                        # dry run: report and diff in .bibcc/
 bibcc upgrade input.bib --in-place             # write back to input.bib
 bibcc upgrade input.bib --ids KeyA,KeyB --output out.bib
 bibcc upgrade --report-only bib/ extra.bib     # only list what has been published
 ```
 
-Two kinds of entries are candidates:
+Three kinds of entries are candidates:
 
-- **Preprints**: `@misc`/`@unpublished` entries and entries whose journal is arXiv or CoRR. The published version is looked up the same way as in `add`.
-- **Interim entries**: conference papers cited with a CVF Open Access booktitle (CVPR, ICCV, WACV) or an OpenReview one (NeurIPS, ICLR from 2024, ICML), recognized by the venue library's interim names or an `openreview.net`/`thecvf.com` URL. They are replaced once the paper is in IEEE Xplore, the NeurIPS or ICLR proceedings, or PMLR.
+- **Preprints**: `@misc` and `@unpublished` entries, and entries whose journal is arXiv or CoRR. `upgrade` looks up the published version the same way that `add` does.
+- **Interim entries**: conference papers cited with a CVF Open Access booktitle (CVPR, ICCV, or WACV) or an OpenReview one (NeurIPS, ICLR from 2024, or ICML). `upgrade` recognizes them by the venue library's interim names or by an `openreview.net` or `thecvf.com` URL. They're replaced once the paper is in IEEE Xplore, the NeurIPS or ICLR proceedings, or PMLR.
+- **Metadata entries**: entries that `add --fallback` built from metadata, recognized by the `% BibCC: not the official BibTeX` comment above them. They're replaced, and the comment is removed, once their official BibTeX (or interim CVF or OpenReview BibTeX) can be downloaded. Those that still have none are listed as unchanged, with the reason and where to get the BibTeX by hand.
 
-An entry is only replaced by downloaded official BibTeX (see [`add`](#add--add-new-papers) for the sources). The replacement:
+`upgrade` only replaces an entry with downloaded official BibTeX. For the sources, see [Where the official BibTeX comes from](#official-sources). The replacement does the following:
 
-- **keeps the citation key**, so `\cite` commands keep working (a note suggests the conventional key, e.g. `..._ICML2026`);
-- keeps your title when it matches the published one, so hand-made braces survive;
-- keeps custom fields such as `citation`, and drops preprint and interim fields (`eprint`, `archiveprefix`, `primaryclass`, the arXiv, OpenReview, or CVF `url`);
-- completes venue fields from the venue library, and proposes missing venues in `.bibcc/<input>.missing_venues.yaml`. When an interim booktitle is replaced by a proceedings name the library does not link to it yet, the YAML proposes the link, so `complete` recognizes the interim name next time;
-- is a whole-entry replacement checked like other edits: the rest of the file, including comments above the entry, stays byte for byte.
+- Keeps the citation key, so that `\cite` commands keep working. A note suggests the conventional key, for example `..._ICML2026`.
+- Keeps your title when it matches the published one, so that hand-made braces survive.
+- Keeps custom fields such as `citation`, and drops preprint and interim fields (`eprint`, `archiveprefix`, `primaryclass`, and the arXiv, OpenReview, or CVF `url`).
+- Completes venue fields from the venue library, and proposes missing venues in `.bibcc/INPUT.missing_venues.yaml`. When an interim booktitle is replaced by a proceedings name that the library doesn't link to it yet, the YAML file proposes the link, so that `complete` recognizes the interim name next time.
+- Is a whole-entry replacement, checked like other edits: the rest of the file, including comments above the entry, stays byte for byte. The only exception is the comment that marks a metadata entry, which is removed.
 
-A preprint whose published version has no downloadable BibTeX (AAAI, ACM, Elsevier, ECCV papers not on SpringerLink yet) is **kept**, and the report gives the venue and where to get the BibTeX by hand. Preprints without a published version are listed as unchanged, with the arXiv comment when it says the paper was accepted (e.g. "Accepted at AAAI 2026") but is not indexed yet. Lookups that hit a rate limit are listed as failed; run again later or set `S2_API_KEY`.
+`upgrade` keeps a preprint whose published version has no downloadable BibTeX (AAAI, ACM, and Elsevier papers, and ECCV papers that aren't on SpringerLink yet), and the report gives the venue and where to get the BibTeX by hand. Preprints without a published version are listed as unchanged. If the arXiv comment says that the paper was accepted (for example, "Accepted at AAAI 2026") but it isn't indexed yet, the report includes that comment. Lookups that hit a rate limit are listed as failed; run `upgrade` again later or set `S2_API_KEY`.
 
-**`--report-only`** checks any number of `.bib` files and directories (searched recursively) and writes `.bibcc/<path>.published.txt`: every candidate that now has a published version, with its venue, the official BibTeX source, and its URL (or why there is none). It downloads no BibTeX and changes nothing.
+**Report only.** `--report-only` checks any number of `.bib` files and directories (searched recursively) and writes `.bibcc/PATH.published.txt`. The report lists every candidate that now has a published version, with its venue, the official BibTeX source, and its URL (or why there's none). It downloads no BibTeX and changes nothing.
 
 <details>
 <summary>All <code>upgrade</code> options</summary>
@@ -330,30 +419,30 @@ A preprint whose published version has no downloadable BibTeX (AAAI, ACM, Elsevi
 | Option | Description |
 | --- | --- |
 | `PATH ...` | The `.bib` file to upgrade (with `--report-only`: any number of files and directories) |
-| `--output FILE` | Write the upgraded file here (omit for dry-run) |
+| `--output FILE` | Write the upgraded file here (omit for a dry run) |
 | `--in-place` | Write back to the input file |
-| `--report-only` | Only report entries with a published version and where its official BibTeX is |
+| `--report-only` | Only report entries that have a published version, and where their official BibTeX is |
 | `--ids KEYS` | Comma-separated citation keys to upgrade (default: all candidates) |
 | `--venues FILE` | Use only this venue library file (default: the user library merged with the project's `.bibcc-venues.yaml`) |
-| `--delay SECONDS` | Wait between entries to respect API limits (default: `1`) |
+| `--delay SECONDS` | Seconds to wait between entries, to respect API limits (default: `1`) |
 | `--log-dir DIR` | Directory for reports and logs (default: `.bibcc/` next to the input) |
 
 </details>
 
 ---
 
-### `format` — Consistent Formatting
+### Format files with `format` <a id="format"></a>
 
-Reformat whole `.bib` files, like BibTeX Tidy. Unlike the other commands, which only touch the fields they change, `format` rewrites the layout of every entry.
+`format` reformats whole `.bib` files, like BibTeX Tidy. Unlike the other commands, which only touch the fields that they change, `format` rewrites the layout of every entry.
 
 ```bash
 bibcc format bib/                     # dry run: one diff per changed file in .bibcc/
 bibcc format bib/ --in-place          # write the changes
 bibcc format refs.bib --output out.bib
-bibcc format bib/ --check             # write nothing; exit 1 if a file is not formatted (CI)
+bibcc format bib/ --check             # write nothing; exit 1 if a file isn't formatted (CI)
 ```
 
-`PATH` can be `.bib` files or directories, which are searched recursively (`.bibcc/` folders are skipped). The default style:
+`PATH` can be `.bib` files or directories, which are searched recursively (`.bibcc/` directories are skipped). Here's the default style:
 
 ```bibtex
 @inproceedings{GKEAL_Zhuang_CVPR2023,
@@ -365,37 +454,39 @@ bibcc format bib/ --check             # write nothing; exit 1 if a file is not f
 }
 ```
 
-- lowercase entry types and field names, two-space indent, `=` aligned to the longest field name;
-- `"..."` values and bare numbers become `{...}`; values joined with `#` and macros such as `@string` names stay as they are;
-- values wrapped in extra braces keep one pair (`{{Whole Title}}` → `{Whole Title}`); `author` and `editor` are left alone, because `{{...}}` there keeps a corporate name such as `{{World Health Organization}}` together;
-- every field but the last ends with a comma, and missing commas are added;
-- months become macros (`{June}`, `"6"`, `Jun.` → `jun`);
-- page ranges use a double hyphen (`12-15`, `12 – 15` → `12--15`; lists such as `S1-S9, 20-22` are handled part by part);
-- one blank line between entries and a single newline at the end of the file;
-- field order is kept unless `--sort-fields` is given;
-- values are otherwise copied exactly, including line breaks inside them;
-- `%` comments and `@string`/`@comment`/`@preamble` blocks are kept. With `--sort-entries`, a comment directly above an entry moves with it, and `@string`/`@preamble` blocks stay at the top.
+In detail, `format` does the following:
 
-Every result is checked before anything is written: the file is parsed again and must contain the same entries, types, fields, and values (up to the conversions above), and formatting it a second time must change nothing. Files that fail the check, cannot be parsed, or have duplicate keys are reported and skipped.
+- Lowercases entry types and field names, indents fields by two spaces, and aligns `=` to the longest field name.
+- Turns `"..."` values and bare numbers into `{...}`. Values joined with `#`, and macros such as `@string` names, stay as they are.
+- Keeps one pair of braces around values wrapped in extra braces (`{{Whole Title}}` → `{Whole Title}`). It leaves `author` and `editor` alone, because `{{...}}` there keeps a corporate name such as `{{World Health Organization}}` together.
+- Ends every field but the last with a comma, and adds missing commas.
+- Turns months into macros (`{June}`, `"6"`, `Jun.` → `jun`).
+- Writes page ranges with a double hyphen (`12-15`, `12 – 15` → `12--15`). It handles lists such as `S1-S9, 20-22` part by part.
+- Puts one blank line between entries, and a single newline at the end of the file.
+- Keeps the field order, unless you pass `--sort-fields`.
+- Otherwise copies values exactly, including line breaks inside them.
+- Keeps `%` comments and `@string`, `@comment`, and `@preamble` blocks. With `--sort-entries`, a comment directly above an entry moves with it, and `@string` and `@preamble` blocks stay at the top.
+
+`format` checks every result before writing anything: it parses the file again, which must contain the same entries, types, fields, and values (up to the preceding conversions), and formatting the file a second time must change nothing. `format` reports and skips files that fail the check, can't be parsed, or have duplicate keys.
 
 <details>
 <summary>All <code>format</code> options</summary>
 
 | Option | Description |
 | --- | --- |
-| `PATH ...` | `.bib` files or directories (recursive) |
+| `PATH ...` | `.bib` files or directories (searched recursively) |
 | `--in-place` | Write the formatted text back to each file |
 | `-o`, `--output FILE` | Write the formatted file here (single input file only) |
 | `--check` | Write nothing; exit 1 if any file would change |
 | `--sort-fields` | Reorder fields by `--field-order`; other fields follow in source order |
-| `--field-order LIST` | Comma-separated order for `--sort-fields` (default: the order `add` uses) |
+| `--field-order LIST` | Comma-separated order for `--sort-fields` (default: the order that `add` uses) |
 | `--sort-entries` | Sort entries by citation key (case-insensitive) |
 | `--keep-quotes` | Keep `"..."` values and bare numbers |
 | `--keep-outer-braces` | Keep values wrapped in extra braces (`{{...}}`) |
-| `--keep-months` | Do not turn months into macros |
-| `--keep-pages` | Do not turn page ranges into `--` ranges |
+| `--keep-months` | Don't turn months into macros |
+| `--keep-pages` | Don't turn page ranges into `--` ranges |
 | `--no-align` | Write `name = value` without aligning `=` |
-| `--indent N` | Field indent: number of spaces or `tab` (default: `2`) |
+| `--indent N` | Field indent: a number of spaces, or `tab` (default: `2`) |
 | `--blank-lines N` | Blank lines between entries (default: `1`) |
 | `--trailing-comma` | Put a comma after the last field |
 | `--drop-empty` | Remove fields with empty values (`{}` or `""`) |
@@ -405,25 +496,25 @@ Every result is checked before anything is written: the file is parsed again and
 
 ---
 
-### `librarian` — PDF Library Alignment
+### Align a PDF library with `librarian` <a id="librarian"></a>
 
-Align your PDF library with your bibliography. Three subcommands:
+`librarian` aligns your PDF library with your bibliography. It has three subcommands:
 
 ```bash
-# Find bib entries whose PDFs are missing from your library
+# Find .bib entries whose PDFs are missing from your library.
 bibcc librarian missing input.bib papers.txt
 
-# Find library PDFs not referenced in bib
+# Find library PDFs that the .bib file doesn't reference.
 bibcc librarian extra input.bib papers.txt
 
-# Rename PDFs to citation-key names via title matching
+# Rename PDFs to citation-key names by matching titles.
 bibcc librarian rename input.bib ~/Downloads/papers --dry-run   # preview
 bibcc librarian rename input.bib ~/Downloads/papers             # apply
 ```
 
-**Library listing**: `missing` and `extra` expect PDFs named after citation keys (`ISPC_Wang_CVPR2024.pdf`). The listing file is any text file with one PDF name per line, for example `ls ~/papers > papers.txt`. Lines may contain other text (such as the dates and sizes from a Windows `dir` listing), and UTF-8 and UTF-16 files are both read.
+**Library listing.** `missing` and `extra` expect PDFs named after citation keys (`ISPC_Wang_CVPR2024.pdf`). The listing file is any text file with one PDF name per line, for example the output of `ls ~/papers > papers.txt`. Lines can contain other text (such as the dates and sizes from a Windows `dir` listing), and `librarian` reads both UTF-8 and UTF-16 files.
 
-**Rename workflow**: Export PDFs from Zotero (or similar) with full titles in the filename (e.g., `Author 等 - 2025 - Full Paper Title.pdf`). The tool takes the text after the last ` - ` as the title, normalises it (ignoring case, braces, and punctuation), and renames the PDF to `<citation key>.pdf` when exactly that title is in the `.bib` file. When several entries share the title (a conference paper and its journal version), the PDF is listed as ambiguous with the candidate keys and not renamed. Files are renamed in place, and existing files are never overwritten. No manual ordering is required.
+**Renaming.** Export PDFs from Zotero or a similar reference manager with full titles in the filenames (for example, `Author 等 - 2025 - Full Paper Title.pdf`). `librarian rename` takes the text after the last ` - ` as the title, normalizes it (ignoring case, braces, and punctuation), and renames the PDF to `CITATION_KEY.pdf` when exactly that title is in the `.bib` file. When several entries share the title (for example, a conference paper and its journal version), `librarian` lists the PDF as ambiguous, with the candidate keys, and doesn't rename it. Files are renamed in place, and existing files are never overwritten. The order of the files doesn't matter.
 
 <details>
 <summary>All <code>librarian</code> options</summary>
@@ -438,22 +529,26 @@ bibcc librarian rename input.bib ~/Downloads/papers             # apply
 
 ---
 
-### `scholar` — Citations & Title Verification
+### Count citations and verify titles with `scholar` <a id="scholar"></a>
 
-Two subcommands for web-based bibliography management.
+`scholar` has two subcommands that work with online sources.
 
-**`cite`** — Google Scholar citation URLs and interactive citation fill:
+#### Citation counts
+
+`scholar cite` builds Google Scholar citation URLs and helps you fill in citation counts interactively:
 
 ```bash
-bibcc scholar cite input.bib                         # dry-run: show URLs
-bibcc scholar cite input.bib -i                      # interactive: fill counts
-bibcc scholar cite input.bib --open --batch-size 10  # batch open in browser
-bibcc scholar cite input.bib -i --include-filled     # re-check filled entries
+bibcc scholar cite input.bib                         # dry run: show the URLs
+bibcc scholar cite input.bib -i                      # interactive: fill in the counts
+bibcc scholar cite input.bib --open --batch-size 10  # open the URLs in your browser in batches
+bibcc scholar cite input.bib -i --include-filled     # check filled-in entries again
 ```
 
-`cite` writes Google Scholar search URLs to `.scholar_urls.txt`. In interactive mode it opens each paper's Google Scholar search in your browser (you can skip or quit at any entry), asks for the citation count, and stores it in a `citation` field (written back to the input unless `--output` is given). Only the `citation` fields change.
+`cite` writes Google Scholar search URLs to `.scholar_urls.txt`. In interactive mode, it opens each paper's Google Scholar search in your browser (you can skip an entry or quit at any time), asks for the citation count, and stores it in a `citation` field. Unless you pass `--output`, it writes the counts back to the input file. Only the `citation` fields change.
 
-**`titles`** — Verify paper titles against CrossRef, arXiv, and Semantic Scholar:
+#### Title verification
+
+`scholar titles` verifies paper titles against CrossRef, arXiv, and Semantic Scholar:
 
 ```bash
 bibcc scholar titles input.bib
@@ -461,99 +556,105 @@ bibcc scholar titles input.bib --retry-errors bib/.bibcc/input.bib.title_report.
 bibcc scholar titles input.bib --ids ID1,ID2                                         # specific entries
 ```
 
-Each title is looked up in this order:
+`titles` looks up each title in this order:
 
 1. Entries with a DOI are checked against CrossRef only.
-2. Entries with an arXiv ID are checked against arXiv.
-3. Otherwise, or when the arXiv title matches, Semantic Scholar is searched by title.
-4. If nothing has matched, a CrossRef title search is the last resort.
+1. Entries with an arXiv ID are checked against arXiv.
+1. Otherwise, or when the arXiv title matches, Semantic Scholar is searched by title.
+1. If nothing has matched, a CrossRef title search is the last resort.
 
-A title only counts as found when it matches exactly (ignoring case and punctuation). The report (`.title_report.txt`) lists titles whose capitalisation differs from the published one, lookups that failed (network errors, rate limits), and titles no source knows. Pass that report to `--retry-errors` to re-check only the failed lookups; the report is updated in place. Semantic Scholar allows few requests without a key, so set `S2_API_KEY` for larger files. DBLP is not queried because its API is behind a bot challenge.
+A title only counts as found when it matches exactly (ignoring case and punctuation). The report, `.title_report.txt`, lists titles whose capitalization differs from the published one, lookups that failed (because of network errors or rate limits), and titles that no source knows. To check only the failed lookups again, pass that report to `--retry-errors`; the report is updated in place. Semantic Scholar allows few requests without a key, so for larger files, set `S2_API_KEY`. `titles` doesn't query DBLP, because its API is behind a bot challenge.
 
 <details>
 <summary>All <code>scholar</code> options</summary>
 
-**cite:**
+Options for `cite`:
 
 | Option | Description |
 | --- | --- |
-| `--interactive`, `-i` | Interactive citation fill (recommended) |
-| `--open` | Batch open URLs in browser |
+| `--interactive`, `-i` | Fill in citation counts interactively (recommended) |
+| `--open` | Open the URLs in your browser in batches |
 | `--batch-size N` | URLs per batch (default: `5`) |
-| `--include-filled` | Include entries that already have citation values |
-| `--output`, `-o FILE` | Output file (omit for dry-run) |
+| `--include-filled` | Include entries that already have citation counts |
+| `--output`, `-o FILE` | Output file (omit for a dry run) |
 | `--log-dir DIR` | Directory for reports and logs (default: `.bibcc/` next to the input) |
 
-**titles:**
+Options for `titles`:
 
 | Option | Description |
 | --- | --- |
-| `--delay`, `-d SECS` | API request delay (default: `0.5`) |
-| `--quiet`, `-q` | Suppress progress output |
-| `--retry-errors REPORT` | Re-check only error entries from a previous report |
+| `--delay`, `-d SECS` | Seconds to wait between API requests (default: `0.5`) |
+| `--quiet`, `-q` | Don't print progress |
+| `--retry-errors REPORT` | Check only the failed lookups of a previous report again |
 | `--ids IDS` | Comma-separated entry IDs to check |
 
 </details>
 
 ---
 
-### `compose` — Merge `.bib` Files
+### Merge `.bib` files with `compose` <a id="compose"></a>
 
-Combine `.bib` files from a folder tree into a single bibliography:
+`compose` combines the `.bib` files of a directory tree into a single bibliography:
 
 ```bash
 bibcc compose compose ./my-bibs combined.bib
 bibcc compose compose ./my-bibs combined.bib --no-dup-warning
 ```
 
-Source path markers (`% === source: path/file.bib ===`) are inserted between files. All original comments are preserved. Duplicate entry IDs are warned by default (`--no-dup-warning` turns this off). The output file and anything under `.bibcc/` are skipped, so the output can live inside the input folder.
+`compose` inserts source path markers (`% === source: path/file.bib ===`) between files and keeps all original comments. By default, it warns about duplicate entry IDs; to turn off the warning, pass `--no-dup-warning`. It skips the output file and anything under `.bibcc/`, so the output can live inside the input directory.
 
 ---
 
-## 📂 Output Files
+## Output files
 
-Reports are written to a `.bibcc/` folder next to the input `.bib` file, and logs to `.bibcc/logs/`. For example, checking `bib/refs.bib` writes `bib/.bibcc/refs.bib.title_case.txt`. `complete`, `add`, `upgrade`, `format`, and `scholar cite` accept `--log-dir` to choose another folder. `check --check-venues` has no input `.bib` file, so it writes its log to `.bibcc/logs/` in the current directory. Add `.bibcc/` to the `.gitignore` of your bibliography project to keep these files out of version control. The project venue library, `.bibcc-venues.yaml`, lives outside that folder so you can commit it.
+BibCC writes reports to a `.bibcc/` directory next to the input `.bib` file, and logs to `.bibcc/logs/`. For example, checking `bib/refs.bib` writes `bib/.bibcc/refs.bib.title_case.txt`. To choose another directory, pass `--log-dir` to `complete`, `add`, `upgrade`, `format`, or `scholar cite`. `check --check-venues` has no input `.bib` file, so it writes its log to `.bibcc/logs/` in the current directory.
 
-| Command | Report Files | Log Files |
+To keep these files out of version control, add `.bibcc/` to the `.gitignore` file of your bibliography project. The project venue library, `.bibcc-venues.yaml`, lives outside that directory so that you can commit it.
+
+The following table lists the files that each command writes:
+
+| Command | Report files | Log files |
 | --- | --- | --- |
 | `check` | `.missing_fields.txt`, `.title_case.txt`, `.smart_protection.txt`, `.citation_keys.txt`, `.field_issues.txt` | `.bibcc/logs/*.checker.log` |
 | `complete` | `.complete.diff` (dry-run preview), `.missing_venues.yaml`, `.missing_venues.txt`, `.conflicts.txt`, `.incomplete_entries.txt`, `.venue_check.txt` (`--online`) | `.bibcc/logs/*.completer.log` |
-| `add` | (entries appended to the staging `.bib`), `.missing_venues.yaml` | `.bibcc/logs/*.adder.log` |
+| `add` | The staging `.bib` file (entries appended), `.add.txt`, `.missing_venues.yaml` | `.bibcc/logs/*.adder.log` |
 | `upgrade` | `.upgrade.txt`, `.upgrade.diff` (dry-run preview), `.missing_venues.yaml`, `.published.txt` (`--report-only`) | `.bibcc/logs/*.upgrader.log` |
 | `format` | `.format.diff` (dry-run preview) | `.bibcc/logs/*.formatter.log` |
 | `scholar cite` | `.scholar_urls.txt` | `.bibcc/logs/*.scholar.cite.log` |
 | `scholar titles` | `.title_report.txt` | `.bibcc/logs/*.scholar.titles.log` |
 | `librarian` | `.missing_pdfs.txt`, `.extra_pdfs.txt`, `.rename_report.txt` | `.bibcc/logs/*.librarian.log` |
-| `compose` | (composed `.bib` file) | `.bibcc/logs/*.composer.log` |
+| `compose` | The composed `.bib` file | `.bibcc/logs/*.composer.log` |
 
-## 🗂️ Venue Library <a id="venue-library"></a>
+## Venue library <a id="venue-library"></a>
 
-The venue library powers `complete`, and completes the entries `add` and `upgrade` create. BibCC ships none: every user builds their own, from scratch or from a shared one.
+The venue library powers `complete`, and completes the entries that `add` and `upgrade` create. BibCC doesn't ship one: every user builds their own, either from scratch or from a shared library.
 
-### User and Project Libraries
+### User and project libraries
+
+There are two scopes of venue library:
 
 | Scope | File | Holds |
 | --- | --- | --- |
-| **user** | `$BIBCC_VENUES` if set, else `$XDG_CONFIG_HOME/bibcc/venues.yaml` (`~/.config/bibcc/venues.yaml`) | Venues for all your projects |
-| **project** | `.bibcc-venues.yaml`, the nearest one in the folder of the `.bib` file or a parent folder | Venues for one project; commit it with the bibliography so coauthors share it |
+| `user` | `$BIBCC_VENUES` if it's set, or else `$XDG_CONFIG_HOME/bibcc/venues.yaml` (`~/.config/bibcc/venues.yaml`) | Venues for all your projects |
+| `project` | `.bibcc-venues.yaml`: the nearest one in the directory of the `.bib` file or a parent directory | Venues for one project; commit it with the bibliography so that your coauthors share it |
 
-**Reading.** Commands read both libraries, merged. A venue in only one of them is used as is. A venue in both gets the fields of both, and where both define a field, **the project's value wins**. `bibcc venues where` lists the fields the project overrides.
+**Reading.** Commands read both libraries, merged. A venue that's in only one of them is used as is. A venue that's in both gets the fields of both, and where both define a field, the project's value wins. `bibcc venues where` lists the fields that the project overrides.
 
 **Writing.** Commands write to one library only, and say which file they write:
 
-- `complete --update-venues` and `venues import` write to the **user** library, unless you pass `--scope project`.
-- `--scope project` needs an existing `.bibcc-venues.yaml` for `complete`. Create one in your project root with `bibcc venues init --scope project`. `venues import --scope project` creates it in the current folder if there is none.
+- `complete --update-venues` and `venues import` write to the user library, unless you pass `--scope project`.
+- For `complete`, `--scope project` needs an existing `.bibcc-venues.yaml`. To create one in your project root, run `bibcc venues init --scope project`. `venues import --scope project` creates the file in the current directory if there's none.
 - `--venues FILE` uses that one file instead of both libraries, for reading and writing.
 
 ```bash
 bibcc venues where bib/refs.bib            # the libraries that apply, their sizes, and the overrides
-bibcc venues init --scope project          # start a project library in the current folder
+bibcc venues init --scope project          # start a project library in the current directory
 bibcc venues import miaa --scope project   # fill it from a shared library
 ```
 
-### Shared Libraries
+### Shared libraries
 
-[`examples/venues/`](examples/venues/) holds libraries built by labs and people for their own fields, such as the MIAA lab's [`miaa`](examples/venues/miaa.yaml): machine learning and computer vision journals and proceedings from 2016 to 2026, with CVF and OpenReview interim booktitles linked. They are a head start, not a standard.
+[`examples/venues/`](examples/venues/) holds libraries that labs and people built for their own fields, such as the MIAA lab's [`miaa`](examples/venues/miaa.yaml): machine learning and computer vision journals and proceedings from 2016 to 2026, with CVF and OpenReview interim booktitles linked. They're a head start, not a standard.
 
 ```bash
 bibcc venues examples                  # list them
@@ -562,9 +663,9 @@ bibcc venues import miaa               # merge it into your user library
 bibcc venues import ~/lab.yaml         # a file or an https:// URL works too
 ```
 
-`import` only adds. It adds records you don't have, and fields, aliases, and interim booktitles your records lack. Where a field differs, your value is kept and the difference is listed, unless you pass `--overwrite`. To share your library or improve one, see [Contributing a Library](examples/venues/README.md#contributing-a-library).
+`import` only adds: it adds records that you don't have, and fields, aliases, and interim booktitles that your records lack. Where a field differs, `import` keeps your value and lists the difference, unless you pass `--overwrite`. To share your library or improve one, see [Contributing a library](examples/venues/README.md#contributing-a-library).
 
-### Format
+### Library format
 
 A library is a YAML file with two lists:
 
@@ -592,95 +693,110 @@ proceedings:                    # one record per publication year
       publisher: IEEE
 ```
 
-Matching ignores braces, case, `\&` vs `&`, and extra spaces:
+Matching ignores braces, case, the difference between `\&` and `&`, and extra spaces:
 
 - **Journals** match by name, any alias, or ISSN.
-- **Proceedings** match by name or alias **and** the entry's `year`, or else by an **interim** booktitle: the name CVF Open Access (`cvf`) or OpenReview (`openreview`) gives the same proceedings. An entry matched through an interim name only gets `venue` and `month`, and is reported so `bibcc upgrade` can replace it. Until a conference's proceedings are out, its record is named by the interim booktitle; merging a proposal from `add` or `upgrade` renames it to the published name and keeps the old one under `interim`.
-- If several records match one entry, nothing is added and the entry is reported as ambiguous.
+- **Proceedings** match by name or alias and by the entry's `year`, or else by an interim booktitle: the name that CVF Open Access (`cvf`) or OpenReview (`openreview`) gives the same proceedings. An entry matched through an interim name only gets `venue` and `month`, and is reported so that `bibcc upgrade` can replace it. Until a conference's proceedings are out, its record is named by the interim booktitle. Merging a proposal from `add` or `upgrade` renames the record to the published name and keeps the old one under `interim`.
+- **Several matches**: if several records match one entry, nothing is added, and the entry is reported as ambiguous.
 
-`bibcc` rewrites a library in this sorted form whenever it saves one. Comments other than the header are not kept. See [`missing_venues.example.yaml`](missing_venues.example.yaml) for the format of the generated fill-in file.
+Whenever `bibcc` saves a library, it rewrites the library in this sorted form. Comments other than the header aren't kept. For the format of the generated fill-in file, see [`missing_venues.example.yaml`](missing_venues.example.yaml).
 
-### Adding New Venues
+### Add new venues
+
+To add the venues that a `.bib` file needs, do the following:
 
 ```bash
-# 1. Run complete to generate YAML for unknown venues (add and upgrade write one too)
+# 1. Generate a YAML file for unknown venues (add and upgrade write one too).
 bibcc complete input.bib            # --online also pre-fills from CrossRef
 
-# 2. Edit .bibcc/input.bib.missing_venues.yaml — most fields are pre-filled
+# 2. Edit .bibcc/input.bib.missing_venues.yaml. Most fields are pre-filled.
 
-# 3. Merge into your user library (or --scope project) and complete in one step
+# 3. Merge the file into your user library (or --scope project) and complete in one step.
 bibcc complete input.bib --output out.bib --update-venues
 ```
 
-Entries missing year or venue (e.g., arXiv preprints, misc entries) are reported in `*.incomplete_entries.txt` and skipped.
+`complete` skips entries without a year or a venue (such as arXiv preprints and `@misc` entries), and reports them in `*.incomplete_entries.txt`.
 
-## 🛠️ Development <a id="development"></a>
+## Development <a id="development"></a>
+
+To set up a development checkout, run the following:
 
 ```bash
 git clone https://github.com/3hiuwoo/BibCC.git && cd BibCC
-uv sync                        # install the package (editable) and dev tools
+uv sync                        # install the package (editable) and the dev tools
 uv run pytest                  # run the tests (no network access; API responses are canned)
 uv run ruff check .            # lint
-uv tool install --editable .   # optional: `bibcc` on your PATH, following the checkout
+uv tool install --editable .   # optional: put bibcc on your PATH, following the checkout
 ```
 
-Code lives in `src/bibcc/`. Each command is one module (`checker.py`, `completer.py`, `adder.py`, `upgrader.py`, `formatter.py`, and `utils/` for `librarian`, `scholar`, `compose`, and `venues`), registered in `cli.py`. Shared pieces are `bibedit.py` (minimal, verified edits), `sources.py` (CrossRef, arXiv, OpenReview, and Semantic Scholar lookups), `official.py` (finding and downloading official BibTeX), `venues.py` (the venue libraries and their scopes), `missing_venues.py` (the fill-in YAML), `crosscheck.py` (the CrossRef check of `complete --online`), and `logging_utils.py` (reports and logs). See [`CONTRIBUTING.md`](CONTRIBUTING.md) for branches, versioning, and releases, [`CLAUDE.md`](CLAUDE.md) for code conventions, and [`CHANGELOG.md`](CHANGELOG.md) for the changes in each version. BibCC is released under the [MIT License](LICENSE).
+The code lives in `src/bibcc/`. Each command is one module, registered in `cli.py`: `checker.py`, `completer.py`, `adder.py`, `upgrader.py`, `formatter.py`, and `utils/` for `librarian`, `scholar`, `compose`, and `venues`. These modules hold the shared pieces:
 
-## 🔗 Additional Resources
+- `bibedit.py`: minimal, verified edits.
+- `sources.py`: CrossRef, arXiv, OpenReview, and Semantic Scholar lookups.
+- `official.py`: finding and downloading official BibTeX.
+- `venues.py`: the venue libraries and their scopes.
+- `missing_venues.py`: the fill-in YAML file.
+- `crosscheck.py`: the CrossRef check of `complete --online`.
+- `logging_utils.py`: reports and logs.
 
-Apart from `bibcc format`, BibCC keeps your existing formatting and only adds or replaces the fields it targets. Other formatters:
+For branches, versioning, and releases, see [`CONTRIBUTING.md`](CONTRIBUTING.md). For code conventions, see [`CLAUDE.md`](CLAUDE.md). For the changes in each version, see [`CHANGELOG.md`](CHANGELOG.md). BibCC is released under the [MIT License](LICENSE).
 
-- [**BibTeX Tidy**](https://flamingtempura.github.io/bibtex-tidy/)
-- VS Code's LaTeX Workshop extension
+## Additional resources
 
-## 🗺️ Roadmap
+Apart from `bibcc format`, BibCC keeps your existing formatting and only adds or replaces the fields that it targets. If you want another formatter, try one of these:
 
-Planned work, grouped by command. Shipped changes are recorded in [`CHANGELOG.md`](CHANGELOG.md).
+- [BibTeX Tidy](https://flamingtempura.github.io/bibtex-tidy/)
+- The LaTeX Workshop extension for VS Code
+
+## Roadmap
+
+This section lists planned and shipped work, grouped by command. [`CHANGELOG.md`](CHANGELOG.md) records the changes in each version.
 
 ### Planned
 
-- Nothing scheduled. Ideas and requests are welcome as issues.
+Nothing is scheduled. Ideas and requests are welcome as issues.
 
 ### Shipped
 
-- **`complete` & venue library**
-  - Unified venue management workflow — YAML venue library and `--update-venues`.
-  - User and project venue libraries, merged with project priority; no bundled library, shared ones in `examples/venues/` — `bibcc venues`.
+- **`complete` and the venue library**
+  - A unified venue management workflow: the YAML venue library and `--update-venues`.
+  - User and project venue libraries, merged with project priority; no bundled library, and shared ones in `examples/venues/` (`bibcc venues`).
   - Aliases, ISSN matching, and previous-edition pre-fill.
-  - Minimal, verified edits that keep the rest of the file untouched — `bibedit.py`.
-  - Auto-guessed fields from journal and conference names (publisher, issn, month) — `# auto-guessed` markers.
-  - Pre-fill YAML from existing bibliographies in the same venue.
-  - Conflicts reported in every mode, dry run included — `.conflicts.txt`.
-  - Interim booktitles (CVF Open Access, OpenReview) linked to their proceedings — `interim:` in the library.
-  - Opt-in CrossRef source that pre-fills the YAML and checks entries and library, off by default — `--online`.
-  - Fill-in YAML merged across runs and shared by `complete`, `add`, and `upgrade`.
+  - Minimal, verified edits that keep the rest of the file untouched (`bibedit.py`).
+  - Fields guessed from journal and conference names (publisher, ISSN, and month), marked `# auto-guessed`.
+  - YAML pre-fill from existing bibliographies in the same venue.
+  - Conflicts reported in every mode, including dry runs (`.conflicts.txt`).
+  - Interim booktitles (CVF Open Access and OpenReview) linked to their proceedings (`interim:` in the library).
+  - An opt-in CrossRef source that pre-fills the YAML file and checks entries and the library, off by default (`--online`).
+  - A fill-in YAML file that's merged across runs and shared by `complete`, `add`, and `upgrade`.
 - **`check`**
-  - Citation key legibility — `--check-keys`.
-  - Field name typos, malformed values, and duplicate papers — `--check-fields`.
-  - Venue library missing fields — `--check-venues`.
-  - Robust term protection (skip numbers, filter author names) — `--quote`.
-  - Robust title case (hyphenated words, configurable style) — `--title-case`.
-  - Interactive title case application — `--title-interactive`.
-  - Modular sub-checker architecture — `checkers/` package.
+  - Citation key legibility (`--check-keys`).
+  - Field name typos, malformed values, and duplicate papers (`--check-fields`).
+  - Venue library records with missing fields (`--check-venues`).
+  - Robust term protection that skips numbers and filters author names (`--quote`).
+  - Robust title case with hyphenated words and a configurable style (`--title-case`).
+  - Interactive title case application (`--title-interactive`).
+  - A modular sub-checker architecture (the `checkers/` package).
 - **`add`**
-  - Add papers by DOI, arXiv ID, or title, with duplicate checks — `bibcc add`.
-  - Official BibTeX from IEEE Xplore, Springer, PMLR, NeurIPS, ICLR, ACL Anthology, IJCAI, OpenReview, and arXiv, with interim CVF/OpenReview BibTeX and empty entries to fill in by hand.
+  - Papers added by DOI, arXiv ID, or title, with duplicate checks (`bibcc add`).
+  - Official BibTeX from IEEE Xplore, Springer, PMLR, NeurIPS, ICLR, ACL Anthology, IJCAI, OpenReview, and arXiv, with interim CVF and OpenReview BibTeX, and empty entries to fill in by hand.
   - Paper page URLs as identifiers.
+  - Entries built from metadata when official BibTeX is unavailable, and a list of what's left to do by hand (`--fallback` and `.add.txt`).
 - **`upgrade`**
-  - Replace preprints with published versions — `bibcc upgrade`.
-  - Official BibTeX only; interim CVF/OpenReview entries are candidates too.
-  - Report which preprints have been published, with the official BibTeX URL — `--report-only`.
+  - Preprints replaced with their published versions (`bibcc upgrade`).
+  - Official BibTeX only; interim CVF and OpenReview entries and entries built from metadata are candidates too.
+  - A report of which preprints have been published, with the official BibTeX URL (`--report-only`).
 - **`format`**
-  - Whole-file formatting (alignment, braces, month macros, sorting) — `bibcc format`.
+  - Whole-file formatting: alignment, braces, month macros, and sorting (`bibcc format`).
 - **`librarian`**
-  - Unified PDF library alignment (missing/extra/rename).
+  - Unified PDF library alignment: missing, extra, and rename.
 - **`scholar`**
-  - Unified citation and title tool — `cite` and `titles`.
-  - Title verification without DBLP (bot challenge) — Semantic Scholar plus a CrossRef title search fallback.
+  - A unified citation and title tool (`cite` and `titles`).
+  - Title verification without DBLP, which is behind a bot challenge: Semantic Scholar, with a CrossRef title search as a fallback.
 - **`compose`**
-  - Folder-based `.bib` composition with comment preservation.
-- **CLI & output**
-  - Unified CLI entry point — `bibcc`.
-  - Consistent output formatting and logging — shared format constants and report writer.
-  - Installable command-line tool — `pyproject.toml` and `uv`.
-  - Tagged releases, CI on every push and pull request, and an MIT license — `.github/workflows/`, `CONTRIBUTING.md`.
+  - Directory-based `.bib` composition that keeps comments.
+- **CLI and output**
+  - A unified CLI entry point (`bibcc`).
+  - Consistent output formatting and logging: shared format constants and a report writer.
+  - An installable command-line tool (`pyproject.toml` and `uv`).
+  - Tagged releases, CI on every push and pull request, and an MIT license (`.github/workflows/` and `CONTRIBUTING.md`).

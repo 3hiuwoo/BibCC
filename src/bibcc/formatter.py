@@ -568,7 +568,7 @@ def format_paths(
     log(f"{len(files)} file(s): {len(changed)} {verb}, {len(unchanged)} already formatted, "
         f"{len(failed)} failed.")
     if changed and not (check or in_place or output is not None):
-        log("🧪 Dry run. To write the changes, run with --in-place or --output <file.bib>")
+        log("🧪 Dry run. To write the changes, run with --in-place or --output FILE.bib.")
     return {"changed": changed, "unchanged": unchanged, "failed": failed}
 
 
@@ -600,37 +600,38 @@ entry. The default style:
     booktitle = {2023 {IEEE/CVF} Conference on Computer Vision ...}
   }
 
-- lowercase entry types and field names, two-space indent, aligned '='
-- "..." values and bare numbers become {...}; # concatenations and macros
-  such as @string names are kept
-- values wrapped in extra braces get one pair ({{Title}} -> {Title}), except
-  author and editor, where {{...}} keeps a corporate name together
-- a comma follows every field but the last; missing commas are added
-- months become macros ({June}, "6", Jun. -> jun)
-- page ranges use a double hyphen (12-15 -> 12--15)
-- one blank line between entries, one newline at the end of the file
-- field order, values (including line breaks inside them), % comments, and
-  @string/@comment/@preamble blocks are kept
+- Lowercase entry types and field names, a two-space indent, and aligned '='.
+- "..." values and bare numbers become {...}. The command keeps #
+  concatenations and macros such as @string names.
+- Values wrapped in extra braces get one pair ({{Title}} -> {Title}), except
+  author and editor, where {{...}} keeps a corporate name together.
+- A comma follows every field except the last; the command adds missing
+  commas.
+- Months become macros ({June}, "6", or Jun. -> jun).
+- Page ranges use a double hyphen (12-15 -> 12--15).
+- One blank line between entries, and one newline at the end of the file.
+- The command keeps the field order, the values (including line breaks
+  inside them), % comments, and @string, @comment, and @preamble blocks.
 
-Every result is parsed again and must contain the same entries, types,
-fields, and values, and formatting it a second time must change nothing.
-Files that fail this check, cannot be parsed, or have duplicate keys are
-reported and skipped. Without --in-place, --output, or --check this is a dry
-run that writes one diff per changed file.""",
+The command parses every result again. The result must contain the same
+entries, types, fields, and values, and formatting it a second time must
+change nothing. The command reports and skips files that fail this check,
+can't be parsed, or have duplicate keys. Without --in-place, --output, or
+--check, the command does a dry run and writes one diff per changed file.""",
         epilog=epilog(
             examples=[
-                ("preview every .bib file under bib/ (diffs in .bibcc/)", "bibcc format bib/"),
-                ("format them in place", "bibcc format bib/ --in-place"),
-                ("format one file into another", "bibcc format refs.bib --output tidy.bib"),
-                ("in CI: fail if a file is not formatted", "bibcc format bib/ --check"),
-                ("also sort fields and entries, and indent with tabs",
+                ("Preview every .bib file in bib/ (writes diffs in .bibcc/)", "bibcc format bib/"),
+                ("Format the files in place", "bibcc format bib/ --in-place"),
+                ("Format one file into another", "bibcc format refs.bib --output tidy.bib"),
+                ("In CI, fail if a file isn't formatted", "bibcc format bib/ --check"),
+                ("Also sort fields and entries, and indent with tabs",
                  "bibcc format refs.bib --in-place --sort-fields --sort-entries --indent tab"),
             ],
             outputs=[
-                (".bibcc/<file>.format.diff", "dry run: the changes for each changed file"),
-                (".bibcc/logs/<path>.formatter.log", "everything printed (not written with --check)"),
+                (".bibcc/FILE.format.diff", "Dry run: the changes for each changed file"),
+                (".bibcc/logs/PATH.formatter.log", "Everything printed to the terminal (not written with --check)"),
             ],
-            exit_status="0 on success, 1 if a file failed (or, with --check, would change),\n"
+            exit_status="0 on success, 1 if a file fails (or, with --check, would change),\n"
             "2 on usage errors.",
         ),
         formatter_class=HelpFormatter,
@@ -639,14 +640,16 @@ run that writes one diff per changed file.""",
         "paths",
         nargs="+",
         metavar="PATH",
-        help=".bib files or directories (searched recursively; .bibcc/ folders are skipped).",
+        help=".bib files or directories (searched recursively, skipping .bibcc/ directories).",
     )
     mode = parser.add_argument_group("what to write (pick one; default: dry run)").add_mutually_exclusive_group()
     mode.add_argument("--in-place", action="store_true", help="Write the formatted text back to each file.")
     mode.add_argument(
-        "-o", "--output", default="", metavar="FILE", help="Write the formatted file here (one input file only)."
+        "-o", "--output", default="", metavar="FILE", help="Write the formatted file to FILE (one input file only)."
     )
-    mode.add_argument("--check", action="store_true", help="Write nothing; exit 1 if any file would change.")
+    mode.add_argument(
+        "--check", action="store_true", help="Write nothing, and exit with status 1 if any file would change."
+    )
     style = parser.add_argument_group("style")
     style.add_argument("--sort-fields", action="store_true", help="Reorder fields using --field-order.")
     style.add_argument(
@@ -659,7 +662,7 @@ run that writes one diff per changed file.""",
     style.add_argument(
         "--sort-entries",
         action="store_true",
-        help="Sort entries by citation key (case-insensitive). A comment directly above an "
+        help="Sort entries by citation key (case-insensitive). A comment directly before an "
         "entry moves with it; @string and @preamble blocks stay at the top.",
     )
     style.add_argument("--keep-quotes", action="store_true", help='Keep "..." values and bare numbers as they are.')
@@ -668,8 +671,8 @@ run that writes one diff per changed file.""",
         action="store_true",
         help="Keep values wrapped in extra braces ({{...}}) as they are.",
     )
-    style.add_argument("--keep-months", action="store_true", help="Do not turn month values into macros (jun).")
-    style.add_argument("--keep-pages", action="store_true", help="Do not turn page ranges like 12-15 into 12--15.")
+    style.add_argument("--keep-months", action="store_true", help="Don't turn month values into macros (jun).")
+    style.add_argument("--keep-pages", action="store_true", help="Don't turn page ranges such as 12-15 into 12--15.")
     style.add_argument("--no-align", action="store_true", help="Write 'name = value' without aligning '='.")
     style.add_argument(
         "--indent",

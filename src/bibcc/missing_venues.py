@@ -189,13 +189,14 @@ def render(mv: MissingVenue, library: VenueLibrary) -> List[str]:
         return lines
     lines.append("    fields:")
     if mv.kind == JOURNAL:
-        lines.append(_field_line("publisher", mv, prior, guess_publisher(mv.name), "# e.g., IEEE, Elsevier, Springer"))
+        lines.append(_field_line("publisher", mv, prior, guess_publisher(mv.name),
+                                 "# for example, IEEE, Elsevier, or Springer"))
         lines.append(_field_line("issn", mv, prior, "", ""))
-        lines.append(_field_line("address", mv, prior, "", "# optional, e.g., New York, NY, USA"))
+        lines.append(_field_line("address", mv, prior, "", "# optional; for example, New York, NY, USA"))
     else:
-        lines.append(_field_line("venue", mv, prior, "", "# e.g., City, Country"))
+        lines.append(_field_line("venue", mv, prior, "", "# for example, City, Country"))
         lines.append(_field_line("publisher", mv, prior, guess_publisher(mv.name), ""))
-        lines.append(_field_line("month", mv, prior, guess_month(mv.name), "# e.g., June, October"))
+        lines.append(_field_line("month", mv, prior, guess_month(mv.name), "# for example, June or October"))
         for name in ("isbn", "issn", "editor", "series", "address"):
             lines.append(_field_line(name, mv, prior, "", ""))
     lines.append("")
@@ -209,7 +210,7 @@ def _render_suggestions(suggestions: List[Suggestion]) -> List[str]:
     lines = [
         _SUGGESTIONS_MARKER,
         "# CrossRef disagrees with these library values. To apply one, move the record",
-        "# into the section above it (journals: or proceedings:) and remove the '# '.",
+        "# into its section earlier in this file (journals: or proceedings:) and remove the '# '.",
         "#",
     ]
     for group in by_venue.values():
@@ -283,16 +284,16 @@ def _covered(library: VenueLibrary, venue: Venue) -> bool:
 
 HEADER = """\
 # Venues missing from the BibCC venue library.
-# Fill in the fields, then run:
+# Fill in the fields, and then run:
 #   {rerun}
 #
 # '# from bib'             value found in your entries
-# '# from official BibTeX' value from the official BibTeX that bibcc add/upgrade downloaded
-# '# from <year> edition'  value copied from the previous edition in the library
-# '# from CrossRef'        value CrossRef reports for a paper of this venue
-# '# auto-guessed'         inferred from the venue name; please verify
-# Records with no field (and no interim booktitle) filled in are skipped when merging.
-# This file is merged on every run: what you fill in is kept.
+# '# from official BibTeX' value from the official BibTeX that bibcc add or bibcc upgrade downloaded
+# '# from YEAR edition'    value copied from the previous edition in the library
+# '# from CrossRef'        value that CrossRef reports for a paper of this venue
+# '# auto-guessed'         value inferred from the venue name; verify it
+# Merging skips records with no field (and no interim booktitle) filled in.
+# Every run merges into this file and keeps what you fill in.
 """
 
 

@@ -334,7 +334,7 @@ def main(
             log(diff.rstrip("\n"))
             diff_log.write_text(diff, encoding="utf-8")
         else:
-            log("\n🧪 Dry-run: no additions needed.")
+            log("\n🧪 Dry run: no additions needed.")
 
     if conflicts:
         log("\n⚠️  Conflicts (existing value differs from library, not overwritten):")
@@ -357,7 +357,7 @@ def main(
             log(f"  🔸 {eid}: '{venue_raw}' matches {', '.join(labels)}")
 
     if incomplete_entries:
-        log("\n📭 Incomplete entries (missing year or venue, e.g., arxiv/misc) - skipped:")
+        log("\n📭 Incomplete entries (missing year or venue, such as arXiv or misc entries), skipped:")
         for entry_id, venue, year in incomplete_entries:
             log(f"  🔸 {entry_id}: venue='{venue or '(empty)'}' year='{year or '(empty)'}'")
 
@@ -396,7 +396,7 @@ def main(
                      crossref=fills.get(key, {}))
         for key, (venue_raw, year, kind) in missing.items()
     ]
-    rerun = f"bibcc complete {input_path} --output <out.bib> --update-venues"
+    rerun = f"bibcc complete {input_path} --output OUTPUT.bib --update-venues"
     counts = write_missing_venues(missing_yaml_log, proposals, library, rerun, suggestions=suggestions)
     if missing or suggestions:
         log(f"\n📝 Missing venues YAML: {missing_yaml_log} ({counts['new']} new, {counts['kept']} kept)")
@@ -409,7 +409,7 @@ def main(
         if diff:
             saved.append(diff_log)
         log(f"\nReports saved: {', '.join(str(p) for p in saved)}")
-        log("💡 To write changes, run with --output <file.bib> or --in-place")
+        log("💡 To write the changes, run with --output FILE.bib or --in-place.")
         return
 
     write_bib(output_path, new_text)
@@ -424,56 +424,58 @@ def build_parser() -> argparse.ArgumentParser:
     """Build argument parser for BibTeX completer."""
     parser = argparse.ArgumentParser(
         description="""\
-Fill missing venue fields (publisher, ISSN, venue location, month, ISBN,
-series, ...) in a .bib file from the venue library. Journals are matched by
-name, alias, or ISSN; proceedings by name or alias and the entry's year.
+Fill missing venue fields (such as publisher, ISSN, venue location, month,
+ISBN, and series) in a .bib file from the venue library. Journals match by
+name, alias, or ISSN; proceedings match by name or alias and the entry's
+year.
 
-Existing fields are never overwritten: a different value is listed as a
-conflict (in every mode). Only the new fields are inserted, and the rest of
-the file stays byte for byte. Without --output or --in-place this is a dry
-run that writes the would-be changes as a diff.
+The command never overwrites existing fields: it lists a different value as
+a conflict (in every mode). It inserts only the new fields, and the rest of
+the file stays byte for byte. Without --output or --in-place, the command
+does a dry run and writes the changes that it would make as a diff.
 
-An entry whose booktitle is the CVF Open Access or OpenReview name of
-proceedings the library knows under their published name only gets the
-venue and month, and is listed so 'bibcc upgrade' can replace it.
+If an entry's booktitle is the CVF Open Access or OpenReview name of
+proceedings that the library knows by their published name, the entry gets
+only the venue and month. The command lists the entry so that
+'bibcc upgrade' can replace it.
 
-Venues that are not in the library are written to a fill-in YAML file,
+The command writes venues that aren't in the library to a fill-in YAML file,
 pre-filled from other entries of the same venue and from the previous
-edition of a conference; the file is merged, not overwritten, on every run.
-Fill in the rest, then rerun with --update-venues to add them to the
-library and complete the file in one step.
+edition of a conference. Every run merges into this file instead of
+overwriting it. Fill in the rest, and then rerun with --update-venues to add
+the venues to the library and complete the file in one step.
 
 The library is your user library merged with the project's
 .bibcc-venues.yaml (whose values win); see 'bibcc venues -h'.
---update-venues writes to the user library unless --scope project is given,
-and says which file it writes.
+--update-venues writes to the user library unless you pass --scope project,
+and it logs which file it writes.
 
---online also asks CrossRef: it pre-fills more of the fill-in YAML and
+--online also queries CrossRef: it pre-fills more of the fill-in YAML, and it
 compares each entry that has a DOI, and its library record, with CrossRef
-(publisher, ISSN, ISBN, pages, volume, ...). Differences are only reported;
-corrections to library records are suggested, commented out, at the end of
-the YAML. Fields are still only ever added from the library.""",
+(such as publisher, ISSN, ISBN, pages, and volume). The command only reports
+the differences, and it suggests corrections to library records, commented
+out, at the end of the YAML. Fields still come only from the library.""",
         epilog=epilog(
             examples=[
-                ("preview the changes (writes .bibcc/refs.bib.complete.diff)", "bibcc complete refs.bib"),
-                ("write the completed file elsewhere", "bibcc complete refs.bib --output out.bib"),
-                ("complete the file itself", "bibcc complete refs.bib --in-place"),
-                ("after filling in .bibcc/refs.bib.missing_venues.yaml: add those venues, then complete",
+                ("Preview the changes (writes .bibcc/refs.bib.complete.diff)", "bibcc complete refs.bib"),
+                ("Write the completed file elsewhere", "bibcc complete refs.bib --output out.bib"),
+                ("Complete the file itself", "bibcc complete refs.bib --in-place"),
+                ("After you fill in .bibcc/refs.bib.missing_venues.yaml, add those venues and complete",
                  "bibcc complete refs.bib --in-place --update-venues"),
-                ("the same, adding them to the project's .bibcc-venues.yaml",
+                ("Do the same, but add the venues to the project's .bibcc-venues.yaml",
                  "bibcc complete refs.bib --in-place --update-venues --scope project"),
-                ("also check entries and library against CrossRef", "bibcc complete refs.bib --online"),
+                ("Also check the entries and the library against CrossRef", "bibcc complete refs.bib --online"),
             ],
             outputs=[
-                (".bibcc/<input>.complete.diff", "dry run: the changes that would be made"),
-                (".bibcc/<input>.missing_venues.yaml", "fill-in records for venues not in the library"),
-                (".bibcc/<input>.missing_venues.txt", "entries whose venue is not in the library"),
-                (".bibcc/<input>.conflicts.txt", "fields that differ from the library, interim booktitles"),
-                (".bibcc/<input>.incomplete_entries.txt", "entries without a year or venue (skipped)"),
-                (".bibcc/<input>.venue_check.txt", "--online: differences from CrossRef, unchecked entries"),
-                (".bibcc/logs/<input>.completer.log", "everything printed to the terminal"),
+                (".bibcc/INPUT.complete.diff", "Dry run: the changes that the command would make"),
+                (".bibcc/INPUT.missing_venues.yaml", "Fill-in records for venues that aren't in the library"),
+                (".bibcc/INPUT.missing_venues.txt", "Entries whose venue isn't in the library"),
+                (".bibcc/INPUT.conflicts.txt", "Fields that differ from the library, and interim booktitles"),
+                (".bibcc/INPUT.incomplete_entries.txt", "Entries without a year or venue (skipped)"),
+                (".bibcc/INPUT.venue_check.txt", "--online: differences from CrossRef, and unchecked entries"),
+                (".bibcc/logs/INPUT.completer.log", "Everything printed to the terminal"),
             ],
-            exit_status="0 on success, 1 if the edits could not be verified (nothing is written), 2 on usage errors.",
+            exit_status="0 on success, 1 if BibCC can't verify the edits (it writes nothing), 2 on usage errors.",
             env=[ENV_VENUES],
         ),
         formatter_class=HelpFormatter,
@@ -484,7 +486,7 @@ the YAML. Fields are still only ever added from the library.""",
         type=str,
         default="",
         metavar="FILE",
-        help="Write the completed file here (omit both --output and --in-place for a dry run).",
+        help="Write the completed file to FILE. For a dry run, omit both --output and --in-place.",
     )
     parser.add_argument(
         "--in-place",
@@ -510,15 +512,16 @@ the YAML. Fields are still only ever added from the library.""",
         "--update-templates",
         dest="update_venues",
         action="store_true",
-        help="First merge the filled-in .bibcc/<input>.missing_venues.yaml into the venue "
-        "library given by --scope (records with no field filled in are skipped), then complete.",
+        help="First merge the filled-in .bibcc/INPUT.missing_venues.yaml into the venue "
+        "library that --scope selects (skipping records with no field filled in), and then "
+        "complete the file.",
     )
     parser.add_argument("--scope", choices=SCOPES, default=None, help=SCOPE_HELP)
     parser.add_argument(
         "--online",
         action="store_true",
-        help="Also query CrossRef: pre-fill the missing-venues YAML and check entries with a "
-        "DOI, and their library records, against CrossRef (report only). Off by default.",
+        help="Also query CrossRef: pre-fill the missing-venues YAML, and check entries with a "
+        "DOI, and their library records, against CrossRef (report only; off by default).",
     )
     parser.add_argument(
         "--delay",

@@ -61,17 +61,17 @@ def parse_list_arg(raw: str) -> List[str]:
 
 
 DESCRIPTION = """\
-Run quality checks on a .bib file. Each check has its own option, and any
-number of checks can be combined in one run. Only the missing-fields check
-(for month) runs by default.
+Run quality checks on a .bib file. Each check has its own option, and you can
+combine any number of checks in one run. By default, only the missing-fields
+check (for month) runs.
 
-The file is never changed, except by --title-apply and --title-interactive,
-which rewrite only the title values. Reports are written to .bibcc/ next to
-the input (only for checks that find something), and the log to
-.bibcc/logs/.
+The command never changes the file, except with --title-apply and
+--title-interactive, which rewrite only the title values. Reports go to
+.bibcc/ next to the input file (only for checks that find something), and the
+log goes to .bibcc/logs/.
 
-With --check-venues, the venue library is checked instead, and no input file
-is needed."""
+With --check-venues, the command checks the venue library instead, and you
+don't need an input file."""
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -80,26 +80,26 @@ def build_parser() -> argparse.ArgumentParser:
         description=DESCRIPTION,
         epilog=epilog(
             examples=[
-                ("report entries without a month (the default check)", "bibcc check refs.bib"),
-                ("require other fields, in articles only",
+                ("Report entries without a month (the default check)", "bibcc check refs.bib"),
+                ("Require other fields, in articles only",
                  "bibcc check refs.bib --fields month,publisher --entry-types article"),
-                ("suggest Title Case, then review the suggestions one by one",
+                ("Suggest Title Case, and then review the suggestions one by one",
                  "bibcc check refs.bib --title-case --title-interactive"),
-                ("suggest {braces} for acronyms and names, with extra terms",
+                ("Suggest {braces} for acronyms and names, with extra terms",
                  "bibcc check refs.bib --quote --quote-terms Transformer,Adam"),
-                ("field typos and malformed values, plus duplicates in bib/",
+                ("Find field typos and malformed values, plus duplicates in bib/",
                  "bibcc check refs.bib --check-fields --against bib/"),
-                ("run every check on the file at once",
+                ("Run every check on the file at once",
                  "bibcc check refs.bib --title-case --quote --check-keys --check-fields"),
-                ("check the venue library itself", "bibcc check --check-venues"),
+                ("Check the venue library itself", "bibcc check --check-venues"),
             ],
             outputs=[
-                (".bibcc/<input>.missing_fields.txt", "entries missing a required field"),
-                (".bibcc/<input>.title_case.txt", "current and suggested titles"),
-                (".bibcc/<input>.smart_protection.txt", "words that need {braces}"),
-                (".bibcc/<input>.citation_keys.txt", "keys not following METHOD_AUTHOR_VENUEYEAR"),
-                (".bibcc/<input>.field_issues.txt", "unknown fields, bad values, duplicates"),
-                (".bibcc/logs/<input>.checker.log", "everything printed to the terminal"),
+                (".bibcc/INPUT.missing_fields.txt", "Entries missing a required field"),
+                (".bibcc/INPUT.title_case.txt", "Current and suggested titles"),
+                (".bibcc/INPUT.smart_protection.txt", "Words that need {braces}"),
+                (".bibcc/INPUT.citation_keys.txt", "Keys that don't follow METHOD_AUTHOR_VENUEYEAR"),
+                (".bibcc/INPUT.field_issues.txt", "Unknown fields, bad values, and duplicates"),
+                (".bibcc/logs/INPUT.checker.log", "Everything printed to the terminal"),
             ],
             env=[ENV_VENUES],
         ),
@@ -119,8 +119,8 @@ def build_parser() -> argparse.ArgumentParser:
         type=str,
         default="month",
         metavar="FIELDS",
-        help="Comma-separated fields every checked entry must have (default: month). "
-        "Pass --fields '' to skip this check.",
+        help="Comma-separated fields that every checked entry must have (default: month). "
+        "To skip this check, pass --fields ''.",
     )
     missing.add_argument(
         "--entry-types",
@@ -134,10 +134,10 @@ def build_parser() -> argparse.ArgumentParser:
     title.add_argument(
         "--title-case",
         action="store_true",
-        help="Suggest APA Title Case: words of four or more letters and all other "
-        "major words capitalized, short articles, conjunctions, and prepositions "
-        "lowercase, the first word and the word after a colon or dash capitalized, "
-        "both parts of hyphenated words capitalized, and text in {braces} left alone.",
+        help="Suggest APA Title Case: capitalize words of four or more letters and all "
+        "other major words; lowercase short articles, conjunctions, and prepositions; "
+        "capitalize the first word, the word after a colon or dash, and both parts of "
+        "hyphenated words; and leave text in {braces} alone.",
     )
     title.add_argument(
         "--title-apply",
@@ -147,8 +147,8 @@ def build_parser() -> argparse.ArgumentParser:
     title.add_argument(
         "--title-interactive",
         action="store_true",
-        help="Review each suggestion: accept, skip, edit, or quit; accepted changes are "
-        "written to the input file (implies --title-case).",
+        help="Review each suggestion (accept, skip, edit, or quit), and write the accepted "
+        "changes to the input file (implies --title-case).",
     )
     title.add_argument(
         "--title-style",
@@ -167,14 +167,14 @@ def build_parser() -> argparse.ArgumentParser:
 
     quote = parser.add_argument_group(
         "term protection",
-        "BibTeX styles may lowercase titles. Words whose capitals matter (acronyms,\n"
-        "mixed case such as LoRA, words with digits, names such as Gaussian) must be\n"
-        "wrapped in {braces}.",
+        "BibTeX styles might lowercase titles. Wrap words whose capitals matter\n"
+        "(acronyms, mixed case such as LoRA, words with digits, and names such as\n"
+        "Gaussian) in {braces}.",
     )
     quote.add_argument(
         "--quote",
         action="store_true",
-        help="Report words that should be protected with {braces}.",
+        help="Report words to protect with {braces}.",
     )
     quote.add_argument(
         "--quote-terms",
@@ -193,7 +193,7 @@ def build_parser() -> argparse.ArgumentParser:
     quote.add_argument(
         "--quote-no-default",
         action="store_true",
-        help="Do not use the built-in vocabulary of names (Gaussian, Bayesian, Markov, ...).",
+        help="Don't use the built-in vocabulary of names (such as Gaussian, Bayesian, and Markov).",
     )
     quote.add_argument(
         "--protection-min-length",
@@ -208,8 +208,9 @@ def build_parser() -> argparse.ArgumentParser:
     keys.add_argument(
         "--check-keys",
         action="store_true",
-        help="Check that keys follow METHOD_AUTHOR_VENUEYEAR (e.g. GKEAL_Zhuang_CVPR2023), "
-        "and that the year and venue in the key match the entry's year and venue.",
+        help="Check that keys follow METHOD_AUTHOR_VENUEYEAR (for example, "
+        "GKEAL_Zhuang_CVPR2023) and that the year and venue in the key match the "
+        "entry's year and venue.",
     )
 
     fields = parser.add_argument_group("field names, values, and duplicates")
@@ -217,8 +218,8 @@ def build_parser() -> argparse.ArgumentParser:
         "--check-fields",
         action="store_true",
         help="Report unknown field names (typos such as 'volumn', which BibTeX silently "
-        "ignores), malformed values (years, page ranges, DOIs, months, ISSNs, URLs, empty "
-        "values), and the same paper or key appearing twice.",
+        "ignores), malformed values (years, page ranges, DOIs, months, ISSNs, URLs, and empty "
+        "values), and papers or keys that appear twice.",
     )
     fields.add_argument(
         "--known-fields",
@@ -242,8 +243,9 @@ def build_parser() -> argparse.ArgumentParser:
         "--check-templates",
         dest="check_venues",
         action="store_true",
-        help="Report venue library records missing fields, instead of checking a .bib file: "
-        f"the user library and the nearest {PROJECT_LIBRARY_NAME}, each on its own, or --venues FILE.",
+        help="Instead of checking a .bib file, report venue library records that are missing "
+        f"fields. Checks the user library and the nearest {PROJECT_LIBRARY_NAME} separately, "
+        "or only --venues FILE.",
     )
     venues.add_argument(
         "--venues",
@@ -302,7 +304,7 @@ def run(args: argparse.Namespace) -> None:
         return
 
     if not args.input:
-        build_parser().error("an input .bib file is required unless --check-venues is used")
+        build_parser().error("give an input .bib file, or pass --check-venues to check the venue library")
 
     report_dir = get_output_dir(args.input)
     base_name = Path(args.input).name

@@ -128,8 +128,8 @@ def where(start: Optional[str], log: Callable[[str], None]) -> None:
         log(f"\n🔀 The project library overrides {len(merged.overrides)} user field(s):")
         for c in merged.overrides:
             log(f"  🔸 {c.venue} · {c.name}: project '{c.kept}' (user '{c.other}')")
-    log(f"\n✏️  complete --update-venues and venues import write to the user library; pass "
-        f"--scope project to write to {project or PROJECT_LIBRARY_NAME} instead.")
+    log(f"\n✏️  complete --update-venues and venues import write to the user library. To write "
+        f"to {project or PROJECT_LIBRARY_NAME} instead, pass --scope project.")
     if not len(merged):
         log("💡 No venues yet. Start from a shared library: bibcc venues examples")
 
@@ -144,9 +144,10 @@ def init(scope: str, log: Callable[[str], None]) -> int:
     library.save()
     log(f"✅ Created the {scope} library {library.path}")
     if scope == PROJECT_SCOPE:
-        log("   Commit it with your bibliography; it applies to every .bib file in this folder and below.")
-    log(f"   Fill it with: bibcc complete <file.bib> --update-venues{' --scope project' * (scope == PROJECT_SCOPE)}")
-    log(f"   or start from a shared library: bibcc venues import <name>{' --scope project' * (scope == PROJECT_SCOPE)}")
+        log("   Commit it with your bibliography; it applies to every .bib file in this directory "
+            "and its subdirectories.")
+    log(f"   Fill it with: bibcc complete FILE.bib --update-venues{' --scope project' * (scope == PROJECT_SCOPE)}")
+    log(f"   or start from a shared library: bibcc venues import NAME{' --scope project' * (scope == PROJECT_SCOPE)}")
     return 0
 
 
@@ -185,7 +186,7 @@ def import_library(
             else:
                 log(f"  🔸 {c.venue} · {c.name}: kept '{c.kept}' (incoming '{c.other}')")
         if not overwrite:
-            log("   Pass --overwrite to take the incoming values instead.")
+            log("   To take the incoming values instead, pass --overwrite.")
     if dry_run:
         log("\n🧪 Dry run: nothing written.")
         return 0
@@ -210,8 +211,8 @@ def examples(log: Callable[[str], None]) -> int:
     width = max((len(name) for name, _ in rows), default=0)
     for name, details in rows:
         log(f"  {name:<{width}}  {details}".rstrip())
-    log("\nImport one into your user library with 'bibcc venues import <name>',")
-    log("or into the project library with 'bibcc venues import <name> --scope project'.")
+    log("\nTo import one into your user library, run 'bibcc venues import NAME'.")
+    log("To import it into the project library instead, add --scope project.")
     log(f"What each one covers: {EXAMPLES_PAGE_URL}")
     return 0
 
@@ -220,23 +221,25 @@ def examples(log: Callable[[str], None]) -> int:
 
 
 _DESCRIPTION = f"""\
-Manage the venue libraries 'complete', 'add', and 'upgrade' take venue fields
-from. BibCC ships no library: you build your own, in two scopes.
+Manage the venue libraries that 'complete', 'add', and 'upgrade' take venue
+fields from. BibCC doesn't ship a library: you build your own, in two scopes.
 
-  user     ${LIBRARY_ENV_VAR}, else $XDG_CONFIG_HOME/bibcc/venues.yaml
+  user     ${LIBRARY_ENV_VAR}, or else $XDG_CONFIG_HOME/bibcc/venues.yaml
            ({USER_LIBRARY_DISPLAY}). Venues for all your projects.
-  project  {PROJECT_LIBRARY_NAME}, the nearest one in the folder of the .bib
-           file or a parent folder. Venues for one project; commit it with
+  project  {PROJECT_LIBRARY_NAME}, the nearest one in the directory of the
+           .bib file or a parent directory. Venues for one project; commit it with
            the bibliography.
 
-Commands read both, merged: a venue defined in both gets the project's value
-for every field both define, and the other fields of both. They write one
-scope only, the user library unless --scope project is given, and say which
-file they write. --venues FILE uses that one file instead of both.
+Commands read both libraries, merged: a venue defined in both gets the
+project's value for every field that both define, and the other fields of
+both. Commands write only one scope (the user library, unless you pass
+--scope project), and they log which file they write. --venues FILE uses
+that one file instead of both.
 
-Shared libraries (for example the MIAA lab's, 'miaa') live in examples/venues/
-of the BibCC repository. 'import' merges one into your user or project library;
-your values are kept where they differ unless --overwrite is given."""
+Shared libraries (for example, the MIAA lab's library, 'miaa') live in
+examples/venues/ of the BibCC repository. 'import' merges one into your user
+or project library; where the values differ, it keeps yours unless you pass
+--overwrite."""
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -245,12 +248,12 @@ def build_parser() -> argparse.ArgumentParser:
         description=_DESCRIPTION,
         epilog=epilog(
             examples=[
-                ("which libraries apply to this file, and which one is written",
+                ("Show which libraries apply to this file, and which one commands write to",
                  "bibcc venues where bib/refs.bib"),
-                ("start a project library in the current folder", "bibcc venues init --scope project"),
-                ("list the shared libraries", "bibcc venues examples"),
-                ("start your user library from the MIAA lab's", "bibcc venues import miaa"),
-                ("merge a colleague's file into the project library",
+                ("Start a project library in the current directory", "bibcc venues init --scope project"),
+                ("List the shared libraries", "bibcc venues examples"),
+                ("Start your user library from the MIAA lab's library", "bibcc venues import miaa"),
+                ("Merge a colleague's file into the project library",
                  "bibcc venues import ~/lab-venues.yaml --scope project"),
             ],
             env=[ENV_VENUES],
@@ -261,34 +264,34 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_where = subparsers.add_parser(
         "where",
-        help="Show the user and project libraries that apply, and which one is written.",
+        help="Show the user and project libraries that apply, and which one commands write to.",
         description="Show the user library, the project library that applies to PATH (the\n"
-        "nearest .bibcc-venues.yaml above it), their sizes, the fields the project\n"
-        "overrides, and which library commands write to.",
+        "nearest .bibcc-venues.yaml in its directory or a parent directory), their sizes,\n"
+        "the fields that the project overrides, and which library commands write to.",
         epilog=epilog(
             examples=[
-                ("for the current folder", "bibcc venues where"),
-                ("for a .bib file elsewhere", "bibcc venues where ~/papers/survey/bib/refs.bib"),
+                ("Show the libraries for the current directory", "bibcc venues where"),
+                ("Show the libraries for a .bib file elsewhere", "bibcc venues where ~/papers/survey/bib/refs.bib"),
             ],
             env=[ENV_VENUES],
         ),
         formatter_class=HelpFormatter,
     )
     p_where.add_argument("path", nargs="?", default=None, metavar="PATH",
-                         help="A .bib file or folder (default: the current folder).")
+                         help="A .bib file or directory (default: the current directory).")
 
     p_init = subparsers.add_parser(
         "init",
         help="Create an empty user or project library.",
         description="Create an empty venue library: the user library, or with --scope project a\n"
-        f"{PROJECT_LIBRARY_NAME} in the current folder (your project root). An existing\n"
-        "library is left unchanged.",
+        f"{PROJECT_LIBRARY_NAME} in the current directory (your project root). The command\n"
+        "leaves an existing library unchanged.",
         epilog=epilog(
             examples=[
-                ("create the user library", "bibcc venues init"),
-                ("create a project library here", "bibcc venues init --scope project"),
+                ("Create the user library", "bibcc venues init"),
+                ("Create a project library here", "bibcc venues init --scope project"),
             ],
-            outputs=[(f"{USER_LIBRARY_DISPLAY} or ./{PROJECT_LIBRARY_NAME}", "the new library")],
+            outputs=[(f"{USER_LIBRARY_DISPLAY} or ./{PROJECT_LIBRARY_NAME}", "The new library")],
             env=[ENV_VENUES],
         ),
         formatter_class=HelpFormatter,
@@ -299,32 +302,35 @@ def build_parser() -> argparse.ArgumentParser:
         "import",
         help="Merge a shared library (file, URL, or example name) into yours.",
         description="Merge the records of SOURCE into the user library (default), the project\n"
-        "library (--scope project; created in the current folder if there is none), or\n"
-        "the file given with --venues. Records new to it are added; for a venue it\n"
-        "already has, missing fields, aliases, and interim booktitles are added and\n"
-        "the fields that differ keep your value (reported) unless --overwrite.\n\n"
+        "library (--scope project; created in the current directory if there's none), or\n"
+        "the file that --venues names. The command adds records that are new to the\n"
+        "library. For a venue that the library already has, it adds missing fields,\n"
+        "aliases, and interim booktitles; for fields that differ, it keeps and reports\n"
+        "your value, unless you pass --overwrite.\n\n"
         "SOURCE is a library file, an http(s) URL, or the name of a library in\n"
-        "examples/venues/ of the BibCC repository (see 'bibcc venues examples'),\n"
-        "read from your checkout when BibCC runs from one, else downloaded.",
+        "examples/venues/ of the BibCC repository (see 'bibcc venues examples'). The\n"
+        "command reads an example library from your checkout when BibCC runs from one,\n"
+        "and otherwise downloads it.",
         epilog=epilog(
             examples=[
-                ("start your user library from the MIAA lab's", "bibcc venues import miaa"),
-                ("preview what a library would add to the project library",
+                ("Start your user library from the MIAA lab's library", "bibcc venues import miaa"),
+                ("Preview what a library would add to the project library",
                  "bibcc venues import miaa --scope project --dry-run"),
-                ("let a curated file win over your values",
+                ("Let a curated file win over your values",
                  "bibcc venues import ~/lab-venues.yaml --overwrite"),
-                ("refresh an example library from your user library (maintainers)",
+                ("Refresh an example library from your user library (for maintainers)",
                  f"bibcc venues import {USER_LIBRARY_DISPLAY} --venues examples/venues/miaa.yaml"),
             ],
-            outputs=[("the library written", f"{USER_LIBRARY_DISPLAY}, {PROJECT_LIBRARY_NAME}, or --venues FILE")],
-            exit_status="0 on success (also when nothing is new), 1 if SOURCE cannot be read,\n"
+            outputs=[(f"{USER_LIBRARY_DISPLAY}, {PROJECT_LIBRARY_NAME}, or --venues FILE",
+                      "The library that the command writes")],
+            exit_status="0 on success (also when nothing is new), 1 if BibCC can't read SOURCE,\n"
             "2 on usage errors.",
             env=[ENV_VENUES],
         ),
         formatter_class=HelpFormatter,
     )
     p_import.add_argument("source", metavar="SOURCE",
-                          help="Library file, http(s) URL, or example library name (e.g. miaa).")
+                          help="Library file, http(s) URL, or example library name (for example, miaa).")
     target = p_import.add_mutually_exclusive_group()
     target.add_argument("--scope", choices=SCOPES, default=None, help=SCOPE_HELP)
     target.add_argument("--venues", default="", metavar="FILE",
@@ -338,8 +344,9 @@ def build_parser() -> argparse.ArgumentParser:
         "examples",
         help="List the shared example libraries.",
         description="List the venue libraries in examples/venues/ of the BibCC repository (your\n"
-        "checkout when BibCC runs from one, else GitHub), ready for 'bibcc venues import'.",
-        epilog=epilog(examples=[("list them", "bibcc venues examples")]),
+        "checkout when BibCC runs from one, or else GitHub), ready for\n"
+        "'bibcc venues import'.",
+        epilog=epilog(examples=[("List the example libraries", "bibcc venues examples")]),
         formatter_class=HelpFormatter,
     )
     return parser

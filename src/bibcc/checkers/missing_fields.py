@@ -78,7 +78,7 @@ def check_missing_fields(
 
     log(SEPARATOR_LIGHT * SEPARATOR_WIDTH)
     if not missing_rows:
-        log("✅ Perfect! All target entries contain the required fields.")
+        log("✅ All target entries contain the required fields.")
     else:
         field_counts = {f: 0 for f in required_fields}
         for _, _, _, miss in missing_rows:

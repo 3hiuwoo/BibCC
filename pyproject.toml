@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 name = "bibcc"
 # The version lives in src/bibcc/__init__.py only (see [tool.hatch.version]).
 dynamic = ["version"]
-description = "BibTeX Check & Complete: quality checks, field completion, and PDF library alignment"
+description = "BibTeX Check and Complete: quality checks, field completion, and PDF library alignment"
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]

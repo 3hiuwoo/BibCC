@@ -18,6 +18,13 @@ IEEE Xplore yet the CVF Open Access BibTeX is used, and for NeurIPS, ICLR,
 and ICML papers not in the proceedings yet the OpenReview BibTeX; ``bibcc
 upgrade`` replaces these interim entries once the proceedings are out.
 
+``--fallback`` builds the entry from the metadata the paper was located by
+instead (``missing``: when no official BibTeX can be had; ``all``: also when
+the official site cannot be reached).  Such entries carry a comment that
+``bibcc upgrade`` looks for, to replace them with the official BibTeX later.
+Each identifier's outcome goes to ``.bibcc/<output>.add.txt``, and the papers
+left to do by hand are listed at the end of the log.
+
 Papers already present in the ``--against`` bibliography or the staging
 file (same DOI, arXiv ID, or title, including empty entries) are skipped.
 Venues missing from the library are proposed in
@@ -44,13 +51,13 @@ from typing import Callable, Dict, Iterable, List, Optional, Set, Tuple
 
 import bibtexparser
 
-from bibcc.bibedit import BibEditError, month_macro, read_bib, scan, write_bib
+from bibcc.bibedit import BibEditError, month_macro, page_range, read_bib, scan, write_bib
 from bibcc.checkers.citation_keys import abbreviate_venue
 from bibcc.checkers.smart_protection import find_unprotected_terms, protect_terms
 from bibcc.completer import EntryCompletion, complete_entry
 from bibcc.crosscheck import venue_fields_from_crossref
 from bibcc.helptext import ENV_S2, ENV_VENUES, VENUES_HELP, HelpFormatter, epilog
-from bibcc.logging_utils import SEPARATOR_THIN, SEPARATOR_WIDTH, Logger, get_output_dir
+from bibcc.logging_utils import SEPARATOR_THIN, SEPARATOR_WIDTH, Logger, get_output_dir, write_report
 from bibcc.missing_venues import JOURNAL_FIELDS, PROCEEDINGS_FIELDS, MissingVenue, write_missing_venues
 from bibcc.official import (
     Official,
@@ -107,6 +114,14 @@ _NAME_PARTICLES = {"van", "von", "de", "der", "den", "di", "da", "del", "della",
 _TEXT_FIELDS = ("title", "journal", "booktitle", "publisher", "series", "venue")
 # Header of the comment written above an empty entry; BibIndex reads the lines after it.
 EMPTY_ENTRY_MARK = "% BibCC: no official BibTeX"
+# Header of the comment written above an entry built from metadata; `bibcc upgrade` looks for it.
+METADATA_MARK = "% BibCC: not the official BibTeX"
+
+# --fallback levels, each covering more than the one before.
+FALLBACK_NONE = "none"  # official BibTeX only: empty entries and failures
+FALLBACK_MISSING = "missing"  # metadata entries when no official BibTeX can be had
+FALLBACK_ALL = "all"  # ... and when the official site cannot be reached
+FALLBACK_LEVELS = (FALLBACK_NONE, FALLBACK_MISSING, FALLBACK_ALL)
 
 
 # ------------------------------------------------------------- formatting
@@ -355,15 +370,68 @@ def polish_fields(fields: Dict[str, str], keep_title: bool = False) -> Dict[str,
 
 @dataclass
 class BuiltEntry:
-    """An entry made from official BibTeX, ready to format."""
+    """An entry made from official BibTeX (or, as a fallback, API metadata), ready to format."""
 
     entry_type: str
     fields: Dict[str, str]
     notes: List[str] = field(default_factory=list)
-    # The library match, and the venue name and year as in the official BibTeX.
+    # The library match, and the venue name and year as in the source.
     completion: Optional[EntryCompletion] = None
     venue_name: str = ""
     year: str = ""
+    # The source's fields before polishing, and where they came from.
+    raw: Dict[str, str] = field(default_factory=dict)
+    source_label: str = "official BibTeX"
+
+
+def _complete_built(built: BuiltEntry, library: VenueLibrary, interim_provider: str = "",
+                    library_wins: bool = False) -> BuiltEntry:
+    """Add the library's venue fields to *built* and note what differs.
+
+    The source's values are kept on conflicts, unless *library_wins*: API
+    metadata is less reliable than the user's library, so for entries built
+    from it the library's venue name and fields replace the metadata's.
+    """
+    fields, raw, venue_name = built.fields, built.raw, built.venue_name
+    done = complete_entry({"ID": "", "ENTRYTYPE": built.entry_type, **raw}, library)
+    built.completion = done
+    source = "official" if not library_wins else "metadata"
+    if done.status == "matched" and done.venue is not None:
+        for name, value in done.patch.items():
+            fields.setdefault(name, value)
+        for name, existing, value in done.conflicts:
+            if library_wins:
+                fields[name] = value
+                built.notes.append(f"{name}: metadata '{existing}' replaced by the venue library's '{value}'")
+            else:
+                built.notes.append(f"{name}: {source} '{existing}' kept; the venue library has '{value}'")
+        if library_wins and not done.interim_source:
+            name_field = "journal" if done.kind == JOURNAL else "booktitle"
+            if fields.get(name_field) and normalize_venue(venue_name) != normalize_venue(done.venue.name):
+                fields[name_field] = done.venue.name
+                built.notes.append(f"{name_field}: metadata '{venue_name}' replaced by the library's name")
+        if done.interim_source and not interim_provider:
+            built.notes.append(
+                f"'{venue_name}' is the {done.interim_source} name of '{done.venue.name}', which is out; "
+                "`bibcc upgrade` may find the published version"
+            )
+    elif done.status == "ambiguous":
+        labels = ", ".join(v.label for v in done.ambiguous)
+        built.notes.append(f"venue matches several library records ({labels}); fields not filled")
+    elif done.status == "missing":
+        year = f" {built.year}" if done.kind == PROCEEDINGS else ""
+        built.notes.append(f"venue '{venue_name}'{year} is not in the venue library; see the missing-venues YAML")
+    if interim_provider and done.interim_source and done.venue is not None:
+        built.notes.append(
+            f"interim BibTeX from {interim_provider}: the paper was not found in '{done.venue.name}' "
+            "(the published proceedings); `bibcc upgrade` can try again later"
+        )
+    elif interim_provider:
+        built.notes.append(
+            f"interim BibTeX from {interim_provider}: the proceedings are not out yet; "
+            "`bibcc upgrade` replaces it once they are"
+        )
+    return built
 
 
 def build_entry(official: Official, library: VenueLibrary, keep_title: bool = False, doi: str = "") -> BuiltEntry:
@@ -379,38 +447,39 @@ def build_entry(official: Official, library: VenueLibrary, keep_title: bool = Fa
     doi = normalize_doi(doi)
     if doi and not is_arxiv_doi(doi) and not raw.get("doi"):
         raw["doi"] = doi
-    fields = polish_fields(raw, keep_title=keep_title)
-    venue_name = raw.get("booktitle") or raw.get("journal") or ""
-    built = BuiltEntry(entry_type, fields, venue_name=venue_name, year=raw.get("year", ""))
-    done = complete_entry({"ID": "", "ENTRYTYPE": entry_type, **raw}, library)
-    built.completion = done
-    if done.status == "matched" and done.venue is not None:
-        for name, value in done.patch.items():
-            fields.setdefault(name, value)
-        for name, existing, value in done.conflicts:
-            built.notes.append(f"{name}: official '{existing}' kept; the venue library has '{value}'")
-        if done.interim_source and not official.interim:
-            built.notes.append(
-                f"'{venue_name}' is the {done.interim_source} name of '{done.venue.name}', which is out; "
-                "`bibcc upgrade` may find the published version"
-            )
-    elif done.status == "ambiguous":
-        labels = ", ".join(v.label for v in done.ambiguous)
-        built.notes.append(f"venue matches several library records ({labels}); fields not filled")
-    elif done.status == "missing":
-        year = f" {built.year}" if done.kind == PROCEEDINGS else ""
-        built.notes.append(f"venue '{venue_name}'{year} is not in the venue library; see the missing-venues YAML")
-    if official.interim and done.interim_source and done.venue is not None:
-        built.notes.append(
-            f"interim BibTeX from {official.provider}: the paper was not found in '{done.venue.name}' "
-            "(the published proceedings); `bibcc upgrade` can try again later"
-        )
-    elif official.interim:
-        built.notes.append(
-            f"interim BibTeX from {official.provider}: the proceedings are not out yet; "
-            "`bibcc upgrade` replaces it once they are"
-        )
-    return built
+    built = BuiltEntry(
+        entry_type,
+        polish_fields(raw, keep_title=keep_title),
+        venue_name=raw.get("booktitle") or raw.get("journal") or "",
+        year=raw.get("year", ""),
+        raw=raw,
+    )
+    interim = official.provider if official.interim else ""
+    return _complete_built(built, library, interim_provider=interim)
+
+
+def build_metadata_entry(record: Record, library: VenueLibrary, keep_title: bool = False) -> BuiltEntry:
+    """Entry fields from the metadata a paper was located by (CrossRef, Semantic Scholar, ...).
+
+    The fallback when no official BibTeX is available: formatted like an
+    official entry and completed from the venue library, whose venue name
+    and fields win over the metadata's.
+    """
+    raw = {name: " ".join(value.split()) for name, value in record.fields.items() if value and value.strip()}
+    doi = normalize_doi(record.doi or raw.get("doi", ""))
+    if doi and not is_arxiv_doi(doi):
+        raw["doi"] = doi
+    if raw.get("pages"):
+        raw["pages"] = page_range(raw["pages"])
+    built = BuiltEntry(
+        record.entry_type,
+        polish_fields(raw, keep_title=keep_title),
+        venue_name=raw.get("booktitle") or raw.get("journal") or "",
+        year=raw.get("year", ""),
+        raw=raw,
+        source_label=f"{record.source} metadata",
+    )
+    return _complete_built(built, library, library_wins=True)
 
 
 def _interim_placeholders(library: VenueLibrary, name: str, year: str) -> Dict[str, List[str]]:
@@ -430,27 +499,30 @@ def _interim_placeholders(library: VenueLibrary, name: str, year: str) -> Dict[s
 
 def venue_proposals(
     built: BuiltEntry,
-    official: Official,
+    official: Optional[Official],
     library: VenueLibrary,
     key: str,
     record: Optional[Record] = None,
 ) -> List[MissingVenue]:
-    """Missing-venue records suggested by one new entry (empty if the library has its venue)."""
+    """Missing-venue records suggested by one new entry (empty if the library has its venue).
+
+    *official* is None for an entry built from metadata.
+    """
     done = built.completion
     if done is None or done.status != "missing" or not built.venue_name:
         return []
     names = JOURNAL_FIELDS if done.kind == JOURNAL else PROCEEDINGS_FIELDS
-    _, raw = official_fields(official.text)
+    raw = built.raw
     proposal = MissingVenue(
         done.kind,
         built.venue_name,
         built.year,
         collected={n: raw[n] for n in names if raw.get(n)},
-        collected_label="from official BibTeX",
+        collected_label=f"from {built.source_label}",
     )
     if record is not None and record.source.startswith("CrossRef"):
         proposal.crossref = venue_fields_from_crossref(record, done.kind)
-    if official.interim:
+    if official is not None and official.interim:
         proposal.notes.append(
             f"{official.provider} booktitle (seen in {key}); the proceedings are not out yet, "
             "so this is the venue's name until they are"
@@ -466,13 +538,61 @@ def venue_proposals(
     return [proposal]
 
 
+def _safe_comment(text: str) -> str:
+    # '@' in a comment line would start an entry for some parsers.
+    return " ".join(text.replace("@", "(at)").split())
+
+
+def metadata_entry(built: BuiltEntry, key: str, record: Record, lookup: OfficialLookup) -> str:
+    """An entry built from metadata, under a comment that marks it for ``bibcc upgrade``."""
+    lines = [f"{METADATA_MARK}; it was built from metadata. "
+             "`bibcc upgrade` replaces it once the official BibTeX can be downloaded."]
+    lines.append(f"%   source: {_safe_comment(record.source)}")
+    lines.append(f"%   reason: {_safe_comment(lookup.error or lookup.reason or 'no official BibTeX source is known')}")
+    if lookup.manual_url:
+        lines.append(f"%   get it: {lookup.manual_url}")
+    lines.append(format_entry(built.entry_type, key, built.fields))
+    return "\n".join(lines)
+
+
+def _comment_above(text: str, start: int) -> Tuple[int, List[str]]:
+    """Offset and lines of the ``%`` comment lines directly above the entry at *start*."""
+    block_start = text.rfind("\n", 0, start) + 1
+    lines: List[str] = []
+    while block_start > 0:
+        line_start = text.rfind("\n", 0, block_start - 1) + 1
+        line = text[line_start:block_start - 1]
+        if not line.strip().startswith("%"):
+            break
+        lines.insert(0, line.strip())
+        block_start = line_start
+    return block_start, lines
+
+
+def metadata_keys(text: str) -> Set[str]:
+    """Keys of the entries in *text* that ``bibcc add`` built from metadata."""
+    keys = set()
+    for span in scan(text):
+        _, lines = _comment_above(text, span.start)
+        if lines and lines[0].startswith(METADATA_MARK):
+            keys.add(span.key)
+    return keys
+
+
+def drop_metadata_comment(text: str, key: str) -> str:
+    """*text* without the metadata comment above entry *key* (once it is official BibTeX)."""
+    for span in scan(text):
+        if span.key != key:
+            continue
+        block_start, lines = _comment_above(text, span.start)
+        if lines and lines[0].startswith(METADATA_MARK):
+            return text[:block_start] + text[text.rfind("\n", 0, span.start) + 1:]
+    return text
+
+
 def empty_entry(entry_type: str, key: str, record: Record, lookup: OfficialLookup) -> str:
     """An entry with no fields, under a comment saying what to paste and where to get it."""
-
-    def safe(text: str) -> str:
-        # '@' in a comment line would start an entry for some parsers.
-        return " ".join(text.replace("@", "(at)").split())
-
+    safe = _safe_comment
     f = record.fields
     venue = f.get("journal") or f.get("booktitle") or ""
     lines = [f"{EMPTY_ENTRY_MARK} could be downloaded; paste it into the entry below, keeping the key."]
@@ -531,6 +651,57 @@ def _locate(
     return result.record, find_official(result.record), None
 
 
+@dataclass
+class AddOutcome:
+    """What happened to one identifier; a row of ``.bibcc/<output>.add.txt``."""
+
+    identifier: str
+    status: str  # official, interim, metadata, empty, failed, or duplicate
+    key: str = ""
+    title: str = ""
+    detail: str = ""
+    url: str = ""
+    # For an empty entry or a failed download: the --fallback level that builds an entry instead.
+    fallback: str = ""
+
+    def row(self) -> str:
+        cells = (self.identifier, self.status, self.key, self.title, self.detail, self.url)
+        return "\t".join(" ".join(c.split()) for c in cells)
+
+
+REPORT_HEADER = "add: identifier\tstatus\tkey\ttitle\tdetail\tget it"
+LEFT_TO_DO = ("empty", "failed")
+
+
+def _use_metadata(lookup: OfficialLookup, fallback: str) -> bool:
+    """Whether *fallback* builds an entry from metadata for this failed lookup."""
+    if lookup.official is not None:
+        return False
+    if lookup.error:
+        return fallback == FALLBACK_ALL
+    return fallback in (FALLBACK_MISSING, FALLBACK_ALL)
+
+
+def _log_left_to_do(outcomes: List[AddOutcome], report: Path, log: Callable[[str], None]) -> None:
+    todo = [o for o in outcomes if o.status in LEFT_TO_DO]
+    if not todo:
+        return
+    log(f"\n✋ {len(todo)} left to do by hand (also listed in {report}):")
+    for o in todo:
+        name = f"{o.identifier} ({o.title})" if o.title and o.title != o.identifier else o.identifier
+        if o.status == "empty":
+            log(f"   📭 {name}: empty entry {o.key}; paste its official BibTeX into it ({o.detail})")
+        else:
+            log(f"   ❌ {name}: {o.detail}")
+        if o.url:
+            log(f"      get it: {o.url}")
+        if o.fallback:
+            log(f"      or run again with --fallback {o.fallback} to build the entry from metadata")
+        elif o.status == "failed" and not o.key and not o.url and not o.title:
+            log("      check the identifier, or try the paper's DOI or exact title (no fallback can build "
+                "an entry for a paper that was not found)")
+
+
 def add_papers(
     identifiers: List[str],
     output: str | Path,
@@ -542,13 +713,26 @@ def add_papers(
     delay: float = 1.0,
     log: Optional[Callable[[str], None]] = None,
     report_dir: Optional[Path] = None,
+    fallback: str = FALLBACK_NONE,
 ) -> Dict[str, list]:
     """Locate *identifiers*, download their official BibTeX, and append entries to *output*.
 
+    *fallback* (one of :data:`FALLBACK_LEVELS`) says when an entry is built
+    from the metadata the paper was located by instead: ``missing`` when no
+    official BibTeX can be had (blocked publishers, unknown sources,
+    proceedings not out yet), ``all`` also when the official site cannot be
+    reached.  Such entries carry a :data:`METADATA_MARK` comment so ``bibcc
+    upgrade`` can replace them later.  Every identifier's outcome is written
+    to ``.bibcc/<output>.add.txt``, and those left to do by hand (empty
+    entries, failures) are listed at the end of the log.
+
     Returns ``{"added": [(identifier, key)], "empty": [(identifier, key,
-    reason)], "duplicates": [(identifier, Duplicate)], "failed":
-    [(identifier, error)]}``.  Empty entries are also listed in ``added``.
+    reason)], "metadata": [(identifier, key, reason)], "duplicates":
+    [(identifier, Duplicate)], "failed": [(identifier, error)], "outcomes":
+    [AddOutcome]}``.  Empty and metadata entries are also listed in ``added``.
     """
+    if fallback not in FALLBACK_LEVELS:
+        raise ValueError(f"fallback must be one of {', '.join(FALLBACK_LEVELS)}, not '{fallback}'")
     log = log or print
     output = Path(output)
     index = BibIndex()
@@ -564,10 +748,17 @@ def add_papers(
 
     added: List[Tuple[str, str]] = []
     empty: List[Tuple[str, str, str]] = []
+    metadata: List[Tuple[str, str, str]] = []
     duplicates: List[Tuple[str, Duplicate]] = []
     failed: List[Tuple[str, str]] = []
+    outcomes: List[AddOutcome] = []
     proposals: List[MissingVenue] = []
     chunks: List[str] = []
+
+    def skip_duplicate(identifier: str, dup: Duplicate, hint: str = "") -> None:
+        log(f"   ⏭️  Already present as {dup.key} ({dup.where}): {dup.reason}{hint}")
+        duplicates.append((identifier, dup))
+        outcomes.append(AddOutcome(identifier, "duplicate", dup.key, detail=f"{dup.reason} ({dup.where})"))
 
     def duplicate_of(record: Record, identifier: str, title: str = "") -> bool:
         dup = index.find(doi=record.doi, arxiv_id=record.arxiv_id, title=title or record.fields.get("title", ""))
@@ -576,9 +767,13 @@ def add_papers(
         hint = ""
         if record.entry_type != "misc" and dup.reason.startswith("same arXiv"):
             hint = " (the bibliography has the preprint; `bibcc upgrade` can replace it)"
-        log(f"   ⏭️  Already present as {dup.key} ({dup.where}): {dup.reason}{hint}")
-        duplicates.append((identifier, dup))
+        skip_duplicate(identifier, dup, hint)
         return True
+
+    def fail(identifier: str, error: str, **outcome: str) -> None:
+        log(f"   ❌ {error}")
+        failed.append((identifier, error))
+        outcomes.append(AddOutcome(identifier, "failed", detail=error, **outcome))
 
     for n, identifier in enumerate(identifiers):
         if n and delay:
@@ -587,32 +782,42 @@ def add_papers(
         kind, value = parse_identifier(identifier)
         dup = index.find(doi=value if kind == "doi" else "", arxiv_id=value if kind == "arxiv" else "")
         if dup:
-            log(f"   ⏭️  Already present as {dup.key} ({dup.where}): {dup.reason}")
-            duplicates.append((identifier, dup))
+            skip_duplicate(identifier, dup)
             continue
 
         record, lookup, error = _locate(identifier, library, prefer_published, log)
         if record is None or lookup is None:
-            log(f"   ❌ {error}")
-            failed.append((identifier, error or "not found"))
+            fail(identifier, error or "not found", url=value if kind == "url" else "")
             continue
         if duplicate_of(record, identifier):
             continue
+        title = record.fields.get("title", "")
         notes = [note for note in record.notes if not note.startswith("booktitle ")]
 
-        if lookup.official is None:
-            if lookup.error:
-                log(f"   ❌ could not get the official BibTeX: {lookup.error} (nothing written; try again later)")
-                failed.append((identifier, lookup.error))
-                continue
+        if _use_metadata(lookup, fallback):
+            why = lookup.error or lookup.reason or "no official BibTeX source is known"
+            built = build_metadata_entry(record, library, keep_title=keep_title)
+            key = suggest_key(built.entry_type, built.fields, index.keys)
+            entry_text = metadata_entry(built, key, record, lookup)
+            log(f"   🧩 no official BibTeX ({why}); built {key} from {record.source} metadata")
+            notes = list(record.notes) + built.notes
+            proposals.extend(venue_proposals(built, None, library, key, record))
+            index.add({"ID": key, **built.fields, "eprint": record.arxiv_id}, str(output))
+            outcome = AddOutcome(identifier, "metadata", key, title, f"built from {record.source} metadata: {why}",
+                                 lookup.manual_url)
+        elif lookup.official is None and lookup.error:
+            fail(identifier, f"could not get the official BibTeX: {lookup.error} (nothing written; try again later)",
+                 title=title, url=lookup.manual_url, fallback=FALLBACK_ALL)
+            continue
+        elif lookup.official is None:
             key = suggest_key(record.entry_type, record.fields, index.keys)
             entry_text = empty_entry(record.entry_type, key, record, lookup)
             log(f"   📭 no official BibTeX ({lookup.reason}); empty entry {key} to fill in by hand")
             if lookup.manual_url:
                 log(f"      get it from {lookup.manual_url}")
-            empty.append((identifier, key, lookup.reason))
-            index.add({"ID": key, "title": record.fields.get("title", ""), "doi": record.doi,
-                       "eprint": record.arxiv_id}, str(output))
+            index.add({"ID": key, "title": title, "doi": record.doi, "eprint": record.arxiv_id}, str(output))
+            outcome = AddOutcome(identifier, "empty", key, title, lookup.reason, lookup.manual_url,
+                                 fallback=FALLBACK_MISSING)
         else:
             official = lookup.official
             built = build_entry(official, library, keep_title=keep_title, doi=record.doi)
@@ -628,16 +833,23 @@ def add_papers(
             notes.extend(built.notes)
             proposals.extend(venue_proposals(built, official, library, key, record))
             index.add({"ID": key, **built.fields, "eprint": record.arxiv_id}, str(output))
+            detail = official.provider + (f" ({lookup.reason})" if lookup.reason else "")
+            outcome = AddOutcome(identifier, "interim" if official.interim else "official", key, title, detail,
+                                 official.url)
         try:
             _check_entry(entry_text, key)
         except BibEditError as e:
-            log(f"   ❌ {e}")
-            failed.append((identifier, str(e)))
+            fail(identifier, str(e), title=title)
             continue
         for note in notes:
             log(f"   ℹ️  {note}")
         log("\n".join("   " + line for line in entry_text.splitlines()))
         added.append((identifier, key))
+        if outcome.status == "empty":
+            empty.append((identifier, key, outcome.detail))
+        elif outcome.status == "metadata":
+            metadata.append((identifier, key, lookup.error or lookup.reason))
+        outcomes.append(outcome)
         chunks.append(entry_text)
 
     if chunks and not dry_run:
@@ -649,25 +861,33 @@ def add_papers(
         output.parent.mkdir(parents=True, exist_ok=True)
         write_bib(output, new_text)
 
-    yaml_path = get_output_dir(output, report_dir) / f"{output.name}.missing_venues.yaml"
+    output_dir = get_output_dir(output, report_dir)
+    yaml_path = output_dir / f"{output.name}.missing_venues.yaml"
     if proposals and not dry_run:
         rerun = f"bibcc complete {output} --in-place --update-venues"
         counts = write_missing_venues(yaml_path, proposals, library, rerun)
         log(f"\n📝 {counts['new']} venues missing from the library proposed in {yaml_path}")
+    report = output_dir / f"{output.name}.add.txt"
+    write_report(report, REPORT_HEADER, [o.row() for o in outcomes])
 
     log(f"\n{SEPARATOR_THIN * SEPARATOR_WIDTH}")
     target = "(dry run, nothing written)" if dry_run else f"to {output}"
     log(
-        f"Added {len(added)} {target} ({len(empty)} empty, to fill in by hand); "
-        f"{len(duplicates)} already present; {len(failed)} failed."
+        f"Added {len(added)} {target} ({len(empty)} empty, to fill in by hand; {len(metadata)} built from "
+        f"metadata); {len(duplicates)} already present; {len(failed)} failed. Report: {report}"
     )
+    _log_left_to_do(outcomes, report, log)
     if added and not dry_run:
-        log("💡 Review the keys (METHOD is a guess), then run:")
+        log("\n💡 Review the keys (METHOD is a guess), then run:")
         if empty:
             log(f"   fill in the {len(empty)} empty entries (each has a comment saying where to get its BibTeX)")
+        if metadata:
+            log(f"   check the entries built from metadata ({len(metadata)}); `bibcc upgrade {output}` "
+                "replaces them once their official BibTeX can be downloaded")
         log(f"   bibcc check {output} --check-keys --title-case --quote")
         log(f"   bibcc complete {output}")
-    return {"added": added, "empty": empty, "duplicates": duplicates, "failed": failed}
+    return {"added": added, "empty": empty, "metadata": metadata, "duplicates": duplicates,
+            "failed": failed, "outcomes": outcomes}
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -675,58 +895,78 @@ def build_parser() -> argparse.ArgumentParser:
         description=f"""\
 Fetch papers by DOI, arXiv ID or URL, paper page URL, or title, and append
 their official BibTeX to a staging file ({DEFAULT_OUTPUT} by default). Review
-the entries there, then move them into your topic files.
+the entries there, and then move them into your topic files.
 
-The paper is located through CrossRef (DOIs), arXiv (arXiv IDs), and, for
-titles, Semantic Scholar, OpenReview, CrossRef, and arXiv; a title only
-counts as found when it matches exactly (ignoring case and punctuation). For
-arXiv papers the published version is used when one exists (pass --preprint
-to keep the arXiv entry). The entry itself is the official BibTeX of the
-publisher or proceedings site:
+The command finds the paper through CrossRef (DOIs), arXiv (arXiv IDs), and,
+for titles, Semantic Scholar, OpenReview, CrossRef, and arXiv. A title counts
+as found only when it matches exactly (ignoring case and punctuation). For
+arXiv papers, the command uses the published version when one exists (to
+keep the arXiv entry, pass --preprint). The entry itself is the official
+BibTeX of the publisher or proceedings site:
 
-  IEEE Xplore      CVPR, ICCV, WACV and their workshops, IEEE journals
-  Springer         ECCV, Springer and Nature journals
+  IEEE Xplore      CVPR, ICCV, WACV, and their workshops; IEEE journals
+  Springer         ECCV; Springer and Nature journals
   PMLR             ICML, CoLLAs, and other PMLR volumes
-  proceedings      NeurIPS (proceedings.neurips.cc), ICLR from 2024 (proceedings.iclr.cc)
-  OpenReview       ICLR up to 2023
-  ACL Anthology, IJCAI, arXiv (preprints)
+  proceedings      NeurIPS (proceedings.neurips.cc), ICLR 2024 and later (proceedings.iclr.cc)
+  OpenReview       ICLR 2023 and earlier
+  ACL Anthology, IJCAI, and arXiv (preprints)
 
-CVPR, ICCV, and WACV papers not in IEEE Xplore yet get the CVF Open Access
-BibTeX, and NeurIPS, ICLR, and ICML papers not in the proceedings yet the
-OpenReview BibTeX; 'bibcc upgrade' replaces these later. When no official
-BibTeX can be downloaded (AAAI, ACM, and Elsevier block it; ECCV papers not
-on SpringerLink yet), an empty entry is written with a comment giving the
-title, DOI, reason, and where to get the BibTeX by hand.
+CVPR, ICCV, and WACV papers that aren't in IEEE Xplore yet get the CVF Open
+Access BibTeX, and NeurIPS, ICLR, and ICML papers that aren't in the
+proceedings yet get the OpenReview BibTeX; 'bibcc upgrade' replaces these
+later.
 
-Each entry is formatted like the rest of the bibliography: Title Case,
-{{braces}} around acronyms and technical terms, -- page ranges, month macros,
-no abstract or keywords, venue fields the official BibTeX lacks added from
-the venue library (differences are reported, never overwritten), and a
-suggested METHOD_AUTHOR_VENUEYEAR key (check the METHOD part). Venues missing
-from the library are proposed in a fill-in YAML. Papers already in the
---against files or in the staging file (same DOI, arXiv ID, or title,
-including empty entries) are skipped.""",
+Expect some papers to have no official BibTeX. AAAI, ACM, and Elsevier block
+automated downloads, ECCV papers aren't on SpringerLink right away, and IEEE
+Xplore, Springer, and the APIs rate-limit or bot-check scripted requests. By
+default (--fallback none), such a paper gets an empty entry with a comment
+that gives the title, DOI, reason, and where to get the BibTeX by hand. The
+command doesn't write a paper whose site it can't reach (run again later).
+With --fallback, the command instead builds the entry from the metadata that
+it found the paper through (CrossRef, Semantic Scholar, OpenReview, or arXiv)
+and completes it from the venue library:
+
+  none     Official BibTeX only (the default)
+  missing  Metadata entries when no official BibTeX is available
+  all      Also when the official site can't be reached
+
+These entries carry a comment that says so; 'bibcc upgrade' replaces them
+when the official BibTeX becomes available. The command lists whatever is
+left to do by hand at the end of the run and in .bibcc/OUTPUT.add.txt.
+
+The command formats each entry like the rest of the bibliography: Title
+Case, {{braces}} around acronyms and technical terms, -- page ranges, month
+macros, no abstract or keywords, venue fields that the official BibTeX lacks
+added from the venue library (differences are reported, never overwritten),
+and a suggested METHOD_AUTHOR_VENUEYEAR key (check the METHOD part). The
+command proposes venues that are missing from the library in a fill-in YAML
+file. It skips papers that are already in the --against files or in the
+staging file (same DOI, arXiv ID, or title, including empty entries).""",
         epilog=epilog(
             examples=[
-                ("a DOI and an arXiv ID, skipping papers already in bib/",
+                ("Add a DOI and an arXiv ID, and skip papers already in bib/",
                  "bibcc add 10.1109/TPAMI.2024.3429383 2501.13198 --against bib/"),
-                ("a paper by its title (quote it)",
+                ("Add a paper by its title (quote it)",
                  'bibcc add "SD-LoRA: Scalable Decoupled Low-Rank Adaptation for Class '
                  'Incremental Learning"'),
-                ("a paper page (IEEE Xplore, CVF, PMLR, NeurIPS, ICLR, ACL, IJCAI)",
+                ("Add a paper page (IEEE Xplore, CVF, PMLR, NeurIPS, ICLR, ACL, or IJCAI)",
                  "bibcc add https://proceedings.mlr.press/v235/abad-rocamora24a.html"),
-                ("many papers from a file, one identifier per line",
+                ("Add many papers from a file, one identifier per line",
                  "bibcc add --from new_papers.txt --against bib/ --output new.bib"),
-                ("print the entries without writing anything", "bibcc add 2501.13198 --dry-run"),
+                ("Build entries from metadata when no official BibTeX is available",
+                 "bibcc add --from new_papers.txt --fallback all"),
+                ("Print the entries without writing anything", "bibcc add 2501.13198 --dry-run"),
             ],
             outputs=[
-                ("<output>", f"staging file the new entries are appended to (default: {DEFAULT_OUTPUT})"),
-                (".bibcc/<output>.missing_venues.yaml", "fill-in records for venues not in the library"),
-                (".bibcc/logs/<output>.adder.log", "everything printed to the terminal"),
+                ("OUTPUT", f"Staging file that the command appends new entries to (default: {DEFAULT_OUTPUT})"),
+                (".bibcc/OUTPUT.add.txt", "Each paper's outcome, source, and where to get its BibTeX"),
+                (".bibcc/OUTPUT.missing_venues.yaml", "Fill-in records for venues that aren't in the library"),
+                (".bibcc/logs/OUTPUT.adder.log", "Everything printed to the terminal"),
             ],
-            exit_status="0 if every paper was added (possibly as an empty entry) or skipped as a\n"
-            "duplicate, 1 if any lookup or download failed (try again later) or the staging\n"
-            "file could not be written safely, 2 on usage errors.",
+            exit_status="0 if the command adds every paper (possibly as an empty entry or from\n"
+            "metadata) or skips it as a duplicate, 1 if a lookup or download fails and\n"
+            "--fallback doesn't cover it (try again later) or if BibCC can't write the\n"
+            "staging file safely, 2 on usage errors.",
             env=[ENV_S2, ENV_VENUES],
         ),
         formatter_class=HelpFormatter,
@@ -750,14 +990,14 @@ including empty entries) are skipped.""",
         action="append",
         default=[],
         metavar="PATH",
-        help="Existing .bib file or directory (searched recursively) to check for "
+        help="An existing .bib file or directory (searched recursively) to check for "
         "duplicates. Repeatable.",
     )
     parser.add_argument(
         "--output",
         default=DEFAULT_OUTPUT,
         metavar="FILE",
-        help=f"Staging .bib file new entries are appended to (default: {DEFAULT_OUTPUT}).",
+        help=f"Staging .bib file to append new entries to (default: {DEFAULT_OUTPUT}).",
     )
     parser.add_argument(
         "--venues",
@@ -774,7 +1014,18 @@ including empty entries) are skipped.""",
     parser.add_argument(
         "--keep-title",
         action="store_true",
-        help="Do not title-case official titles (term protection still applies).",
+        help="Don't title-case official titles (term protection still applies).",
+    )
+    parser.add_argument(
+        "--fallback",
+        choices=FALLBACK_LEVELS,
+        default=FALLBACK_NONE,
+        metavar="LEVEL",
+        help="When to build the entry from the metadata of the lookup source instead of from "
+        "official BibTeX: 'none' (default; official BibTeX only, otherwise empty entries and "
+        "failures), 'missing' (when no official BibTeX is available, such as for blocked "
+        "publishers, unknown sources, and proceedings that aren't out yet), or 'all' (also "
+        "when the official site can't be reached).",
     )
     parser.add_argument(
         "--dry-run",
@@ -792,8 +1043,8 @@ including empty entries) are skipped.""",
         "--log-dir",
         default="",
         metavar="DIR",
-        help="Directory for the log and the missing-venues YAML (default: .bibcc/ next to "
-        "the staging file).",
+        help="Directory for the log, the report, and the missing-venues YAML (default: .bibcc/ "
+        "next to the staging file).",
     )
     return parser
 
@@ -821,6 +1072,7 @@ def run(args: argparse.Namespace) -> None:
                 delay=args.delay,
                 log=logger.log,
                 report_dir=log_dir,
+                fallback=args.fallback,
             )
         except BibEditError as e:
             logger.log(f"❌ Could not write {args.output} safely: {e}")

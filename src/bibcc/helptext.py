@@ -30,19 +30,25 @@ DOCS_URL = f"https://github.com/{REPO}#readme"
 
 ENV_VENUES: Tuple[str, str] = (
     LIBRARY_ENV_VAR,
-    f"user venue library file (default: $XDG_CONFIG_HOME/bibcc/venues.yaml, i.e. {USER_LIBRARY_DISPLAY})",
+    "User venue library file (default: $XDG_CONFIG_HOME/bibcc/venues.yaml, or "
+    f"{USER_LIBRARY_DISPLAY} if XDG_CONFIG_HOME isn't set).",
 )
-ENV_S2: Tuple[str, str] = ("S2_API_KEY", "Semantic Scholar API key (without one, requests are soon rate limited)")
+ENV_S2: Tuple[str, str] = (
+    "S2_API_KEY",
+    "Semantic Scholar API key. Without a key, Semantic Scholar soon rate-limits requests.",
+)
 
 VENUES_HELP = (
-    "Use only this venue library YAML. By default the user library "
-    f"(${LIBRARY_ENV_VAR}, else {USER_LIBRARY_DISPLAY}) is used, merged with the nearest "
-    f"{PROJECT_LIBRARY_NAME} above the .bib file, whose values win (see 'bibcc venues -h')."
+    "Use only this venue library YAML file. By default, BibCC merges the user library "
+    f"(${LIBRARY_ENV_VAR}, or else {USER_LIBRARY_DISPLAY}) with the nearest "
+    f"{PROJECT_LIBRARY_NAME} in the directory of the .bib file or a parent directory; the project "
+    "values win. For details, see 'bibcc venues -h'."
 )
 
 SCOPE_HELP = (
-    f"Venue library to write to: 'user' (default, ${LIBRARY_ENV_VAR} or {USER_LIBRARY_DISPLAY}) "
-    f"or 'project' (the nearest {PROJECT_LIBRARY_NAME} above the .bib file)."
+    f"Venue library to write to: 'user' (default; ${LIBRARY_ENV_VAR} or {USER_LIBRARY_DISPLAY}) "
+    f"or 'project' (the nearest {PROJECT_LIBRARY_NAME} in the directory of the .bib file or a "
+    "parent directory)."
 )
 
 
