@@ -11,15 +11,13 @@ Supports three modes:
     rename   - Rename new PDFs to match bib keys via title matching
 
 Usage:
-    python librarian.py missing  <bib_file> <papers_txt>
-    python librarian.py extra    <bib_file> <papers_txt>
-    python librarian.py rename   <bib_file> <pdf_folder> [--dry-run]
+    bibcc librarian missing  BIB... LIBRARY [--skip-empty]
+    bibcc librarian extra    BIB... LIBRARY
+    bibcc librarian rename   BIB_FILE PDF_FOLDER [--dry-run]
 
-Output files (auto-generated in repo directory):
-    - <bib>.missing_pdfs.txt         Missing PDF entries
-    - <bib>.extra_pdfs.txt           Library PDFs not in bib
-    - <bib>.rename_report.txt        Rename mapping report
-    - <bib>.librarian.log            Execution log
+BIB is a .bib file or a directory of them; LIBRARY a directory of PDFs or a
+listing file.  Reports go to .bibcc/<first BIB>/: missing_pdfs.txt,
+extra_pdfs.txt, and rename_report.txt; the log to its logs/librarian.log.
 """
 
 from __future__ import annotations
@@ -28,8 +26,9 @@ import argparse
 import codecs
 import re
 import shutil
+import sys
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Callable, Dict, List, Optional, Set, Tuple
 
 from bibcc.bibedit import BibEditError, read_bib, scan, unwrap
 from bibcc.helptext import HelpFormatter, epilog
@@ -85,6 +84,7 @@ def parse_bib_entries(bib_file: Path) -> Dict[str, Dict[str, str]]:
             "raw": content[span.start : span.end],
             "title_raw": title_raw,
             "title_norm": normalize_title(title_raw),
+            "empty": not span.fields,
         }
     return entries
 
@@ -163,67 +163,128 @@ def match_title_to_bib(
 # ---------------------------------------------------------------------------
 
 
+class LibrarianError(Exception):
+    """A .bib path or the library doesn't exist."""
+
+
+def bib_files(paths: List[Path]) -> List[Path]:
+    """The ``.bib`` files of *paths*: files as given, directories searched recursively (hidden ones skipped)."""
+    files: List[Path] = []
+    for path in paths:
+        if path.is_dir():
+            files += sorted(
+                p for p in path.rglob("*.bib")
+                if not any(part.startswith(".") for part in p.relative_to(path).parts)
+            )
+        elif path.is_file():
+            files.append(path)
+        else:
+            raise LibrarianError(f"not found: {path}")
+    return files
+
+
+def read_library(library: Path) -> Set[str]:
+    """The PDF base names in *library*: a directory (searched recursively) or a listing file."""
+    if library.suffix.lower() == ".bib":
+        raise LibrarianError(f"the last argument is the PDF library (a directory or a listing), not {library}")
+    if library.is_dir():
+        return {
+            p.stem for p in library.rglob("*")
+            if p.suffix.lower() == ".pdf" and not any(part.startswith(".") for part in p.relative_to(library).parts)
+        }
+    if library.is_file():
+        return parse_library(library)
+    raise LibrarianError(f"library not found: {library}")
+
+
+def _library_label(library: Path) -> str:
+    return f"directory {library}" if library.is_dir() else f"listing {library.name}"
+
+
+def _collect_entries(
+    files: List[Path], log: Callable[[str], None]
+) -> List[Tuple[Path, str, Dict[str, str]]]:
+    """``(file, key, info)`` for every entry of *files*; a key in several files counts once, in the first."""
+    seen: Set[str] = set()
+    found: List[Tuple[Path, str, Dict[str, str]]] = []
+    for file in files:
+        entries = parse_bib_entries(file)
+        log(f"Parsed {len(entries)} bib entries from {file}")
+        for key, info in entries.items():
+            if key not in seen:
+                seen.add(key)
+                found.append((file, key, info))
+    return found
+
+
 def cmd_missing(
-    bib_file: Path,
-    papers_file: Path,
+    paths: List[Path],
+    library: Path,
     logger: Logger,
-) -> None:
-    """Find bib entries whose PDFs are not in the library."""
+    skip_empty: bool = False,
+) -> int:
+    """Find the entries of *paths* whose ``KEY.pdf`` isn't in *library*; return how many."""
     log = logger.log
-    bib_entries = parse_bib_entries(bib_file)
-    log(f"Parsed {len(bib_entries)} bib entries from {bib_file.name}")
+    files = bib_files(paths)
+    entries = _collect_entries(files, log)
+    library_keys = read_library(library)
+    log(f"Found {len(library_keys)} PDFs in the library ({_library_label(library)})")
 
-    library_keys = parse_library(papers_file)
-    log(f"Found {len(library_keys)} PDFs in library ({papers_file.name})")
+    skipped = [key for _, key, info in entries if skip_empty and info["empty"]]
+    if skipped:
+        log(f"Skipped {len(skipped)} empty entries (no fields yet): {', '.join(skipped)}")
+    considered = [e for e in entries if not (skip_empty and e[2]["empty"])]
+    missing = [e for e in considered if e[1] not in library_keys]
+    log(f"\n📚 Missing PDFs: {len(missing)} of {len(considered)} entries")
 
-    missing_keys = set(bib_entries.keys()) - library_keys
-    log(f"\n📚 Missing PDFs: {len(missing_keys)} entries")
-
-    # Write report
-    output_file = report_dir(bib_file) / "missing_pdfs.txt"
+    output_file = report_dir(paths[0]) / "missing_pdfs.txt"
     with open(output_file, "w", encoding="utf-8") as f:
-        f.write(f"% Missing PDFs: {len(missing_keys)} / {len(bib_entries)} entries\n")
+        f.write(f"% Missing PDFs: {len(missing)} / {len(considered)} entries\n")
         f.write(f"% Library size: {len(library_keys)} PDFs\n\n")
-        for key in sorted(missing_keys):
-            f.write(bib_entries[key]["raw"])
+        current: Optional[Path] = None
+        for file, _, info in missing:
+            if len(files) > 1 and file != current:
+                f.write(f"% === source: {file} ===\n\n")
+                current = file
+            f.write(info["raw"])
             f.write("\n\n")
+    log(f"\nWrote the missing entries to {output_file}")
 
-    log(f"\nWrote the missing entries to {output_file.name}")
-
-    log("\nMissing keys:")
-    for key in sorted(missing_keys):
-        title = bib_entries[key]["title_raw"] or "(no title)"
-        log(f"  - {key}: {title}")
+    if missing:
+        log("\nMissing keys:")
+    for file, key, info in missing:
+        title = info["title_raw"] or "(no title)"
+        where = f" ({file})" if len(files) > 1 else ""
+        log(f"  - {key}: {title}{where}")
+    return len(missing)
 
 
 def cmd_extra(
-    bib_file: Path,
-    papers_file: Path,
+    paths: List[Path],
+    library: Path,
     logger: Logger,
-) -> None:
-    """Find PDFs in the library that have no corresponding bib entry."""
+) -> int:
+    """Find the PDFs in *library* whose name isn't a key in *paths*; return how many."""
     log = logger.log
-    bib_entries = parse_bib_entries(bib_file)
-    log(f"Parsed {len(bib_entries)} bib entries from {bib_file.name}")
+    entries = _collect_entries(bib_files(paths), log)
+    library_keys = read_library(library)
+    log(f"Found {len(library_keys)} PDFs in the library ({_library_label(library)})")
 
-    library_keys = parse_library(papers_file)
-    log(f"Found {len(library_keys)} PDFs in library ({papers_file.name})")
-
-    extra_keys = library_keys - set(bib_entries.keys())
+    extra_keys = library_keys - {key for _, key, _ in entries}
     log(f"\n📄 Extra PDFs (not in bib): {len(extra_keys)}")
 
-    # Write report
-    output_file = report_dir(bib_file) / "extra_pdfs.txt"
+    output_file = report_dir(paths[0]) / "extra_pdfs.txt"
     with open(output_file, "w", encoding="utf-8") as f:
         f.write(f"% PDFs in library but not in bib: {len(extra_keys)} entries\n\n")
         for key in sorted(extra_keys):
             f.write(f"{key}.pdf\n")
 
-    log(f"\nWrote the extra PDFs to {output_file.name}")
+    log(f"\nWrote the extra PDFs to {output_file}")
 
     log("\nExtra keys:")
     for key in sorted(extra_keys):
         log(f"  - {key}")
+    return len(extra_keys)
 
 
 def cmd_rename(
@@ -339,13 +400,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=f"""\
 Keep a directory of PDFs named after citation keys (ISPC_Wang_CVPR2024.pdf) in
-step with a .bib file. For details, run 'bibcc librarian SUBCOMMAND -h'.
+step with your .bib files. For details, run 'bibcc librarian SUBCOMMAND -h'.
 
 {_LISTING_HELP}""",
         epilog=epilog(
             examples=[
-                ("List the entries that have no PDF yet", "bibcc librarian missing refs.bib papers.txt"),
-                ("List the PDFs that have no entry", "bibcc librarian extra refs.bib papers.txt"),
+                ("List the entries that have no PDF yet", "bibcc librarian missing refs.bib ~/papers"),
+                ("List the PDFs that have no entry", "bibcc librarian extra bib/ ~/papers"),
                 ("Preview renaming downloaded PDFs to their citation keys",
                  "bibcc librarian rename refs.bib ~/Downloads/papers --dry-run"),
             ],
@@ -358,37 +419,66 @@ step with a .bib file. For details, run 'bibcc librarian SUBCOMMAND -h'.
     p_missing = subparsers.add_parser(
         "missing",
         help="List bib entries whose PDF isn't in the library.",
-        description=f"List the entries of BIB_FILE that have no KEY.pdf in the library.\n\n{_LISTING_HELP}",
+        description=f"""\
+List the entries of the BIB files that have no KEY.pdf in LIBRARY.
+
+Each BIB is a .bib file or a directory, searched recursively for .bib files
+(hidden directories such as .bibcc/ are skipped). A key that's in several
+files counts once. LIBRARY, the last argument, is a directory of PDFs
+(searched recursively) or a listing file.
+
+{_LISTING_HELP}""",
         epilog=epilog(
-            examples=[("List entries without a PDF", "ls ~/papers > papers.txt\n"
-                       "  bibcc librarian missing refs.bib papers.txt")],
-            outputs=[
-                (".bibcc/BIB_FILE/missing_pdfs.txt", "The full BibTeX entries without a PDF"),
-                (".bibcc/BIB_FILE/logs/librarian.log", "Everything printed to the terminal"),
+            examples=[
+                ("Check a directory of PDFs", "bibcc librarian missing refs.bib ~/papers"),
+                ("Check several files and directories, and skip empty entries",
+                 "bibcc librarian missing bib/ extra.bib ~/papers --skip-empty"),
+                ("Check against a listing", "ls ~/papers > papers.txt\n"
+                 "  bibcc librarian missing refs.bib papers.txt"),
             ],
+            outputs=[
+                (".bibcc/BIB/missing_pdfs.txt", "The full BibTeX entries without a PDF (next to the first BIB)"),
+                (".bibcc/BIB/logs/librarian.log", "Everything printed to the terminal"),
+            ],
+            exit_status="0 if every entry has a PDF, 1 if some PDFs are missing, 2 on usage errors\n"
+            "(for example, a BIB or LIBRARY that doesn't exist).",
         ),
         formatter_class=HelpFormatter,
     )
-    p_missing.add_argument("bib_file", type=Path, metavar="BIB_FILE", help="The .bib file.")
-    p_missing.add_argument("papers_file", type=Path, metavar="LISTING", help="Text file listing the library's PDFs.")
+    p_missing.add_argument("paths", type=Path, nargs="+", metavar="BIB", help="A .bib file or a directory.")
+    p_missing.add_argument("library", type=Path, metavar="LIBRARY",
+                           help="Directory of PDFs, or a text file listing them.")
+    p_missing.add_argument("--skip-empty", action="store_true",
+                           help="Skip the empty entries (keys without fields, waiting for their BibTeX).")
 
     # --- extra ---
     p_extra = subparsers.add_parser(
         "extra",
         help="List library PDFs that have no bib entry.",
-        description=f"List the PDFs in the library whose name isn't a key in BIB_FILE.\n\n{_LISTING_HELP}",
+        description=f"""\
+List the PDFs in LIBRARY whose name isn't a key in any of the BIB files.
+
+Each BIB is a .bib file or a directory, searched recursively for .bib files.
+LIBRARY, the last argument, is a directory of PDFs (searched recursively) or a
+listing file.
+
+{_LISTING_HELP}""",
         epilog=epilog(
-            examples=[("List PDFs without an entry", "ls ~/papers > papers.txt\n"
-                       "  bibcc librarian extra refs.bib papers.txt")],
+            examples=[
+                ("List PDFs without an entry", "bibcc librarian extra bib/ ~/papers"),
+                ("Use a listing", "ls ~/papers > papers.txt\n"
+                 "  bibcc librarian extra refs.bib papers.txt"),
+            ],
             outputs=[
-                (".bibcc/BIB_FILE/extra_pdfs.txt", "PDF names without an entry"),
-                (".bibcc/BIB_FILE/logs/librarian.log", "Everything printed to the terminal"),
+                (".bibcc/BIB/extra_pdfs.txt", "PDF names without an entry (next to the first BIB)"),
+                (".bibcc/BIB/logs/librarian.log", "Everything printed to the terminal"),
             ],
         ),
         formatter_class=HelpFormatter,
     )
-    p_extra.add_argument("bib_file", type=Path, metavar="BIB_FILE", help="The .bib file.")
-    p_extra.add_argument("papers_file", type=Path, metavar="LISTING", help="Text file listing the library's PDFs.")
+    p_extra.add_argument("paths", type=Path, nargs="+", metavar="BIB", help="A .bib file or a directory.")
+    p_extra.add_argument("library", type=Path, metavar="LIBRARY",
+                         help="Directory of PDFs, or a text file listing them.")
 
     # --- rename ---
     p_rename = subparsers.add_parser(
@@ -431,17 +521,24 @@ lists them instead.""",
 def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
+    first = args.bib_file if args.command == "rename" else args.paths[0]
 
-    with Logger("librarian", input_file=args.bib_file) as logger:
+    status = 0
+    with Logger("librarian", input_file=first) as logger:
         try:
             if args.command == "missing":
-                cmd_missing(args.bib_file, args.papers_file, logger)
+                status = 1 if cmd_missing(args.paths, args.library, logger, skip_empty=args.skip_empty) else 0
             elif args.command == "extra":
-                cmd_extra(args.bib_file, args.papers_file, logger)
+                cmd_extra(args.paths, args.library, logger)
             elif args.command == "rename":
                 cmd_rename(args.bib_file, args.pdf_folder, args.dry_run, logger)
+        except LibrarianError as e:
+            logger.log(f"❌ {e}")
+            status = 2
         except BibEditError as e:
-            logger.log(f"❌ Cannot read {args.bib_file}: {e}")
+            logger.log(f"❌ Cannot read {first}: {e}")
+            status = 2
+    sys.exit(status)
 
 
 if __name__ == "__main__":

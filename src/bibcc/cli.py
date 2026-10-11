@@ -10,7 +10,7 @@ Subcommands:
     add        Download official BibTeX by DOI, arXiv ID, URL, or title
     upgrade    Replace preprints with the official BibTeX of their published versions
     format     Reformat .bib files consistently (aligned fields, braces, month macros)
-    librarian  Align a PDF library with a .bib file (missing / extra / rename)
+    librarian  Align a PDF library with .bib files (missing, extra, and rename)
     scholar    Citation counts and title verification via external APIs
     compose    Merge per-directory .bib files into a single bibliography
     venues     Manage the user and project venue libraries
@@ -22,7 +22,7 @@ Usage:
     bibcc upgrade input.bib --in-place
     bibcc upgrade --report-only bibs/
     bibcc format bibs/ --check
-    bibcc librarian missing input.bib papers.txt
+    bibcc librarian missing bibs/ ~/papers
     bibcc scholar cite input.bib
     bibcc scholar titles input.bib
     bibcc compose compose ./bibs combined.bib
@@ -43,7 +43,7 @@ TOOLS = {
     "add": "Download official BibTeX by DOI, arXiv ID, URL, or title into a staging file",
     "upgrade": "Replace preprints with the official BibTeX of their published versions",
     "format": "Reformat .bib files consistently (aligned fields, braces, and month macros)",
-    "librarian": "Align a PDF library with a .bib file: missing, extra, and renamed PDFs",
+    "librarian": "Align a PDF library with .bib files: missing, extra, and renamed PDFs",
     "scholar": "Get Google Scholar citation counts and verify titles",
     "compose": "Merge the .bib files of a directory tree into one bibliography",
     "venues": "Manage the user and project venue libraries: where, init, import, and examples",

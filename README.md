@@ -49,7 +49,7 @@ BibCC provides nine commands through a single entry point, `bibcc`:
 | [`add`](#add) | Download the official BibTeX of new papers (by DOI, arXiv ID, paper URL, or title) into a staging `.bib` file |
 | [`upgrade`](#upgrade) | Replace preprints and interim entries with the official BibTeX of their published versions, keeping the keys |
 | [`format`](#format) | Reformat `.bib` files consistently: aligned fields, braced values, month macros, and `--` page ranges |
-| [`librarian`](#librarian) | Compare a PDF library with a `.bib` file: find missing and extra PDFs, and rename PDFs to citation keys |
+| [`librarian`](#librarian) | Compare a PDF library with `.bib` files: find missing and extra PDFs, and rename PDFs to citation keys |
 | [`scholar`](#scholar) | Fill in citation counts and verify titles against online sources |
 | [`compose`](#compose) | Merge the `.bib` files of a directory tree into a single bibliography |
 | `venues` | Manage your user and project venue libraries: `where`, `init`, `import`, and `examples` |
@@ -588,17 +588,20 @@ In detail, `format` does the following:
 
 ```bash
 # Find .bib entries whose PDFs are missing from your library.
-bibcc librarian missing input.bib papers.txt
+bibcc librarian missing input.bib ~/papers
+bibcc librarian missing bib/ extra.bib ~/papers --skip-empty
 
-# Find library PDFs that the .bib file doesn't reference.
-bibcc librarian extra input.bib papers.txt
+# Find library PDFs that the .bib files don't reference.
+bibcc librarian extra bib/ ~/papers
 
 # Rename PDFs to citation-key names by matching titles.
 bibcc librarian rename input.bib ~/Downloads/papers --dry-run   # preview
 bibcc librarian rename input.bib ~/Downloads/papers             # apply
 ```
 
-**Library listing.** `missing` and `extra` expect PDFs named after citation keys (`ISPC_Wang_CVPR2024.pdf`). The listing file is any text file with one PDF name per line, for example the output of `ls ~/papers > papers.txt`. Lines can contain other text (such as the dates and sizes from a Windows `dir` listing), and `librarian` reads both UTF-8 and UTF-16 files.
+**Library.** `missing` and `extra` expect PDFs named after citation keys (`ISPC_Wang_CVPR2024.pdf`). They take any number of `.bib` files and directories (searched recursively for `.bib` files, skipping hidden directories such as `.bibcc/`), followed by the library as the last argument. A key that's in several files counts once. The library is a directory of PDFs (searched recursively) or a listing file. The listing file is any text file with one PDF name per line, for example the output of `ls ~/papers > papers.txt`. Lines can contain other text (such as the dates and sizes from a Windows `dir` listing), and `librarian` reads both UTF-8 and UTF-16 files.
+
+**Scripts.** `missing` exits with status 1 when some PDFs are missing, and 0 when every entry has its PDF. To leave out empty entries, whose BibTeX you haven't added yet, pass `--skip-empty`. The reports go next to the first `.bib` path.
 
 **Renaming.** Export PDFs from Zotero or a similar reference manager with full titles in the filenames (for example, `Author 等 - 2025 - Full Paper Title.pdf`). `librarian rename` takes the text after the last ` - ` as the title, normalizes it (ignoring case, braces, and punctuation), and renames the PDF to `CITATION_KEY.pdf` when exactly that title is in the `.bib` file. When several entries share the title (for example, a conference paper and its journal version), `librarian` lists the PDF as ambiguous, with the candidate keys, and doesn't rename it. Files are renamed in place, and existing files are never overwritten. The order of the files doesn't matter.
 
@@ -607,9 +610,9 @@ bibcc librarian rename input.bib ~/Downloads/papers             # apply
 
 | Subcommand | Arguments | Report |
 | --- | --- | --- |
-| `missing` | `BIB_FILE PAPERS_FILE` | `.missing_pdfs.txt` |
-| `extra` | `BIB_FILE PAPERS_FILE` | `.extra_pdfs.txt` |
-| `rename` | `BIB_FILE PDF_FOLDER [--dry-run]` | `.rename_report.txt` |
+| `missing` | `BIB [BIB ...] LIBRARY [--skip-empty]` | `missing_pdfs.txt` |
+| `extra` | `BIB [BIB ...] LIBRARY` | `extra_pdfs.txt` |
+| `rename` | `BIB_FILE PDF_FOLDER [--dry-run]` | `rename_report.txt` |
 
 </details>
 

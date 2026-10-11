@@ -15,6 +15,7 @@ This file lists notable changes to BibCC. The format follows [Keep a Changelog](
 - **`check --quote-apply`**: Wraps the terms from `--quote-terms` and `--quote-vocab-file` in braces in the titles, as a verified edit, and then reports what else might need braces. The built-in vocabulary and the other suggestions are never applied.
 - **`check --check-keys`**: Also checks that the AUTHOR part of each key is the first author's surname. Part of a compound surname and names without accents are accepted.
 - **`check` and empty entries**: `check` lists the empty entries that it skips, because they have no fields to check.
+- **`librarian missing` and `extra` with several files and a PDF directory**: Both take any number of `.bib` files and directories, followed by the library, which can now be a directory of PDFs as well as a listing file. `missing --skip-empty` leaves out empty entries.
 - **What to do next**: The reports of `add` (`add.txt`), `upgrade` (`upgrade.txt`), and `upgrade --report-only` (`published.txt`) have a new last column, `next`, that says what to do about each paper: `by hand`, `retry`, `check`, `wait`, or `upgrade`. The end of an `add` run groups the papers left to do by this column, and counts the interim entries that `upgrade` replaces later.
 
 ### Changed
@@ -23,6 +24,7 @@ This file lists notable changes to BibCC. The format follows [Keep a Changelog](
 - **No nested `.bibcc` directories**: An input that is already inside a `.bibcc/` directory gets `reports/NAME/` next to it. Before, a scratch file in `.bibcc/` got a `.bibcc/.bibcc/` directory.
 - **No stale reports**: A check or a dry run that finds nothing removes its old report, and `format --check` writes no files.
 - The hint to merge a missing-venues file names `--scope project` when the input has a project venue library.
+- `librarian missing` exits with status 1 when some PDFs are missing, and with status 2 when a `.bib` path or the library doesn't exist.
 
 ### Fixed
 
