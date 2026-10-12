@@ -129,6 +129,8 @@ class MissingVenue:
     # Values seen in the entries (or their official BibTeX).
     collected: Dict[str, str] = field(default_factory=dict)
     collected_label: str = "from bib"
+    # The entries each collected value comes from, for the YAML comment.
+    collected_from: Dict[str, List[str]] = field(default_factory=dict)
     crossref: Dict[str, str] = field(default_factory=dict)
     interim: Dict[str, List[str]] = field(default_factory=dict)
     # Comment lines explaining where the record comes from (e.g. the paper linking two names).
@@ -154,7 +156,14 @@ class Suggestion:
 def _field_line(name: str, mv: MissingVenue, prior: Optional[Venue], guessed: str, hint: str) -> str:
     value, comment = "", f"  {hint}" if hint else ""
     if mv.collected.get(name):
-        value, comment = mv.collected[name], f"  # {mv.collected_label}"
+        keys = mv.collected_from.get(name) or []
+        if len(keys) > 3:
+            suffix = f" ({', '.join(keys[:3])}, and {len(keys) - 3} more)"
+        elif keys:
+            suffix = f" ({', '.join(keys)})"
+        else:
+            suffix = ""
+        value, comment = mv.collected[name], f"  # {mv.collected_label}{suffix}"
     elif prior and name in EDITION_STABLE_FIELDS and prior.fields.get(name):
         value, comment = prior.fields[name], f"  # from {prior.year} edition"
     elif mv.crossref.get(name):
@@ -288,7 +297,7 @@ HEADER = """\
 # Fill in the fields, and then run:
 #   {rerun}
 #
-# '# from bib'             value found in your entries
+# '# from bib'             value found in your entries; the keys in parentheses say which
 # '# from official BibTeX' value from the official BibTeX that bibcc add or bibcc upgrade downloaded
 # '# from YEAR edition'    value copied from the previous edition in the library
 # '# from CrossRef'        value that CrossRef reports for a paper of this venue

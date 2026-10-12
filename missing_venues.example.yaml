@@ -12,7 +12,7 @@
 #                year, or by an interim booktitle (CVF Open Access, OpenReview)
 #
 # The comment after a value says where the value comes from:
-# '# from bib'             value found in your entries
+# '# from bib'             value found in your entries; the keys in parentheses say which
 # '# from official BibTeX' value from the official BibTeX that `bibcc add` or `bibcc upgrade` downloaded
 # '# from YEAR edition'    value copied from the previous edition in the library
 # '# from CrossRef'        value that CrossRef reports (`bibcc complete --online`, `bibcc add`)

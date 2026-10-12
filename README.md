@@ -233,7 +233,7 @@ Edits are minimal and verified:
 
 **Missing venues.** When venues are missing from the library, `complete` generates a `.bibcc/INPUT/missing_venues.yaml` file. It pre-fills fields from these sources, so you only fill in what it couldn't infer:
 
-- Existing entries in the same journal or conference.
+- Existing entries in the same journal or conference (marked `# from bib (KEY)`: the comment names the entries each value comes from, and the log lists them too).
 - The previous edition of the same conference (for example, CVPR 2025 → CVPR 2026: publisher, ISSN, and month).
 - Guesses from the venue name.
 
@@ -735,7 +735,7 @@ There are two scopes of venue library:
 | `user` | `$BIBCC_VENUES` if it's set, or else `$XDG_CONFIG_HOME/bibcc/venues.yaml` (`~/.config/bibcc/venues.yaml`) | Venues for all your projects |
 | `project` | `.bibcc-venues.yaml`: the nearest one in the directory of the `.bib` file or a parent directory | Venues for one project; commit it with the bibliography so that your coauthors share it |
 
-**Reading.** Commands read both libraries, merged. A venue that's in only one of them is used as is. A venue that's in both gets the fields of both, and where both define a field, the project's value wins. `bibcc venues where` lists the fields that the project overrides.
+**Reading.** Commands read both libraries, merged. A venue that's in only one of them is used as is. A venue that's in both gets the fields of both, and where both define a field, the project's value wins. `bibcc venues where` lists the fields that the project overrides. When `complete` patches entries, its log names the library each entry's venue record comes from.
 
 **Writing.** Commands write to one library only, and say which file they write:
 
@@ -812,7 +812,7 @@ bibcc complete input.bib            # --online also pre-fills from CrossRef
 bibcc complete input.bib --output out.bib --update-venues
 ```
 
-`complete` skips entries without a year or a venue (such as arXiv preprints and `@misc` entries), and reports them in `*.incomplete_entries.txt`.
+`complete` skips entries without a year or a venue. The log lists the proceedings and journal entries among them as entries to fix, and only counts the `@misc` ones (such as arXiv preprints), which aren't expected to have a venue. Both are reported, with their entry type, in `.bibcc/INPUT/incomplete_entries.txt`.
 
 ## Development <a id="development"></a>
 

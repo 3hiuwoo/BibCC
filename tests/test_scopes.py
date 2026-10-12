@@ -102,6 +102,10 @@ def test_project_values_win_and_fields_of_both_are_kept(isolated_user_library: P
     assert [(c.name, c.kept, c.other) for c in lib.overrides] == [("publisher", "Project Pub", "User Pub")]
     assert [s.scope for s in lib.sources] == ["user", "project"]
     assert "project overrides 1 user field" in lib.describe()
+    # Each record knows which file it came from.
+    assert lib.find_exact(JOURNAL, "Journal of Tests").origin == "user+project"
+    assert lib.find_exact(JOURNAL, "Only User").origin == "user"
+    assert lib.find_exact(JOURNAL, "Only Project").origin == "project"
 
 
 def test_merged_view_is_read_only(isolated_user_library: Path, project: Path):
@@ -152,6 +156,26 @@ def test_complete_uses_project_values(isolated_user_library: Path, project: Path
     main(["complete", str(bib), "--output", str(out)])
     text = out.read_text()
     assert "Project Pub" in text and "1111-1111" in text and "User Pub" not in text
+
+
+def test_complete_names_the_library_behind_each_patch(isolated_user_library: Path, project: Path,
+                                                      tmp_path: Path, capsys):
+    _write_library(isolated_user_library, Journal_of_Tests={"publisher": "User Pub", "issn": "1111-1111"})
+    _write_library(project / PROJECT_LIBRARY_NAME, Journal_of_Tests={"publisher": "Project Pub"})
+    bib = project / "bib" / "refs.bib"
+    main(["complete", str(bib), "--output", str(tmp_path / "out.bib")])
+    out = capsys.readouterr().out
+    assert "Library records the patches come from" in out
+    assert "X_Doe_JT2024: 'Journal of Tests' (from the user and project libraries)" in out
+
+
+def test_complete_names_a_project_only_record(isolated_user_library: Path, project: Path,
+                                              tmp_path: Path, capsys):
+    _write_library(project / PROJECT_LIBRARY_NAME, Journal_of_Tests={"publisher": "P"})
+    bib = project / "bib" / "refs.bib"
+    main(["complete", str(bib), "--output", str(tmp_path / "out.bib")])
+    out = capsys.readouterr().out
+    assert "X_Doe_JT2024: 'Journal of Tests' (from the project library)" in out
 
 
 def test_update_venues_writes_the_user_library_by_default(isolated_user_library: Path, project: Path, capsys):

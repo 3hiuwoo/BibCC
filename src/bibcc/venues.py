@@ -159,6 +159,9 @@ class Venue:
     aliases: List[str] = field(default_factory=list)
     # source ("cvf", "openreview") -> booktitles that source uses for these proceedings
     interim: Dict[str, List[str]] = field(default_factory=dict)
+    # Scope of the library file the record came from ("user", "project", or
+    # "user+project" when a merged view combines both); not serialized.
+    origin: str = ""
 
     @property
     def label(self) -> str:
@@ -296,6 +299,8 @@ class VenueLibrary:
         lib.path = lib_path
         lib.scope = scope
         lib.sources = [LibrarySource(scope, lib_path, lib_path.exists(), len(lib.journals), len(lib.proceedings))]
+        for venue in lib.journals + lib.proceedings:
+            venue.origin = scope
         return lib
 
     @classmethod
@@ -606,7 +611,14 @@ def load_library(venues: Optional[str | Path] = None, start: Optional[str | Path
     if project_path is None:
         return library
     project = VenueLibrary.load(project_path, scope=PROJECT_SCOPE)
+    user_records = {id(v) for v in library.journals + library.proceedings}
     _, library.overrides = merge_records(library, project.journals + project.proceedings, overwrite=True)
+    # Records the project merely added keep its scope; one both files define
+    # draws fields from the two.
+    for incoming in project.journals + project.proceedings:
+        record = library.find_any(incoming)
+        if record is not None and id(record) in user_records:
+            record.origin = "user+project"
     library.sources += project.sources
     library.path = None
     library.scope = "merged"

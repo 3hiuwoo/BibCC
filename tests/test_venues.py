@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import List
 
 import pytest
 import yaml
@@ -116,7 +117,48 @@ def test_compute_completion_adds_missing_and_reports_conflicts(library: VenueLib
     }
     assert result["conflicts"]["a"] == [("month", "July", "June")]
     assert list(result["missing"].values()) == [("Brand New Journal", "2024", JOURNAL)]
-    assert result["incomplete"] == [("c", "", "2025")]
+    assert result["incomplete"] == [("c", "", "2025", "misc")]
+
+
+def test_compute_completion_tracks_where_collected_values_come_from(library: VenueLibrary):
+    entries = [
+        {"ID": "p1", "ENTRYTYPE": "article", "year": "2024", "journal": "New Journal",
+         "publisher": "Elsevier"},
+        {"ID": "p2", "ENTRYTYPE": "article", "year": "2025", "journal": "New Journal",
+         "publisher": "Elsevier", "issn": "1234-5678"},
+        {"ID": "p3", "ENTRYTYPE": "article", "year": "2024", "journal": "New Journal",
+         "publisher": "Wiley"},
+    ]
+    result = compute_completion(entries, library)
+    (key,) = result["collected"]
+    assert result["collected"][key]["publisher"] == "Elsevier"  # the majority value
+    assert result["collected_from"][key]["publisher"] == ["p1", "p2"]
+    assert result["collected_from"][key]["issn"] == ["p2"]
+
+
+def test_complete_separates_misc_from_entries_to_fix(tmp_path: Path, library: VenueLibrary):
+    bib = tmp_path / "refs.bib"
+    bib.write_text(
+        "@inproceedings{A_Doe_Unknown2025,\n"
+        "  title = {T}, author = {Doe, J}, year = {2025},\n"
+        "  booktitle = {Unknown Conference 2025}, publisher = {ACM}\n"
+        "}\n"
+        "@inproceedings{NoVenue_Doe_2025,\n"
+        "  title = {T}, author = {Doe, J}, year = {2025}\n"
+        "}\n"
+        "@misc{ArXiv_Doe_2024,\n"
+        "  title = {T}, author = {Doe, J}, year = {2024}, eprint = {2401.00001}\n"
+        "}\n"
+    )
+    lines: List[str] = []
+    complete_main(str(bib), str(bib), dry_run=True, library=library, log=lines.append)
+    out = "\n".join(lines)
+    assert "not completed" in out and "NoVenue_Doe_2025 (@inproceedings)" in out
+    assert "Skipped 1 misc entry (no venue expected): ArXiv_Doe_2024" in out
+    assert "publisher (from A_Doe_Unknown2025)" in out
+    report = (tmp_path / ".bibcc" / "refs.bib" / "incomplete_entries.txt").read_text()
+    assert "entry_id\ttype\tvenue\tyear" in report
+    assert "ArXiv_Doe_2024\tmisc" in report
 
 
 def test_compute_completion_treats_equivalent_months_as_equal(library: VenueLibrary):
@@ -183,6 +225,8 @@ def test_missing_venues_yaml_round_trips_into_library(tmp_path: Path, library: V
     text = missing_yaml.read_text()
     assert "# from 2025 edition" in text
     assert "# from bib" in text
+    # The comment names the entry the collected value comes from.
+    assert 'publisher: "Elsevier"  # from bib (Y_Doe_PR2026)' in text
 
     data = yaml.safe_load(text)
     proc = data["proceedings"][0]

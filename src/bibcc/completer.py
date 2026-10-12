@@ -53,6 +53,7 @@ from bibcc.missing_venues import (
 from bibcc.venues import (
     EVENT_FIELDS,
     JOURNAL,
+    PROJECT_SCOPE,
     SCOPES,
     USER_SCOPE,
     LibraryNotFound,
@@ -112,6 +113,15 @@ class EntryCompletion:
     ambiguous: List[Venue] = field(default_factory=list)
 
 
+def _origin_label(origin: str) -> str:
+    """Log wording for the library a record's fields come from."""
+    if origin == PROJECT_SCOPE:
+        return "from the project library"
+    if origin == "user+project":
+        return "from the user and project libraries"
+    return "from the user library"
+
+
 def complete_entry(entry: Mapping[str, str], library: VenueLibrary) -> EntryCompletion:
     """Match one parsed entry against *library* and compute what to add.
 
@@ -155,13 +165,16 @@ def compute_completion(
       - ``missing``:    ``{(norm_venue, year): (venue, year, type)}`` not in library
       - ``missing_entries``: ``{(norm_venue, year): [entry_id]}``
       - ``collected``:  ``{key: {field: most common value}}`` for pre-filling
-      - ``incomplete``: ``[(entry_id, venue, year)]`` entries lacking venue/year
+      - ``collected_from``: ``{key: {field: [entry_id]}}`` the entries each
+        collected value comes from
+      - ``incomplete``: ``[(entry_id, venue, year, entry_type)]`` entries lacking venue/year
     """
     out: Dict[str, Any] = {
         "patches": {}, "conflicts": {}, "ambiguous": [], "interim": [], "matched": {},
-        "missing": {}, "missing_entries": {}, "incomplete": [],
+        "missing": {}, "missing_entries": {}, "incomplete": [], "collected_from": {},
     }
     counters: Dict[Tuple[str, str], Dict[str, Counter]] = {}
+    contributors: Dict[Tuple[str, str], Dict[str, Dict[str, List[str]]]] = {}
 
     for entry in entries:
         entry_id = entry["ID"]
@@ -170,7 +183,7 @@ def compute_completion(
         done = complete_entry(entry, library)
 
         if done.status == "incomplete":
-            out["incomplete"].append((entry_id, venue_raw, year))
+            out["incomplete"].append((entry_id, venue_raw, year, entry.get("ENTRYTYPE", "")))
         elif done.status == "ambiguous":
             out["ambiguous"].append((entry_id, venue_raw, [v.label for v in done.ambiguous]))
         elif done.status == "missing":
@@ -178,10 +191,12 @@ def compute_completion(
             out["missing"].setdefault(key, (venue_raw, year, done.kind))
             out["missing_entries"].setdefault(key, []).append(entry_id)
             entry_counters = counters.setdefault(key, {})
+            entry_contributors = contributors.setdefault(key, {})
             for fname in JOURNAL_FIELDS if done.kind == JOURNAL else PROCEEDINGS_FIELDS:
                 val = entry.get(fname, "").strip()
                 if val:
                     entry_counters.setdefault(fname, Counter())[val] += 1
+                    entry_contributors.setdefault(fname, {}).setdefault(val, []).append(entry_id)
         else:
             out["matched"][entry_id] = done.venue
             if done.patch:
@@ -194,6 +209,13 @@ def compute_completion(
     out["collected"] = {
         key: {fname: counter.most_common(1)[0][0] for fname, counter in field_counters.items()}
         for key, field_counters in counters.items()
+    }
+    out["collected_from"] = {
+        key: {
+            fname: contributors[key].get(fname, {}).get(value, [])
+            for fname, value in fields.items()
+        }
+        for key, fields in out["collected"].items()
     }
     return out
 
@@ -288,6 +310,12 @@ def main(
     incomplete_entries = result["incomplete"]
 
     log(f"  Identified {len(patches)} entries to patch.")
+    if patches and library.scope == "merged":
+        log("\n📚 Library records the patches come from:")
+        for eid in sorted(patches):
+            venue = result["matched"].get(eid)
+            if venue is not None:
+                log(f"  🔸 {eid}: '{venue.label}' ({_origin_label(venue.origin)})")
 
     text = read_bib(input_path)
     new_text, applied = set_fields(text, patches, replace=False)
@@ -323,8 +351,8 @@ def main(
 
     missing_rows = [f"{v}\t{y}\t{t}" for v, y, t in missing.values()]
     incomplete_rows = [
-        f"{eid}\tvenue={venue or '(empty)'}\tyear={year or '(empty)'}"
-        for eid, venue, year in incomplete_entries
+        f"{eid}\t{entry_type or '?'}\tvenue={venue or '(empty)'}\tyear={year or '(empty)'}"
+        for eid, venue, year, entry_type in incomplete_entries
     ]
 
     if dry_run:
@@ -359,16 +387,30 @@ def main(
         for eid, venue_raw, labels in ambiguous:
             log(f"  🔸 {eid}: '{venue_raw}' matches {', '.join(labels)}")
 
-    if incomplete_entries:
-        log("\n📭 Incomplete entries (missing year or venue, such as arXiv or misc entries), skipped:")
-        for entry_id, venue, year in incomplete_entries:
-            log(f"  🔸 {entry_id}: venue='{venue or '(empty)'}' year='{year or '(empty)'}'")
+    to_fix = [row for row in incomplete_entries if row[3].lower() != "misc"]
+    misc_skipped = [row for row in incomplete_entries if row[3].lower() == "misc"]
+    if to_fix:
+        log("\n📭 Incomplete entries (missing year or venue), not completed:")
+        for entry_id, venue, year, entry_type in to_fix:
+            log(f"  🔸 {entry_id} (@{entry_type or '?'}): venue='{venue or '(empty)'}' "
+                f"year='{year or '(empty)'}'")
+    if misc_skipped:
+        keys = ", ".join(row[0] for row in misc_skipped)
+        log(f"\nℹ️  Skipped {len(misc_skipped)} misc "
+            f"{'entry' if len(misc_skipped) == 1 else 'entries'} (no venue expected): {keys}")
 
     if missing:
         log("\nℹ️  Venues not in the library (deduplicated):")
-        for venue_raw, year, entry_type in missing.values():
+        for key, (venue_raw, year, entry_type) in missing.items():
             type_icon = "📰" if entry_type == JOURNAL else "📋"
             log(f"  {type_icon} [{entry_type}] venue='{venue_raw}' year='{year}'")
+            sources = [
+                f"{fname} (from {', '.join(ids)})"
+                for fname, ids in result["collected_from"].get(key, {}).items()
+                if ids
+            ]
+            if sources:
+                log(f"     pre-filled from entries: {'; '.join(sources)}")
     else:
         log("\n✅ All complete entries matched the venue library.")
 
@@ -390,12 +432,13 @@ def main(
     write_report(missing_txt_log, "missing venues: venue\tyear\ttype", missing_rows)
     write_report(
         incomplete_log,
-        "incomplete entries (missing year or venue): entry_id\tvenue\tyear",
+        "incomplete entries (missing year or venue): entry_id\ttype\tvenue\tyear",
         incomplete_rows,
     )
 
     proposals = [
         MissingVenue(kind, venue_raw, year, collected=result["collected"].get(key, {}),
+                     collected_from=result["collected_from"].get(key, {}),
                      crossref=fills.get(key, {}))
         for key, (venue_raw, year, kind) in missing.items()
     ]
@@ -449,9 +492,10 @@ overwriting it. Fill in the rest, and then rerun with --update-venues to add
 the venues to the library and complete the file in one step.
 
 The library is your user library merged with the project's
-.bibcc-venues.yaml (whose values win); see 'bibcc venues -h'.
---update-venues writes to the user library unless you pass --scope project,
-and it logs which file it writes.
+.bibcc-venues.yaml (whose values win); see 'bibcc venues -h'. For each
+entry it patches, the command logs the library the venue record comes
+from. --update-venues writes to the user library unless you pass
+--scope project, and it logs which file it writes.
 
 --online also queries CrossRef: it pre-fills more of the fill-in YAML, and it
 compares each entry that has a DOI, and its library record, with CrossRef
@@ -474,7 +518,7 @@ out, at the end of the YAML. Fields still come only from the library.""",
                 (".bibcc/INPUT/missing_venues.yaml", "Fill-in records for venues that aren't in the library"),
                 (".bibcc/INPUT/missing_venues.txt", "Entries whose venue isn't in the library"),
                 (".bibcc/INPUT/conflicts.txt", "Fields that differ from the library, and interim booktitles"),
-                (".bibcc/INPUT/incomplete_entries.txt", "Entries without a year or venue (skipped)"),
+                (".bibcc/INPUT/incomplete_entries.txt", "Entries without a year or venue, with their entry type"),
                 (".bibcc/INPUT/venue_check.txt", "--online: differences from CrossRef, and unchecked entries"),
                 (".bibcc/INPUT/logs/completer.log", "Everything printed to the terminal"),
             ],

@@ -4,6 +4,15 @@ This file lists notable changes to BibCC. The format follows [Keep a Changelog](
 
 ## [0.6.0] - Unreleased
 
+### Added
+
+- **`complete` says where pre-filled values come from**: In `missing_venues.yaml`, a value collected from your entries now names those entries in its comment (`# from bib (KEY, …)`), and the log lists the entries behind each pre-filled field of a missing venue.
+- **`complete` names the library behind each patch**: With a user library and a project library, the log says, for every entry it patches, whether the venue record comes from the user library, the project library, or both.
+
+### Changed
+
+- **Incomplete entries, separated**: `complete` lists the proceedings and journal entries that lack a year or a venue as entries to fix, and only counts the `@misc` ones (such as arXiv preprints), which aren't expected to have a venue. `incomplete_entries.txt` gains an entry-type column.
+
 ## [0.5.0] - 2026-10-12
 
 ### Fixed
