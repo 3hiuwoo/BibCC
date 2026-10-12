@@ -54,7 +54,12 @@ import bibtexparser
 
 from bibcc.bibedit import BibEditError, month_macro, page_range, read_bib, scan, write_bib
 from bibcc.checkers.citation_keys import abbreviate_venue, first_author_surname
-from bibcc.checkers.smart_protection import find_unprotected_terms, protect_terms
+from bibcc.checkers.smart_protection import (
+    MIN_TERM_LENGTH,
+    _classify_word,
+    find_unprotected_terms,
+    protect_terms,
+)
 from bibcc.completer import EntryCompletion, complete_entry
 from bibcc.crosscheck import venue_fields_from_crossref
 from bibcc.helptext import ENV_S2, ENV_VENUES, VENUES_HELP, HelpFormatter, epilog
@@ -346,21 +351,58 @@ _PARTLY_BRACED = re.compile(r"^(?:[^\s{}\\]*\{[^\s{}\\]+\})+[^\s{}\\]*$")
 _FULLY_BRACED = re.compile(r"^\{[^{}]*\}$")
 
 
-def _merge_word_braces(title: str) -> str:
-    """``{SD}-Lo{RA}:`` → ``{SD-LoRA}:``: one brace group per partly braced word."""
+def _normalize_word_braces(title: str) -> str:
+    """Normalize braces inside words: one group per word or per protected part.
+
+    A hyphenated or slashed compound whose parts all need protection gets a
+    single group, so ``{SD}-Lo{RA}`` becomes ``{SD-LoRA}``.  When only some
+    parts need it, those parts keep their own groups, so ``{CIP}-Net`` stays
+    as is and ``{SD}-Lo{RA}-Net`` becomes ``{SD-LoRA}-Net``.  Words without a
+    separator get one group (``{GPT}s`` → ``{GPTs}``).  Fully braced words and
+    words with LaTeX commands are left alone.
+    """
     words = []
     for word in title.split(" "):
         core = word.rstrip(":,;.!?")
-        if _PARTLY_BRACED.match(core) and not _FULLY_BRACED.match(core):
-            word = "{" + core.replace("{", "").replace("}", "") + "}" + word[len(core):]
-        words.append(word)
+        tail = word[len(core):]
+        if (
+            not _PARTLY_BRACED.match(core)
+            or _FULLY_BRACED.match(core)
+        ):
+            words.append(word)
+            continue
+        if "-" not in core and "/" not in core:
+            words.append("{" + core.replace("{", "").replace("}", "") + "}" + tail)
+            continue
+        orig_tokens = re.split(r"([-/])", core)
+        plain_tokens = [t.replace("{", "").replace("}", "") for t in orig_tokens]
+        needs = [
+            "{" in o or "}" in o or bool(_classify_word(p, MIN_TERM_LENGTH))
+            for o, p in zip(orig_tokens, plain_tokens)
+        ]
+        parts = [i for i, t in enumerate(plain_tokens) if t not in ("-", "/")]
+        if all(needs[i] for i in parts):
+            words.append("{" + "".join(plain_tokens) + "}" + tail)
+            continue
+        out, i, n = [], 0, len(plain_tokens)
+        while i < n:
+            if needs[i] and plain_tokens[i] not in ("-", "/"):
+                j = i
+                while j + 2 < n and needs[j + 2]:
+                    j += 2
+                out.append("{" + "".join(plain_tokens[i : j + 1]) + "}")
+                i = j + 1
+            else:
+                out.append(plain_tokens[i])
+                i += 1
+        words.append("".join(out) + tail)
     return " ".join(words)
 
 
 def polish_fields(fields: Dict[str, str], keep_title: bool = False) -> Dict[str, str]:
     """Official BibTeX values in the survey's style (Title Case, protected terms, escapes)."""
     out = {k: _texify(v) if k in _TEXT_FIELDS else v for k, v in fields.items() if v}
-    title = _merge_word_braces(out.get("title", "").rstrip("."))
+    title = _normalize_word_braces(out.get("title", "").rstrip("."))
     if title:
         if not keep_title:
             title = suggest_title_case(title)

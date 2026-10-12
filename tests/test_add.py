@@ -553,14 +553,17 @@ def test_protect_terms_groups_compounds():
     "title,expected",
     [
         ("{SD}-Lo{RA}: Scalable", "{SD-LoRA}: Scalable"),
+        ("{CIP}-Net: A Network", "{CIP}-Net: A Network"),
+        ("{SD}-Lo{RA}-Net", "{SD-LoRA}-Net"),
+        ("{CIP-Net}: Whole", "{CIP-Net}: Whole"),
         ("{BERT} and {GPT}s", "{BERT} and {GPTs}"),
         ("Ale{\\v{s}} {Foo Bar}", "Ale{\\v{s}} {Foo Bar}"),
     ],
 )
-def test_merge_word_braces(title, expected):
-    from bibcc.adder import _merge_word_braces
+def test_normalize_word_braces(title, expected):
+    from bibcc.adder import _normalize_word_braces
 
-    assert _merge_word_braces(title) == expected
+    assert _normalize_word_braces(title) == expected
 
 
 def test_latex_escape_and_format_entry():

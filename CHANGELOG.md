@@ -4,6 +4,10 @@ This file lists notable changes to BibCC. The format follows [Keep a Changelog](
 
 ## [0.5.0] - Unreleased
 
+### Fixed
+
+- `add` no longer merges braces across a hyphen or slash when only part of the word needs protection: `{CIP}-Net` stays `{CIP}-Net` instead of becoming `{CIP-Net}`. A compound whose parts all need protection still gets one group (`{SD}-Lo{RA}` becomes `{SD-LoRA}`).
+
 ## [0.4.0] - 2026-10-11
 
 ### Added
