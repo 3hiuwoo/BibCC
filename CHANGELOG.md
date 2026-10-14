@@ -2,7 +2,7 @@
 
 This file lists notable changes to BibCC. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/). The version number lives only in [`src/bibcc/__init__.py`](src/bibcc/__init__.py).
 
-## [0.6.0] - Unreleased
+## [0.6.0] - 2026-10-14
 
 ### Added
 
@@ -163,7 +163,7 @@ This is the first packaged version. BibCC becomes an installable `bibcc` command
 
 Before version 0.2.0, BibCC was a set of unversioned scripts that you ran with `python bibcc.py`: `check` (missing fields, title case, term protection, citation keys, and template fields), `complete` with Python templates, `librarian`, `scholar`, and `compose`.
 
-[0.6.0]: https://github.com/3hiuwoo/BibCC/compare/v0.5.0...dev
+[0.6.0]: https://github.com/3hiuwoo/BibCC/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/3hiuwoo/BibCC/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/3hiuwoo/BibCC/compare/v0.3.1...v0.4.0
 [0.3.1]: https://github.com/3hiuwoo/BibCC/compare/v0.3.0...v0.3.1
