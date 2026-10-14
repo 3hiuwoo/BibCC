@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from bibcc.checkers.field_issues import check_field_issues, suggest_field, value_issues
+from bibcc.checkers.field_issues import check_field_issues, interim_leftovers, suggest_field, value_issues
 from bibcc.cli import main
 
 
@@ -113,8 +113,83 @@ def test_syntax_error_is_reported(tmp_path: Path):
 def test_cli_writes_report(tmp_path: Path):
     bib = tmp_path / "refs.bib"
     bib.write_text("@article{k, title = {T}, volumn = {3}, pages = {1-2}}\n")
-    main(["check", str(bib), "--check-fields"])
+    main(["check", "fields", str(bib)])
     report = (tmp_path / ".bibcc" / "refs.bib" / "field_issues.txt").read_text()
     assert "k\tunknown_field\t'volumn' → did you mean 'volume'?" in report
     assert "k\tpage_range\t'1-2' → '1--2'" in report
     assert bib.read_text() == "@article{k, title = {T}, volumn = {3}, pages = {1-2}}\n"
+
+
+_IEEE = (
+    "@inproceedings{IEEE,\n"
+    "  title     = {T},\n"
+    "  booktitle = {2023 {IEEE/CVF} International Conference on Computer Vision ({ICCV})},\n"
+    "  year      = {2023},\n"
+    "  doi       = {10.1109/ICCV51070.2023.01933},\n"
+    "  url       = {https://openaccess.thecvf.com/content/ICCV2023/html/X_paper.html}\n"
+    "}\n"
+)
+_CVF = (
+    "@inproceedings{CVF,\n"
+    "  title     = {T2},\n"
+    "  booktitle = {Proceedings of the {IEEE/CVF} Conference on Computer Vision and Pattern Recognition ({CVPR})},\n"
+    "  year      = {2026},\n"
+    "  url       = {https://openaccess.thecvf.com/content/CVPR2026/html/Y_paper.html}\n"
+    "}\n"
+)
+
+
+@pytest.mark.parametrize(
+    "entry, fields",
+    [
+        ({"ENTRYTYPE": "inproceedings", "booktitle": "2023 IEEE/CVF ICCV", "url": "https://openaccess.thecvf.com/x"},
+         ["url"]),
+        ({"ENTRYTYPE": "inproceedings", "booktitle": "Proceedings of the IEEE/CVF International Conference on "
+          "Computer Vision (ICCV)", "url": "https://openaccess.thecvf.com/x"}, []),
+        ({"ENTRYTYPE": "inproceedings", "booktitle": "Advances in Neural Information Processing Systems",
+          "url": "https://openreview.net/forum?id=x"}, ["url"]),
+        ({"ENTRYTYPE": "inproceedings", "booktitle": "The Thirteenth International Conference on Learning "
+          "Representations", "year": "2025", "url": "https://openreview.net/forum?id=x"}, []),
+        ({"ENTRYTYPE": "inproceedings", "booktitle": "International Conference on Learning Representations",
+          "year": "2021", "url": "https://openreview.net/forum?id=x"}, []),
+        ({"ENTRYTYPE": "article", "journal": "Transactions on Machine Learning Research",
+          "url": "https://openreview.net/forum?id=x"}, []),
+        ({"ENTRYTYPE": "article", "journal": "IEEE TPAMI", "url": "https://arxiv.org/abs/2501.13198",
+          "eprint": "2501.13198", "archiveprefix": "arXiv", "primaryclass": "cs.CV"},
+         ["url", "eprint", "archiveprefix", "primaryclass"]),
+        ({"ENTRYTYPE": "inproceedings", "booktitle": "ECCV", "note": "arXiv preprint arXiv:2501.13198"}, ["note"]),
+        ({"ENTRYTYPE": "misc", "url": "https://arxiv.org/abs/2501.13198", "eprint": "2501.13198"}, []),
+        ({"ENTRYTYPE": "article", "journal": "arXiv preprint arXiv:2501.13198",
+          "url": "https://arxiv.org/abs/2501.13198"}, []),
+        ({"ENTRYTYPE": "inproceedings", "booktitle": "ICML", "url": "https://proceedings.mlr.press/v1/x.html"}, []),
+    ],
+)
+def test_interim_leftovers(entry, fields):
+    assert [name for name, _ in interim_leftovers(entry)] == fields
+
+
+def test_interim_field_is_reported_only_off_the_interim_entry(tmp_path: Path):
+    rows = _check(tmp_path, _IEEE + _CVF)
+    assert [(k, kind) for k, kind, _ in rows] == [("IEEE", "interim_field")]
+
+
+def test_cli_apply_removes_interim_fields_only(tmp_path: Path):
+    bib = tmp_path / "refs.bib"
+    bib.write_text(_IEEE + _CVF, encoding="utf-8")
+    main(["check", "fields", str(bib), "--apply"])
+    assert bib.read_text() == _IEEE.replace(
+        "01933},\n  url       = {https://openaccess.thecvf.com/content/ICCV2023/html/X_paper.html}", "01933}"
+    ) + _CVF
+    assert not (tmp_path / ".bibcc" / "refs.bib" / "field_issues.txt").exists()
+
+
+def test_cli_apply_also_removes_empty_fields(tmp_path: Path):
+    bib = tmp_path / "refs.bib"
+    bib.write_text(
+        "@inproceedings{K,\n  title  = {T},\n  volume = {},\n  number = {},\n  pages  = {1--2}\n}\n"
+        "@misc{E,\n  note = {}\n}\n",
+        encoding="utf-8",
+    )
+    main(["check", "fields", str(bib), "--apply"])
+    # The entry whose only field is empty is left alone.
+    assert bib.read_text() == "@inproceedings{K,\n  title  = {T},\n  pages  = {1--2}\n}\n@misc{E,\n  note = {}\n}\n"

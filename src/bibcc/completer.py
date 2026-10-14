@@ -6,7 +6,9 @@ library (the user library merged with the project's ``.bibcc-venues.yaml``,
 see :mod:`bibcc.venues`).
 Fields the entry lacks are added; fields that differ are reported as
 conflicts (in every mode, and in ``.bibcc/<input>/conflicts.txt``) and never
-overwritten.  The library is the only source of added fields.
+overwritten, unless ``--resolve library`` takes the library's value (narrow
+the entries and fields it touches with ``--ids`` and ``--fields``).  The
+library is the only source of added fields.
 
 An entry whose booktitle is the interim name of a library record (the CVF
 Open Access or OpenReview booktitle of proceedings that are now published
@@ -38,7 +40,16 @@ from typing import Any, Callable, Dict, List, Mapping, Optional, Tuple
 import bibtexparser
 from bibtexparser.latexenc import latex_to_unicode
 
-from bibcc.bibedit import BibEditError, month_macro, read_bib, set_fields, unified_diff, write_bib
+from bibcc.bibedit import (
+    BibEditError,
+    month_macro,
+    read_bib,
+    remove_fields,
+    retype_entries,
+    set_fields,
+    unified_diff,
+    write_bib,
+)
 from bibcc.crosscheck import Check, CrossrefCache, check_entry, entry_doi, venue_fields_from_crossref
 from bibcc.helptext import ENV_VENUES, SCOPE_HELP, VENUES_HELP, HelpFormatter, epilog
 from bibcc.logging_utils import Logger, remove_report, report_dir, write_report
@@ -53,12 +64,15 @@ from bibcc.missing_venues import (
 from bibcc.venues import (
     EVENT_FIELDS,
     JOURNAL,
+    NO_MONTH,
     PROJECT_SCOPE,
     SCOPES,
     USER_SCOPE,
     LibraryNotFound,
     Venue,
     VenueLibrary,
+    is_conference_journal,
+    is_no_month,
     load_library,
     merge_missing_venues,
     normalize_issn,
@@ -83,6 +97,10 @@ def _comparable(name: str, value: Optional[str]) -> Any:
         return frozenset(normalize_issn(value)) or normalize_text(value)
     if name == "isbn":
         return frozenset(re.sub(r"[^0-9X]", "", part.upper()) for part in value.split(",") if part.strip())
+    # bibtexparser's converter keeps the space that ends a control word (`\l czyk`)
+    # and mangles an unbraced accent argument (`{\'n}`), so spell both the braced way.
+    value = re.sub(r"\\([A-Za-z]+) +", r"{\\\1}", value)
+    value = re.sub(r"\\(['\"`^~=.])([A-Za-z])", r"\\\1{\2}", value)
     text = latex_to_unicode(value).replace("{", "").replace("}", "")
     return " ".join(text.split()).casefold()
 
@@ -142,6 +160,10 @@ def complete_entry(entry: Mapping[str, str], library: VenueLibrary) -> EntryComp
     done = EntryCompletion("matched", kind, venue=result.venue, interim_source=result.interim_source)
     for name, value in result.venue.fields.items():
         if result.interim_source and name not in EVENT_FIELDS:
+            continue
+        if is_no_month(name, value):
+            if str(entry.get(name, "")).strip():
+                done.conflicts.append((name, entry.get(name, ""), value))
             continue
         if name not in entry:
             done.patch[name] = value
@@ -220,6 +242,28 @@ def compute_completion(
     return out
 
 
+def retype_conference_articles(text: str, only_ids: Optional[List[str]] = None) -> Tuple[str, List[Tuple[str, str]]]:
+    """Make the ``@article`` entries for conference proceedings ``@inproceedings``.
+
+    AAAI exports its papers as ``@article`` with the proceedings name as the
+    ``journal``; the name becomes the ``booktitle``.  Returns the new text
+    and ``(entry_id, journal)`` for each entry changed.
+    """
+    parser = bibtexparser.bparser.BibTexParser(common_strings=True)
+    changes: Dict[str, Tuple[str, Dict[str, str]]] = {}
+    found: List[Tuple[str, str]] = []
+    for entry in bibtexparser.loads(text, parser=parser).entries:
+        if only_ids is not None and entry["ID"] not in only_ids:
+            continue
+        journal = entry.get("journal", "")
+        if entry.get("ENTRYTYPE") == "article" and "booktitle" not in entry and is_conference_journal(journal):
+            changes[entry["ID"]] = ("inproceedings", {"journal": "booktitle"})
+            found.append((entry["ID"], journal))
+    if not changes:
+        return text, []
+    return retype_entries(text, changes), found
+
+
 def _online_checks(
     entries: List[Dict[str, Any]],
     result: Dict[str, Any],
@@ -283,23 +327,30 @@ def main(
     log: Optional[Callable[[str], None]] = None,
     online: bool = False,
     delay: float = 1.0,
+    resolve: str = "keep",
+    only_fields: Optional[List[str]] = None,
+    only_ids: Optional[List[str]] = None,
 ):
     """Complete *input_path* and write the result to *output_path* unless *dry_run*.
 
     Only the added fields change in the output; everything else in the file
-    is kept byte for byte.  Reports (conflicts, missing venues, incomplete
-    entries, and with *online* the CrossRef check) are written in every mode.
-    Raises :class:`BibEditError` (and writes nothing) if the edits cannot be
-    applied safely.
+    is kept byte for byte.  With ``resolve="library"``, fields that differ
+    from the library are overwritten with the library's values.  *only_ids*
+    and *only_fields* narrow the entries and fields the command may add or
+    overwrite; the reports still cover the whole file.  Reports (conflicts,
+    missing venues, incomplete entries, and with *online* the CrossRef check)
+    are written in every mode.  Raises :class:`BibEditError` (and writes
+    nothing) if the edits cannot be applied safely.
     """
     log = log or print
     library = library if library is not None else load_library(start=input_path)
     log(f"Reading {input_path}...")
     log(f"📦 Venue library: {library.describe()}")
 
-    with open(input_path, "r", encoding="utf-8") as f:
-        parser = bibtexparser.bparser.BibTexParser(common_strings=True)
-        bib_db = bibtexparser.load(f, parser=parser)
+    original = read_bib(input_path)
+    text, retyped = retype_conference_articles(original, only_ids)
+    parser = bibtexparser.bparser.BibTexParser(common_strings=True)
+    bib_db = bibtexparser.loads(text, parser=parser)
 
     result = compute_completion(bib_db.entries, library)
     patches = result["patches"]
@@ -309,6 +360,49 @@ def main(
     missing = result["missing"]
     incomplete_entries = result["incomplete"]
 
+    wanted_ids = set(only_ids) if only_ids is not None else None
+    if wanted_ids is not None:
+        unknown = sorted(wanted_ids - {e["ID"] for e in bib_db.entries})
+        if unknown:
+            log(f"⚠️  --ids: no entries with keys: {', '.join(unknown)}")
+        patches = {eid: p for eid, p in patches.items() if eid in wanted_ids}
+    wanted_fields = set(only_fields) if only_fields is not None else None
+    if wanted_fields is not None:
+        patches = {
+            eid: p
+            for eid, p in (
+                (eid, {f: v for f, v in p.items() if f in wanted_fields})
+                for eid, p in patches.items()
+            )
+            if p
+        }
+
+    # Conflicts the user asked to overwrite with the library values.  A record
+    # that says the venue has no month removes the entry's month (and day).
+    resolved: Dict[str, List[Tuple[str, str, str]]] = {}
+    removals: Dict[str, List[str]] = {}
+    if resolve == "library":
+        for eid, rows in conflicts.items():
+            if wanted_ids is not None and eid not in wanted_ids:
+                continue
+            for name, existing_val, library_val in rows:
+                if wanted_fields is not None and name not in wanted_fields:
+                    continue
+                if is_no_month(name, library_val):
+                    removals.setdefault(eid, []).extend([name, "day"])
+                else:
+                    patches.setdefault(eid, {})[name] = library_val
+                resolved.setdefault(eid, []).append((name, existing_val, library_val))
+
+    # Conflicts that stay as they are: all of them with --resolve keep, or
+    # the ones that --ids or --fields leave out with --resolve library.
+    leftover: Dict[str, List[Tuple[str, str, str]]] = {}
+    for eid, rows in conflicts.items():
+        done_fields = {name for name, _, _ in resolved.get(eid, [])}
+        rest = [row for row in rows if row[0] not in done_fields]
+        if rest:
+            leftover[eid] = rest
+
     log(f"  Identified {len(patches)} entries to patch.")
     if patches and library.scope == "merged":
         log("\n📚 Library records the patches come from:")
@@ -317,8 +411,17 @@ def main(
             if venue is not None:
                 log(f"  🔸 {eid}: '{venue.label}' ({_origin_label(venue.origin)})")
 
-    text = read_bib(input_path)
-    new_text, applied = set_fields(text, patches, replace=False)
+    new_text, applied = set_fields(text, patches, replace=bool(resolved))
+    if removals:
+        new_text, removed = remove_fields(new_text, removals)
+        applied += removed
+    additions = [a for a in applied if a.action == "added"]
+    overwrites = [a for a in applied if a.action in ("replaced", "removed")]
+    if retyped:
+        log("\n🔁 Conference papers exported as @article, now @inproceedings with the journal "
+            "name as their booktitle:")
+        for eid, journal in retyped:
+            log(f"  🔸 {eid}: '{journal}'")
 
     output_dir = report_dir(input_path, log_dir)
     conflict_log = output_dir / "conflicts.txt"
@@ -349,16 +452,24 @@ def main(
             f"({source} booktitle; run bibcc upgrade)"
         )
 
-    missing_rows = [f"{v}\t{y}\t{t}" for v, y, t in missing.values()]
+    missing_rows = [
+        f"{v}\t{y}\t{t}\t{', '.join(result['missing_entries'].get(k, []))}"
+        for k, (v, y, t) in missing.items()
+    ]
     incomplete_rows = [
         f"{eid}\t{entry_type or '?'}\tvenue={venue or '(empty)'}\tyear={year or '(empty)'}"
         for eid, venue, year, entry_type in incomplete_entries
     ]
 
     if dry_run:
-        diff = unified_diff(text, new_text, input_path)
+        diff = unified_diff(original, new_text, input_path)
         if diff:
-            log(f"\n🧪 Dry-run preview ({len(applied)} fields to add):")
+            what = f"{len(additions)} fields to add"
+            if retyped:
+                what += f", {len(retyped)} entry types to change"
+            if overwrites:
+                what += f", {len(overwrites)} to overwrite with the library values"
+            log(f"\n🧪 Dry-run preview ({what}):")
             log(diff.rstrip("\n"))
             diff_log.write_text(diff, encoding="utf-8")
         else:
@@ -368,11 +479,29 @@ def main(
         remove_report(diff_log)
 
     if conflicts:
-        log("\n⚠️  Conflicts (existing value differs from library, not overwritten):")
-        for eid, conflicts_fields in conflicts.items():
-            log(f"Entry ID: {eid}")
-            for k, existing_val, tmpl_val in conflicts_fields:
-                log(f"  field '{k}': existing='{existing_val}', library='{tmpl_val}'")
+        if resolved:
+            log("\n🔁 Conflicts overwritten with the library values:")
+            for eid, rows in resolved.items():
+                log(f"Entry ID: {eid}")
+                for k, existing_val, tmpl_val in rows:
+                    if is_no_month(k, tmpl_val):
+                        log(f"  field '{k}': '{existing_val}' removed (the venue has no month)")
+                    else:
+                        log(f"  field '{k}': '{existing_val}' → '{tmpl_val}'")
+        if leftover:
+            if resolved:
+                log("\n⚠️  Conflicts left unchanged (not selected by --ids or --fields):")
+            else:
+                log("\n⚠️  Conflicts (existing value differs from library, not overwritten):")
+            for eid, rows in leftover.items():
+                log(f"Entry ID: {eid}")
+                for k, existing_val, tmpl_val in rows:
+                    log(f"  field '{k}': existing='{existing_val}', library='{tmpl_val}'")
+            if not resolved:
+                log("   To take the library values instead, rerun with --resolve library.")
+            if any(is_no_month(k, v) for rows in leftover.values() for k, _, v in rows):
+                log(f"   library='{NO_MONTH}' means that the venue has no month; --resolve library removes "
+                    "the entry's month and day.")
     else:
         log("\n✅ No conflicts detected.")
 
@@ -404,6 +533,9 @@ def main(
         for key, (venue_raw, year, entry_type) in missing.items():
             type_icon = "📰" if entry_type == JOURNAL else "📋"
             log(f"  {type_icon} [{entry_type}] venue='{venue_raw}' year='{year}'")
+            ids = result["missing_entries"].get(key, [])
+            if ids:
+                log(f"     entries: {', '.join(ids)}")
             sources = [
                 f"{fname} (from {', '.join(ids)})"
                 for fname, ids in result["collected_from"].get(key, {}).items()
@@ -429,7 +561,7 @@ def main(
         write_report(check_log, "venue check: entry_id\tfield\tverdict\tbib\tlibrary\tcrossref", check_rows)
 
     write_report(conflict_log, "conflicts: entry_id\tfield\texisting\tlibrary", conflict_rows)
-    write_report(missing_txt_log, "missing venues: venue\tyear\ttype", missing_rows)
+    write_report(missing_txt_log, "missing venues: venue\tyear\ttype\tentries", missing_rows)
     write_report(
         incomplete_log,
         "incomplete entries (missing year or venue): entry_id\ttype\tvenue\tyear",
@@ -439,7 +571,8 @@ def main(
     proposals = [
         MissingVenue(kind, venue_raw, year, collected=result["collected"].get(key, {}),
                      collected_from=result["collected_from"].get(key, {}),
-                     crossref=fills.get(key, {}))
+                     crossref=fills.get(key, {}),
+                     entries=result["missing_entries"].get(key, []))
         for key, (venue_raw, year, kind) in missing.items()
     ]
     rerun = update_command(input_path)
@@ -459,10 +592,15 @@ def main(
         return
 
     write_bib(output_path, new_text)
-    entries_changed = len({a.key for a in applied})
-    log(f"\n✅ Added {len(applied)} fields to {entries_changed} entries. Saved to {output_path}")
-    if conflicts or ambiguous:
-        log(f"⚠️  {len(conflicts)} conflicting and {len(ambiguous)} ambiguous entries left unchanged.")
+    entries_changed = len({a.key for a in applied} | {eid for eid, _ in retyped})
+    if overwrites:
+        log(f"\n✅ Added {len(additions)} fields and overwrote "
+            f"{len(overwrites)} value{'s' * (len(overwrites) != 1)} "
+            f"in {entries_changed} entries. Saved to {output_path}")
+    else:
+        log(f"\n✅ Added {len(additions)} fields to {entries_changed} entries. Saved to {output_path}")
+    if leftover or ambiguous:
+        log(f"⚠️  {len(leftover)} conflicting and {len(ambiguous)} ambiguous entries left unchanged.")
     log(f"Reports saved: {', '.join(str(p) for p in saved)}")
 
 
@@ -476,9 +614,13 @@ name, alias, or ISSN; proceedings match by name or alias and the entry's
 year.
 
 The command never overwrites existing fields: it lists a different value as
-a conflict (in every mode). It inserts only the new fields, and the rest of
-the file stays byte for byte. Without --output or --in-place, the command
-does a dry run and writes the changes that it would make as a diff.
+a conflict (in every mode), unless you pass --resolve library, which takes
+the library's value, for example after you fix a library record. --fields
+and --ids narrow the fields and entries the command may add or overwrite;
+the reports still cover the whole file. It inserts only the new fields, and
+the rest of the file stays byte for byte. Without --output or --in-place,
+the command does a dry run and writes the changes that it would make as a
+diff.
 
 If an entry's booktitle is the CVF Open Access or OpenReview name of
 proceedings that the library knows by their published name, the entry gets
@@ -489,13 +631,14 @@ The command writes venues that aren't in the library to a fill-in YAML file,
 pre-filled from other entries of the same venue and from the previous
 edition of a conference. Every run merges into this file instead of
 overwriting it. Fill in the rest, and then rerun with --update-venues to add
-the venues to the library and complete the file in one step.
+the venues to the library and complete the file in one step, or with
+--update-venues-only to only update the library and leave the file alone.
 
 The library is your user library merged with the project's
 .bibcc-venues.yaml (whose values win); see 'bibcc venues -h'. For each
 entry it patches, the command logs the library the venue record comes
-from. --update-venues writes to the user library unless you pass
---scope project, and it logs which file it writes.
+from. --update-venues and --update-venues-only write to the user library
+unless you pass --scope project, and they log which file they write.
 
 --online also queries CrossRef: it pre-fills more of the fill-in YAML, and it
 compares each entry that has a DOI, and its library record, with CrossRef
@@ -509,8 +652,12 @@ out, at the end of the YAML. Fields still come only from the library.""",
                 ("Complete the file itself", "bibcc complete refs.bib --in-place"),
                 ("After you fill in .bibcc/refs.bib/missing_venues.yaml, add those venues and complete",
                  "bibcc complete refs.bib --in-place --update-venues"),
+                ("Only add the filled-in venues to the library, without touching the .bib file",
+                 "bibcc complete refs.bib --update-venues-only"),
                 ("Do the same, but add the venues to the project's .bibcc-venues.yaml",
                  "bibcc complete refs.bib --in-place --update-venues --scope project"),
+                ("After fixing a library record, overwrite the fields it got wrong",
+                 "bibcc complete refs.bib --in-place --resolve library --fields publisher,issn"),
                 ("Also check the entries and the library against CrossRef", "bibcc complete refs.bib --online"),
             ],
             outputs=[
@@ -563,6 +710,37 @@ out, at the end of the YAML. Fields still come only from the library.""",
         "library that --scope selects (skipping records with no field filled in), and then "
         "complete the file.",
     )
+    parser.add_argument(
+        "--update-venues-only",
+        action="store_true",
+        help="Merge the filled-in .bibcc/INPUT/missing_venues.yaml into the venue library "
+        "that --scope selects, and stop without completing the file.",
+    )
+    parser.add_argument(
+        "--resolve",
+        choices=["keep", "library"],
+        default="keep",
+        metavar="MODE",
+        help="What to do when an entry's field differs from the library: 'keep' reports the "
+        "conflict and leaves the entry alone (default); 'library' overwrites the entry's "
+        "value with the library's, for example after you fix a library record.",
+    )
+    parser.add_argument(
+        "--fields",
+        type=str,
+        default="",
+        metavar="FIELDS",
+        help="Comma-separated fields the command may add or overwrite (default: every field "
+        "of the venue record). The reports still cover all fields.",
+    )
+    parser.add_argument(
+        "--ids",
+        type=str,
+        default="",
+        metavar="KEYS",
+        help="Comma-separated citation keys to complete (default: all entries). The reports "
+        "still cover the whole file.",
+    )
     parser.add_argument("--scope", choices=SCOPES, default=None, help=SCOPE_HELP)
     parser.add_argument(
         "--online",
@@ -608,13 +786,28 @@ def run(args: argparse.Namespace) -> None:
     """Run completer with parsed arguments."""
     if args.in_place and args.output:
         build_parser().error("use either --output or --in-place, not both")
-    if args.scope and not args.update_venues:
-        build_parser().error("--scope only applies with --update-venues")
+    if args.scope and not (args.update_venues or args.update_venues_only):
+        build_parser().error("--scope only applies with --update-venues or --update-venues-only")
     if args.scope and args.venues:
         build_parser().error("--venues already names the library to update; drop --scope")
+    log_dir = Path(args.log_dir) if args.log_dir else None
+
+    if args.update_venues_only:
+        if args.output or args.in_place:
+            build_parser().error(
+                "--update-venues-only writes only the library; drop --output and --in-place"
+            )
+        if args.online or args.resolve != "keep" or args.fields or args.ids:
+            build_parser().error(
+                "--update-venues-only only merges the YAML file into the library; "
+                "drop --online, --resolve, --fields, and --ids"
+            )
+        with Logger("completer", input_file=args.input, log_dir=log_dir) as logger:
+            update_library(args, log_dir, logger.log)
+        return
+
     output = args.input if args.in_place else args.output
     dry_run = not bool(output)
-    log_dir = Path(args.log_dir) if args.log_dir else None
 
     with Logger("completer", input_file=args.input, log_dir=log_dir) as logger:
         if args.update_venues:
@@ -631,6 +824,9 @@ def run(args: argparse.Namespace) -> None:
                 log=logger.log,
                 online=args.online,
                 delay=args.delay,
+                resolve=args.resolve,
+                only_fields=[f.strip().lower() for f in args.fields.split(",") if f.strip()] or None,
+                only_ids=[i.strip() for i in args.ids.split(",") if i.strip()] or None,
             )
         except BibEditError as e:
             logger.log(f"❌ Could not apply the edits safely: {e}")

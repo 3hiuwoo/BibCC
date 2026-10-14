@@ -157,7 +157,7 @@ def test_build_entry_completes_from_library_and_reports_differences(library):
     assert built.fields["publisher"] == "Someone Else"  # never overwritten...
     assert any("publisher: official 'Someone Else' kept" in n for n in built.notes)  # ...but reported
     assert built.fields["pages"] == "9851--9873"
-    assert "keywords" not in built.fields
+    assert built.fields["keywords"].startswith("Task analysis;Training")  # official fields are kept
 
 
 def test_build_entry_adds_located_doi_when_official_has_none(library):
@@ -206,7 +206,7 @@ def test_add_doi_uses_official_bibtex_and_library_fields(web, library, tmp_path)
     assert entry["doi"] == "10.1109/TPAMI.2024.3429383"
     assert entry["pages"] == "9851--9873"
     assert entry["number"] == "12"
-    assert "keywords" not in entry
+    assert entry["keywords"].startswith("Task analysis;Training")
     assert entry["author"].startswith("Zhou, Da-Wei and Wang, Qi-Wei")
     assert any(XPLORE_EXPORT + "10599804" in call for call in web.calls)
 
@@ -219,7 +219,7 @@ def test_add_eccv_chapter_uses_springer_bibtex(web, library, tmp_path):
     assert entry["venue"] == "Milan, Italy"  # from the library
     assert entry["editor"].startswith("Leonardis, Ale{\\v{s}} and Ricci, Elisa")
     assert entry["doi"] == "10.1007/978-3-031-72667-5_1"
-    assert "abstract" not in entry
+    assert entry["abstract"].startswith("By leveraging the text-to-image diffusion prior")
 
 
 def test_add_arxiv_without_published_version_uses_arxiv_bibtex(web, library, tmp_path):
@@ -320,7 +320,7 @@ def test_add_paper_page_url(web, library, tmp_path):
     assert entry["month"] == "July" or entry["month"].lower().startswith("jul")
     assert entry["day"] == "21--27"
     assert entry["venue"] == "Vienna, Austria"  # from the library
-    assert "pdf" not in entry and "abstract" not in entry
+    assert entry["pdf"].endswith("abad-rocamora24a.pdf") and entry["abstract"] == "Adversarial attacks in NLP."
 
 
 def test_add_writes_empty_entry_when_publisher_blocks_downloads(web, library, tmp_path):
@@ -380,6 +380,7 @@ def test_add_proposes_missing_venue_in_yaml(web, library, tmp_path):
     yaml_text = (tmp_path / ".bibcc" / "added.bib" / "missing_venues.yaml").read_text()
     assert "99th Annual Meeting" in yaml_text
     assert "Toronto, Canada" in yaml_text  # collected from the official BibTeX
+    assert "# entries: " in yaml_text  # the record names the entry that cites the venue
 
 
 def test_openreview_ignores_unaccepted_and_other_titles(web, library):
@@ -575,7 +576,7 @@ def test_latex_escape_and_format_entry():
         "  month  = jun,\n  eprint = {1}\n}"
     )
     assert format_entry("misc", "K", {}) == "@misc{K,\n}"
-    assert format_entry("misc", "K", {"title": ""}) == "@misc{K,\n}"
+    assert format_entry("misc", "K", {"title": ""}) == "@misc{K,\n  title = {}\n}"
 
 
 # ------------------------------------------------- batches and empty entries
@@ -754,3 +755,12 @@ def test_metadata_mark_under_other_comments():
     assert drop_metadata_comment(text, "A_X_TPAMI2024") == (
         "% TODO: switch to official bibtex\n@article{A_X_TPAMI2024,\n  title = {First},\n}\n"
     )
+
+
+def test_build_entry_keeps_empty_fields_and_fills_them_from_the_library(library):
+    text = _xplore_text().replace("  number={12},", "  number={},\n  ISSN={},")
+    built = build_entry(official.Official("IEEE Xplore", "u", text), library)
+    assert built.fields["number"] == ""  # kept as exported
+    assert built.fields["issn"] == "1939-3539"  # empty, so the library fills it
+    assert not any(n.startswith("issn:") for n in built.notes)
+    assert "  number    = {},\n" in format_entry(built.entry_type, "K", built.fields)

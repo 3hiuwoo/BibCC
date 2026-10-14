@@ -68,12 +68,129 @@ def test_title_apply_rewrites_only_title_values(sample_bib: Path):
 
 
 def test_title_case_report_keeps_multi_line_titles_on_one_line(sample_bib: Path):
-    main(["check", str(sample_bib), "--fields", "", "--title-case"])
+    main(["check", "title", str(sample_bib)])
     report = (sample_bib.parent / ".bibcc" / "sample.bib" / "title_case.txt").read_text()
     assert (
         "DualPrompt_Wang_TPAMI2024\ta study of prompts for continual learning\t"
         "A Study of Prompts for Continual Learning\n"
     ) in report
+
+
+RESOLVE_BIB = """\
+@inproceedings{KeyA,
+  title     = {Paper A},
+  author    = {Doe, Jane},
+  year      = {2024},
+  booktitle = {2024 Conference on Examples (CE)},
+  publisher = {Wrong Publisher}
+}
+
+@inproceedings{KeyB,
+  title     = {Paper B},
+  author    = {Roe, John},
+  year      = {2024},
+  booktitle = {2024 Conference on Examples (CE)},
+  issn      = {0000-0000}
+}
+"""
+
+RESOLVE_VENUES = """\
+proceedings:
+  - name: "2024 Conference on Examples (CE)"
+    year: "2024"
+    fields:
+      publisher: "IEEE"
+      issn: "1234-5678"
+      month: "October"
+"""
+
+
+def _resolve_fixture(tmp_path: Path):
+    bib = tmp_path / "refs.bib"
+    bib.write_text(RESOLVE_BIB)
+    venues = tmp_path / "venues.yaml"
+    venues.write_text(RESOLVE_VENUES)
+    return bib, venues
+
+
+def test_complete_keep_mode_never_overwrites(tmp_path: Path):
+    bib, venues = _resolve_fixture(tmp_path)
+    out = tmp_path / "out.bib"
+    main(["complete", str(bib), "--venues", str(venues), "--output", str(out)])
+    result = out.read_text()
+    assert "publisher = {Wrong Publisher}" in result
+    assert "issn      = {0000-0000}" in result
+    assert "month     = oct" in result  # missing fields are still added
+    conflicts = (tmp_path / ".bibcc" / "refs.bib" / "conflicts.txt").read_text()
+    assert "KeyA\tpublisher\tEXISTING=Wrong Publisher\tLIBRARY=IEEE" in conflicts
+    assert "KeyB\tissn\tEXISTING=0000-0000\tLIBRARY=1234-5678" in conflicts
+
+
+def test_complete_resolve_library_overwrites_conflicts(tmp_path: Path):
+    bib, venues = _resolve_fixture(tmp_path)
+    main(["complete", str(bib), "--venues", str(venues), "--in-place", "--resolve", "library"])
+    result = bib.read_text()
+    assert "publisher = {IEEE}" in result
+    assert "issn      = {1234-5678}" in result
+    assert "Wrong Publisher" not in result
+    assert "0000-0000" not in result
+    assert result.count("month     = oct") == 2
+
+
+def test_complete_resolve_scoped_by_fields(tmp_path: Path):
+    bib, venues = _resolve_fixture(tmp_path)
+    main(["complete", str(bib), "--venues", str(venues), "--in-place",
+          "--resolve", "library", "--fields", "issn"])
+    result = bib.read_text()
+    # Only issn may be written: KeyB's is overwritten, nothing else changes.
+    assert "issn      = {1234-5678}" in result
+    assert "publisher = {Wrong Publisher}" in result
+    assert "month" not in result
+
+
+def test_complete_resolve_scoped_by_ids(tmp_path: Path):
+    bib, venues = _resolve_fixture(tmp_path)
+    main(["complete", str(bib), "--venues", str(venues), "--in-place",
+          "--resolve", "library", "--ids", "KeyB"])
+    result = bib.read_text()
+    # KeyA is out of scope: no overwrite, no added fields.
+    assert "publisher = {Wrong Publisher}" in result
+    key_a = result[: result.index("@inproceedings{KeyB")]
+    assert "month" not in key_a
+    assert "issn      = {1234-5678}" in result
+
+
+def test_complete_ids_warns_about_unknown_keys(tmp_path: Path, capsys):
+    bib, venues = _resolve_fixture(tmp_path)
+    main(["complete", str(bib), "--venues", str(venues), "--ids", "KeyA,NoSuchKey"])
+    assert "NoSuchKey" in capsys.readouterr().out
+
+
+def test_complete_update_venues_only_merges_without_touching_the_bib(tmp_path: Path):
+    bib, venues = _resolve_fixture(tmp_path)
+    original = bib.read_text()
+    yaml_dir = tmp_path / ".bibcc" / "refs.bib"
+    yaml_dir.mkdir(parents=True)
+    (yaml_dir / "missing_venues.yaml").write_text(
+        """\
+proceedings:
+  - name: "2025 Conference on Examples (CE)"
+    year: "2025"
+    fields:
+      publisher: "IEEE"
+      month: "June"
+"""
+    )
+    main(["complete", str(bib), "--venues", str(venues), "--update-venues-only"])
+    assert "2025 Conference on Examples (CE)" in venues.read_text()
+    assert bib.read_text() == original
+
+
+def test_complete_update_venues_only_rejects_bib_options(tmp_path: Path):
+    bib, venues = _resolve_fixture(tmp_path)
+    for extra in (["--output", "x.bib"], ["--in-place"], ["--online"], ["--resolve", "library"]):
+        with pytest.raises(SystemExit):
+            main(["complete", str(bib), "--venues", str(venues), "--update-venues-only", *extra])
 
 
 def test_scholar_cite_adds_empty_citation_fields_safely(sample_bib: Path, tmp_path: Path):

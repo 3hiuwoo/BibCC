@@ -1,6 +1,13 @@
 from pathlib import Path
 
-from bibcc.checkers.smart_protection import check_smart_protection, find_unprotected_terms
+import pytest
+
+from bibcc.checkers.smart_protection import (
+    check_smart_protection,
+    find_overbraced_compounds,
+    find_unprotected_terms,
+    split_overbraced_compounds,
+)
 from bibcc.cli import main
 
 
@@ -57,13 +64,58 @@ def test_check_smart_protection_reports_clean_file(tmp_path: Path):
     assert messages[-1] == "✅ No unprotected terms in 1 entries."
 
 
-def test_cli_checks_month_by_default(tmp_path: Path):
-    bib = tmp_path / "refs.bib"
-    bib.write_text("@article{k, title = {T}, year = {2024}}\n")
-    main(["check", str(bib)])
-    report = tmp_path / ".bibcc" / "refs.bib" / "missing_fields.txt"
-    assert "k\tarticle\t2024\tmonth" in report.read_text()
+@pytest.mark.parametrize(
+    "title,expected",
+    [
+        ("{CLIP-Based} Prompting", "{CLIP}-Based Prompting"),
+        ("{ViT-based} and {Non-IID}", "{ViT}-based and Non-{IID}"),
+        ("{SD-LoRA-Net}", "{SD-LoRA}-Net"),
+        ("{GPT-4-Based} Agents", "{GPT-4}-Based Agents"),
+        ("{4-Bit-LoRA}", "4-Bit-{LoRA}"),
+        ("{X-Ray} Images", "{X}-Ray Images"),
+        # Method names and names stay whole: every part needs braces, or none does.
+        ("{SD-LoRA} {R-CNN} {GPT-4} {LLaVA-1.5} {IEEE/CVF}", None),
+        ("{Navier-Stokes} and {Hamilton-Jacobi}", None),
+        # Groups inside a larger group, or glued to a word, are left alone.
+        ("{{CLIP-Based} Prompting}", None),
+        ("Lo{RA-Based}", None),
+    ],
+)
+def test_overbraced_compounds(title, expected):
+    assert split_overbraced_compounds(title) == (title if expected is None else expected)
+    assert bool(find_overbraced_compounds(title)) == (expected is not None)
 
-    report.unlink()
-    main(["check", str(bib), "--fields", ""])
-    assert not report.exists()
+
+def test_listed_compound_stays_whole():
+    assert find_overbraced_compounds("{Transformer-XL}") == [("{Transformer-XL}", "Transformer-{XL}")]
+    assert find_overbraced_compounds("{Transformer-XL}", ["transformer-xl"]) == []
+
+
+def test_listed_part_does_not_keep_compound_whole():
+    # Only the whole compound listed in the vocabulary stays whole; a listed
+    # part doesn't, so a lab vocabulary of acronyms doesn't stop the split.
+    assert find_overbraced_compounds("{CLIP-Based}", ["clip"]) == [("{CLIP-Based}", "{CLIP}-Based")]
+
+
+def test_check_smart_protection_reports_overbraced_compounds(tmp_path: Path):
+    bib = tmp_path / "refs.bib"
+    bib.write_text("@article{k, title = {{CLIP-Based} Prompting with BERT}}\n")
+    messages = []
+    rows = check_smart_protection(str(bib), [], log=messages.append)
+    assert rows == [("k", "BERT", "Acronym"), ("k", "{CLIP-Based}", "Over-Braced: use {CLIP}-Based")]
+    assert "⚠️  Found 1 terms to protect and 1 over-braced compounds to split." in messages
+    hint = "\n".join(messages)
+    assert ".bibcc/refs.bib/vocab.txt" in hint
+    assert "--interactive" in hint
+
+
+def test_each_check_runs_alone(tmp_path: Path):
+    bib = tmp_path / "refs.bib"
+    bib.write_text("@article{k, title = {Deep BERT}, year = {2024}}\n")
+    reports = tmp_path / ".bibcc" / "refs.bib"
+    main(["check", "quote", str(bib)])
+    assert (reports / "smart_protection.txt").exists()
+    assert not (reports / "missing_fields.txt").exists()
+
+    main(["check", "missing", str(bib)])
+    assert "k\tarticle\t2024\tmonth" in (reports / "missing_fields.txt").read_text()

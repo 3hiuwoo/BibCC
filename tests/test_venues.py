@@ -182,6 +182,9 @@ def test_compute_completion_treats_equivalent_months_as_equal(library: VenueLibr
         ("isbn", "979-8-4007-0686-8", "9798400706868"),
         ("issn", "2575 7075", "2575-7075"),
         ("publisher", "Taylor \\& Francis", "Taylor & Francis"),
+        ("author", "Wo{\\l}czyk, Maciej and Kuci{\\'n}ski, {\\L}ukasz and Mi{\\l}o{\\'s}, Piotr",
+         "Wo\\l czyk, Maciej and Kuci\\'{n}ski, \\L ukasz and Mi\\l o\\'{s}, Piotr"),
+        ("author", "Kuci{\\'n}ski, {\\L}ukasz", "Kuciński, Łukasz"),
     ],
 )
 def test_same_field_value_ignores_formatting(name, existing, value):
@@ -194,6 +197,7 @@ def test_same_field_value_ignores_formatting(name, existing, value):
         ("venue", "Long Beach, California, USA", "Long Beach, CA, USA"),
         ("isbn", "978-1-57735-866-4", "978-1-57735-887-9"),
         ("month", "July", "June"),
+        ("author", "Wo\\l czyk, Maciej", "Wolczyk, Maciej"),
     ],
 )
 def test_same_field_value_keeps_real_differences(name, existing, value):
@@ -205,7 +209,7 @@ def test_miaa_aaai_2021_record_is_not_icml_2018():
     aaai = lib.find_exact(PROCEEDINGS, "Proceedings of the AAAI Conference on Artificial Intelligence", "2021")
     assert aaai.fields["venue"] == "Online"
     assert "series" not in aaai.fields
-    assert aaai.fields["month"] == "May"  # publication month, like the other AAAI records
+    assert aaai.fields["month"] == "May"  # the issue month that AAAI's official BibTeX gives
 
 
 def test_missing_venues_yaml_round_trips_into_library(tmp_path: Path, library: VenueLibrary):
@@ -220,20 +224,30 @@ def test_missing_venues_yaml_round_trips_into_library(tmp_path: Path, library: V
         "  publisher = {Elsevier}\n"
         "}\n"
     )
-    complete_main(str(bib), str(bib), dry_run=True, library=library, log=lambda _: None)
+    lines: List[str] = []
+    complete_main(str(bib), str(bib), dry_run=True, library=library, log=lines.append)
     missing_yaml = tmp_path / ".bibcc" / "new.bib" / "missing_venues.yaml"
     text = missing_yaml.read_text()
     assert "# from 2025 edition" in text
     assert "# from bib" in text
     # The comment names the entry the collected value comes from.
     assert 'publisher: "Elsevier"  # from bib (Y_Doe_PR2026)' in text
+    # Each record names the entries that cite the venue, and so do the log and the txt report.
+    assert "# entries: X_Doe_CVPR2026" in text
+    assert "# entries: Y_Doe_PR2026" in text
+    assert any("entries: X_Doe_CVPR2026" in line for line in lines)
+    txt = (tmp_path / ".bibcc" / "new.bib" / "missing_venues.txt").read_text()
+    assert txt.splitlines()[0] == "missing venues: venue\tyear\ttype\tentries"
+    assert 'Journal of "Quoted" Things\t2026\tjournal\tY_Doe_PR2026' in txt
 
     data = yaml.safe_load(text)
     proc = data["proceedings"][0]
     assert proc["year"] == "2026"
     assert proc["fields"]["publisher"] == "IEEE"
     assert proc["fields"]["issn"] == "2575-7075"
-    assert proc["fields"]["month"] == "June"
+    # The month isn't copied from the 2025 edition: an edition can move or run across two months.
+    assert proc["fields"]["month"] == ""
+    assert 'month: ""  # the event month' in text
     assert data["journals"][0]["name"] == 'Journal of "Quoted" Things'
 
     counts = merge_missing_venues(library, missing_yaml, log=lambda _: None)

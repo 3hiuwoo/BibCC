@@ -75,7 +75,7 @@ class AppliedEdit:
 
     key: str
     field: str
-    action: str  # "added" or "replaced"
+    action: str  # "added", "replaced", or "removed"
     old: Optional[str]
     new: str
 
@@ -446,6 +446,124 @@ def set_fields(
     if new_text != text:
         _verify(text, new_text, verified)
     return new_text, applied
+
+
+def remove_fields(text: str, removals: Dict[str, List[str]]) -> Tuple[str, List[AppliedEdit]]:
+    """Remove fields from entries, touching only the removed ranges of *text*.
+
+    Args:
+        text: Raw BibTeX text.
+        removals: ``{citation_key: [field, ...]}``; fields an entry lacks are skipped.
+
+    Returns:
+        ``(new_text, applied_edits)``, with ``action`` ``"removed"``.
+
+    Raises:
+        BibEditError: if the text cannot be scanned, a key is missing or
+            duplicated, or verification fails.
+    """
+    entries = scan(text)
+    key_counts = Counter(e.key for e in entries)
+    by_key = {e.key: e for e in entries}
+    patches: List[Tuple[int, int, str]] = []
+    applied: List[AppliedEdit] = []
+    removed: Dict[str, set] = {}
+    for key, names in removals.items():
+        if key not in by_key:
+            raise BibEditError(f"no entry with key '{key}'")
+        if key_counts[key] > 1:
+            raise BibEditError(f"key '{key}' appears {key_counts[key]} times")
+        entry = by_key[key]
+        wanted = {n.lower() for n in names}
+        previous_end = entry.key_end
+        for name, span in sorted(entry.fields.items(), key=lambda item: item[1].start):
+            if name in wanted:
+                # From the end of the previous field (or the key) to the end of this
+                # value: drops the separating comma and line with the field.
+                patches.append((previous_end, span.value_end, ""))
+                applied.append(AppliedEdit(key, name, "removed", text[span.value_start : span.value_end], ""))
+                removed.setdefault(key, set()).add(name)
+            previous_end = span.value_end
+        if removed.get(key) and len(removed[key]) == len(entry.fields):
+            raise BibEditError(f"edit would remove every field of '{key}'")
+
+    new_text = _apply(text, patches)
+    if new_text == text:
+        return new_text, applied
+    if [e.key for e in scan(new_text)] != [e.key for e in entries]:
+        raise BibEditError("edit changed the sequence of citation keys")
+    old_entries = _parse_entries(text)
+    new_entries = _parse_entries(new_text)
+    if [e["ID"] for e in old_entries] != [e["ID"] for e in new_entries]:
+        raise BibEditError("edited text no longer parses to the same entries")
+    for old, new in zip(old_entries, new_entries):
+        gone = removed.get(old["ID"], set())
+        for name in set(old) | set(new):
+            if name in gone:
+                if name in new:
+                    raise BibEditError(f"field '{name}' of '{old['ID']}' was not removed")
+            elif old.get(name) != new.get(name):
+                raise BibEditError(f"edit changed untouched field '{name}' of '{old['ID']}'")
+    return new_text, applied
+
+
+def retype_entries(text: str, changes: Dict[str, Tuple[str, Dict[str, str]]]) -> str:
+    """Change entry types and rename fields, touching only those names in *text*.
+
+    Args:
+        text: Raw BibTeX text.
+        changes: ``{citation_key: (new_type, {old_field: new_field})}``.  An
+            aligned ``=`` column is widened when a new name needs it.
+
+    Raises:
+        BibEditError: if the text cannot be scanned, a key is missing or
+            duplicated, a new field name is already taken, or verification fails.
+    """
+    entries = scan(text)
+    key_counts = Counter(e.key for e in entries)
+    by_key = {e.key: e for e in entries}
+    patches: List[Tuple[int, int, str]] = []
+    for key, (new_type, renames) in changes.items():
+        if key not in by_key:
+            raise BibEditError(f"no entry with key '{key}'")
+        if key_counts[key] > 1:
+            raise BibEditError(f"key '{key}' appears {key_counts[key]} times")
+        entry = by_key[key]
+        type_start = entry.start + 1
+        patches.append((type_start, type_start + len(entry.entry_type), new_type))
+        renames = {old.lower(): new for old, new in renames.items() if old.lower() in entry.fields}
+        for new in renames.values():
+            if new.lower() in entry.fields:
+                raise BibEditError(f"entry '{key}' already has a '{new.lower()}' field")
+        if not renames:
+            continue
+        _, width = _layout(text, entry)
+        if width is not None:
+            width = max([width] + [len(new) + 1 for new in renames.values()])
+        for name, f in entry.fields.items():
+            line_start = text.rfind("\n", 0, f.start) + 1
+            at_line_start = not text[line_start : f.start].strip()
+            if width is not None and at_line_start:
+                eq = text.index("=", f.start)
+                patches.append((f.start, eq, renames.get(name, f.name).ljust(width)))
+            elif name in renames:
+                patches.append((f.start, f.start + len(f.name), renames[name]))
+
+    new_text = _apply(text, patches)
+    if [e.key for e in scan(new_text)] != [e.key for e in entries]:
+        raise BibEditError("edit changed the sequence of citation keys")
+    old_entries = _parse_entries(text)
+    new_entries = _parse_entries(new_text)
+    if [e["ID"] for e in old_entries] != [e["ID"] for e in new_entries]:
+        raise BibEditError("edited text no longer parses to the same entries")
+    for old, new in zip(old_entries, new_entries):
+        new_type, renames = changes.get(old["ID"], (old["ENTRYTYPE"], {}))
+        renames = {o.lower(): n.lower() for o, n in renames.items()}
+        expected = {renames.get(name, name): value for name, value in old.items() if name != "ENTRYTYPE"}
+        expected["ENTRYTYPE"] = new_type.lower() if old["ID"] in changes else old["ENTRYTYPE"]
+        if {k: v for k, v in new.items()} != expected:
+            raise BibEditError(f"edit of '{old['ID']}' changed more than its type and field names")
+    return new_text
 
 
 def replace_entry(text: str, key: str, new_entry: str) -> str:

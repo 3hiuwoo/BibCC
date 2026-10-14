@@ -6,6 +6,7 @@ from bibcc.bibedit import (
     BibEditError,
     month_macro,
     read_bib,
+    remove_fields,
     replace_entry,
     scan,
     set_fields,
@@ -166,3 +167,37 @@ def test_unified_diff_shows_change():
     new, _ = set_fields(text, {"ISPC_Wang_CVPR2024": {"month": "June"}})
     diff = unified_diff(text, new, "sample.bib")
     assert "+  month     = jun" in diff
+
+
+def test_remove_fields_last_middle_and_first():
+    text = (
+        "% keep me\n"
+        "@inproceedings{A,\n"
+        "  title = {T},\n"
+        "  doi   = {10.1/x},\n"
+        "  note  = {n},\n"
+        "  url   = {https://u}\n"
+        "}\n"
+        "@misc{B, title = {U}, url = {https://v},}\n"
+    )
+    new, applied = remove_fields(text, {"A": ["url", "note"], "B": ["title"]})
+    assert new == (
+        "% keep me\n"
+        "@inproceedings{A,\n"
+        "  title = {T},\n"
+        "  doi   = {10.1/x}\n"
+        "}\n"
+        "@misc{B, url = {https://v},}\n"
+    )
+    assert [(e.key, e.field, e.action) for e in applied] == [
+        ("A", "note", "removed"), ("A", "url", "removed"), ("B", "title", "removed"),
+    ]
+
+
+def test_remove_fields_skips_absent_and_refuses_emptying_an_entry():
+    text = "@misc{A, title = {T}}\n"
+    assert remove_fields(text, {"A": ["url"]}) == (text, [])
+    with pytest.raises(BibEditError):
+        remove_fields(text, {"A": ["title"]})
+    with pytest.raises(BibEditError):
+        remove_fields(text, {"Z": ["title"]})

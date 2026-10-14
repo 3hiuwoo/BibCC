@@ -31,7 +31,7 @@ from typing import Dict, List, Mapping, Optional, Tuple
 
 from bibcc.bibedit import month_macro
 from bibcc.sources import Record, crossref_record, is_arxiv_doi, normalize_doi, normalize_for_comparison
-from bibcc.venues import JOURNAL, PROCEEDINGS, Venue, normalize_issn
+from bibcc.venues import JOURNAL, PROCEEDINGS, Venue, is_no_month, normalize_issn
 
 CHECKED_FIELDS = (
     "journal", "booktitle", "year", "volume", "number", "pages", "doi",
@@ -133,6 +133,8 @@ def check_entry(
             lib = venue.name
         else:
             lib = venue.fields.get(name, "")
+        if is_no_month(name, lib):
+            lib = ""  # a statement about the venue, not a value CrossRef can confirm
         if not ours and not lib:
             continue
         bib_ok = not ours or same_value(name, ours, theirs)

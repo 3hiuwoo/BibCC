@@ -212,6 +212,35 @@ class Venue:
 # entry citing an interim booktitle (CVF, OpenReview) receives from a record.
 EVENT_FIELDS = ("venue", "month")
 
+# A record's ``month`` value for a venue whose entries have no month: a
+# conference held across two months, or a journal without monthly issues.
+NO_MONTH = "none"
+
+
+def is_no_month(name: str, value: Optional[str]) -> bool:
+    """Whether a record's *name* = *value* says that the venue's entries have no month."""
+    return name.lower() == "month" and (value or "").strip().strip("{}").strip().lower() == NO_MONTH
+
+
+def has_no_month(fields: Mapping[str, str]) -> bool:
+    """Whether a record's fields say that the venue's entries have no month."""
+    return is_no_month("month", fields.get("month"))
+
+
+_PROCEEDINGS_OF = re.compile(r"^(the\s+)?proceedings\s+of\b", re.IGNORECASE)
+_EVENT_WORDS = re.compile(r"\b(conference|workshops?|symposium|meeting|congress)\b", re.IGNORECASE)
+
+
+def is_conference_journal(name: Optional[str]) -> bool:
+    """Whether a ``journal`` value names conference proceedings, as AAAI's export does.
+
+    "Proceedings of the AAAI Conference on Artificial Intelligence" is one;
+    journals such as "Proceedings of the IEEE" and "Proceedings of the
+    National Academy of Sciences" name no event, so they aren't.
+    """
+    text = " ".join((name or "").replace("{", "").replace("}", "").split())
+    return bool(_PROCEEDINGS_OF.match(text) and _EVENT_WORDS.search(text))
+
 
 @dataclass
 class LookupResult:
@@ -478,7 +507,8 @@ _ORDINAL_WORDS = (
 )
 
 # Fields that usually stay the same from one conference edition to the next.
-EDITION_STABLE_FIELDS = ["publisher", "issn", "month", "series", "address"]
+# Not month: an edition can move to another month or run across two.
+EDITION_STABLE_FIELDS = ["publisher", "issn", "series", "address"]
 
 
 def edition_key(name: str) -> str:
@@ -489,6 +519,31 @@ def edition_key(name: str) -> str:
     text = re.sub(_ORDINAL_WORDS, "#", text)
     text = re.sub(r"\b(twenty|thirty|forty)-#", "#", text)
     return " ".join(text.split())
+
+
+_LEADING_ARTICLES = re.compile(r"^(proceedings of )?(the )?")
+_NAME_YEAR = re.compile(r"\b(19|20)\d{2}\b")
+_NAME_ORDINAL = re.compile(rf"\b\d+(st|nd|rd|th)\b|\b((twenty|thirty|forty)-)?{_ORDINAL_WORDS}", re.IGNORECASE)
+
+
+def family_key(name: str) -> str:
+    """Key shared by every edition of a venue, for comparing the editions.
+
+    Looser than :func:`edition_key`: the year and ordinal placeholders and a
+    leading "Proceedings of the" or "The" are dropped too, so "Proceedings of
+    the 41st International Conference on Machine Learning", "The Eleventh
+    International Conference on Learning Representations", and "Computer
+    Vision -- ECCV 2024" group with their other editions.
+    """
+    text = " ".join(edition_key(name).replace("#", " ").split())
+    return " ".join(_LEADING_ARTICLES.sub("", text).split())
+
+
+def family_label(name: str) -> str:
+    """Display name of a venue's editions: *name* without years, ordinals, or a leading "The"."""
+    text = _NAME_ORDINAL.sub(" ", _NAME_YEAR.sub(" ", name))
+    text = re.sub(r"^\s*the\s+", "", text, flags=re.IGNORECASE)
+    return " ".join(text.split()).strip(" -–—:,")
 
 
 def previous_edition(library: VenueLibrary, name: str, year: str) -> Optional[Venue]:

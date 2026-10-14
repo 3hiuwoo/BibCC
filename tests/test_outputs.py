@@ -38,7 +38,7 @@ def test_report_dir_without_input_is_cwd_bibcc(tmp_path: Path, monkeypatch):
 
 
 def test_check_writes_reports_and_logs_next_to_input(sample_bib: Path):
-    main(["check", str(sample_bib), "--fields", "month", "--check-keys"])
+    main(["check", "missing", str(sample_bib), "--fields", "month"])
     out = sample_bib.parent / OUTPUT_DIR_NAME / "sample.bib"
     assert (out / "missing_fields.txt").exists()
     assert (out / "logs" / "checker.log").exists()
@@ -49,7 +49,7 @@ def test_check_removes_a_stale_report_when_it_finds_nothing(sample_bib: Path):
     out = sample_bib.parent / OUTPUT_DIR_NAME / "sample.bib"
     out.mkdir(parents=True)
     (out / "missing_fields.txt").write_text("old findings\n")
-    main(["check", str(sample_bib), "--fields", "title"])
+    main(["check", "missing", str(sample_bib), "--fields", "title"])
     assert not (out / "missing_fields.txt").exists()
 
 
@@ -101,7 +101,7 @@ def test_commands_migrate_on_first_run(sample_bib: Path):
     legacy = sample_bib.parent / OUTPUT_DIR_NAME
     legacy.mkdir()
     (legacy / "sample.bib.missing_fields.txt").write_text("old\n")
-    main(["check", str(sample_bib), "--fields", "title"])
+    main(["check", "missing", str(sample_bib), "--fields", "title"])
     assert not (legacy / "sample.bib.missing_fields.txt").exists()
     log = (legacy / "sample.bib" / "logs" / "checker.log").read_text()
     assert "Moved 1 reports" in log

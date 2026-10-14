@@ -10,7 +10,7 @@ Usage:
     parser = argparse.ArgumentParser(
         description=DESCRIPTION,
         epilog=epilog(
-            examples=[("Check for a missing month", "bibcc check refs.bib")],
+            examples=[("Check for a missing month", "bibcc check missing refs.bib")],
             outputs=[(".bibcc/<input>.missing_fields.txt", "entries missing fields")],
             env=[ENV_VENUES],
         ),

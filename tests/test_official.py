@@ -47,15 +47,17 @@ def test_official_fields_cleans_xplore_export():
     assert entry_type == "inproceedings"
     assert fields["pages"] == "30387--30397"
     assert fields["booktitle"] == "2025 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)"
-    assert "keywords" not in fields and "volume" not in fields  # dropped, and empty
+    # Every field is kept, empty ones included.
+    assert fields["keywords"].startswith("Computer vision;Scalability")
+    assert fields["volume"] == "" and fields["number"] == ""
 
 
-def test_official_fields_splits_pmlr_month_and_drops_pdf():
+def test_official_fields_splits_pmlr_month_and_keeps_pdf():
     html = _fixture("pmlr_abad-rocamora24a.html")
     text = html.split('id="bibtex">')[1].split("</code>")[0]
     _, fields = official_fields(text)
     assert fields["month"] == "Jul" and fields["day"] == "21--27"
-    assert "pdf" not in fields and "abstract" not in fields
+    assert fields["pdf"].endswith(".pdf") and fields["abstract"] == "Adversarial attacks in NLP."
     assert fields["series"] == "Proceedings of Machine Learning Research"
 
 
@@ -65,7 +67,7 @@ def test_official_fields_reads_springer_key_and_quotes():
     assert fields["booktitle"] == "Computer Vision -- ECCV 2024"
     assert fields["author"].startswith("Ma, Zhiyuan and Wei, Yuxiang")
     assert fields["isbn"] == "978-3-031-72667-5"
-    assert "abstract" not in fields
+    assert fields["abstract"].startswith("By leveraging")
 
 
 def test_record_from_official_reads_arxiv_bibtex():

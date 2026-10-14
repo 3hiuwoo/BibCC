@@ -305,7 +305,7 @@ def test_check_venues_checks_each_scope(isolated_user_library: Path, project: Pa
     _write_library(isolated_user_library, Journal_of_Tests={"publisher": "U"})
     _write_library(project / PROJECT_LIBRARY_NAME, Other={"publisher": "P"})
     monkeypatch.chdir(project)
-    main(["check", "--check-venues"])
+    main(["check", "venues"])
     out = capsys.readouterr().out
     assert "User library" in out and "Project library" in out
 

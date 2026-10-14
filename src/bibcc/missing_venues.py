@@ -10,9 +10,17 @@ Each field is pre-filled from, highest priority first:
 1. the entries themselves: the bib file, or the official BibTeX that
    ``add`` and ``upgrade`` downloaded (``# from bib`` / ``# from official BibTeX``);
 2. the previous edition of the same conference in the library
-   (``# from <year> edition``);
-3. CrossRef, when the command looked the paper up there (``# from CrossRef``);
-4. a guess from the venue name (``# auto-guessed``).
+   (``# from <year> edition``), except the month, which can change from one
+   edition to the next;
+3. CrossRef, when the command looked the paper up there (``# from CrossRef``),
+   which gives the month only when the event starts and ends in it;
+4. a guess of the publisher from the venue name (``# auto-guessed``).
+
+A ``month`` of ``none`` (:data:`bibcc.venues.NO_MONTH`) says that the venue's
+entries have no month: a conference held across two months, or a journal
+without monthly issues.
+
+A record's ``# entries:`` comment names the entries that cite the venue.
 
 A record may also carry ``interim`` booktitles (see :mod:`bibcc.venues`):
 the CVF or OpenReview name of the same proceedings, with the paper that
@@ -40,6 +48,7 @@ import yaml
 from bibcc.venues import (
     EDITION_STABLE_FIELDS,
     JOURNAL,
+    NO_MONTH,
     PROCEEDINGS,
     Venue,
     VenueLibrary,
@@ -52,7 +61,9 @@ from bibcc.venues import (
 JOURNAL_FIELDS = ["publisher", "issn", "address"]
 PROCEEDINGS_FIELDS = ["venue", "publisher", "month", "isbn", "issn", "editor", "series", "address"]
 _OPTIONAL_FIELDS = {"address", "isbn", "issn", "editor", "series"}
-_JOURNAL_OPTIONAL = {"address"}
+_JOURNAL_OPTIONAL = {"address", "month"}
+MONTH_HINT = f"# the event month, such as June, if the whole event falls in it; {NO_MONTH} if it runs across two months"
+JOURNAL_MONTH_HINT = f"# optional; {NO_MONTH} for a journal without monthly issues"
 _SUGGESTIONS_MARKER = "# ---- Suggested corrections to library records"
 
 _PUBLISHER_PATTERNS: List[Tuple[str, str]] = [
@@ -71,30 +82,6 @@ _PUBLISHER_PATTERNS: List[Tuple[str, str]] = [
     ("cambridge", "Cambridge University Press"),
 ]
 
-_CONFERENCE_MONTHS: Dict[str, str] = {
-    "cvpr": "June",
-    "iccv": "October",
-    "eccv": "October",
-    "neurips": "December",
-    "nips": "December",
-    "icml": "July",
-    "iclr": "May",
-    "aaai": "February",
-    "ijcai": "August",
-    "acl": "July",
-    "emnlp": "November",
-    "naacl": "June",
-    "kdd": "August",
-    "sigir": "July",
-    "www": "May",
-    "mm": "October",
-    "interspeech": "September",
-    "bmvc": "November",
-    "wacv": "January",
-    "miccai": "October",
-    "coling": "October",
-}
-
 
 def guess_publisher(venue: str) -> str:
     """Publisher implied by the venue name, or ``""``."""
@@ -102,15 +89,6 @@ def guess_publisher(venue: str) -> str:
     for pattern, publisher in _PUBLISHER_PATTERNS:
         if pattern in lower:
             return publisher
-    return ""
-
-
-def guess_month(venue: str) -> str:
-    """Usual month of a well-known conference named in *venue*, or ``""``."""
-    lower = venue.lower()
-    for pattern, month in _CONFERENCE_MONTHS.items():
-        if re.search(rf"\b{re.escape(pattern)}\b", lower):
-            return month
     return ""
 
 
@@ -131,6 +109,8 @@ class MissingVenue:
     collected_label: str = "from bib"
     # The entries each collected value comes from, for the YAML comment.
     collected_from: Dict[str, List[str]] = field(default_factory=dict)
+    # The entries that cite this venue, for the record's '# entries:' comment.
+    entries: List[str] = field(default_factory=list)
     crossref: Dict[str, str] = field(default_factory=dict)
     interim: Dict[str, List[str]] = field(default_factory=dict)
     # Comment lines explaining where the record comes from (e.g. the paper linking two names).
@@ -179,6 +159,8 @@ def render(mv: MissingVenue, library: VenueLibrary) -> List[str]:
     """YAML lines of one record, indented for its section."""
     prior = previous_edition(library, mv.name, mv.year) if mv.kind == PROCEEDINGS else None
     lines = [f"  - name: {yaml_str(mv.name)}"]
+    if mv.entries:
+        lines.append(f"    # entries: {', '.join(mv.entries)}")
     for note in mv.notes:
         lines.append(f"    # {note}")
     if mv.kind == PROCEEDINGS:
@@ -203,10 +185,11 @@ def render(mv: MissingVenue, library: VenueLibrary) -> List[str]:
                                  "# for example, IEEE, Elsevier, or Springer"))
         lines.append(_field_line("issn", mv, prior, "", ""))
         lines.append(_field_line("address", mv, prior, "", "# optional; for example, New York, NY, USA"))
+        lines.append(_field_line("month", mv, prior, "", JOURNAL_MONTH_HINT))
     else:
         lines.append(_field_line("venue", mv, prior, "", "# for example, City, Country"))
         lines.append(_field_line("publisher", mv, prior, guess_publisher(mv.name), ""))
-        lines.append(_field_line("month", mv, prior, guess_month(mv.name), "# for example, June or October"))
+        lines.append(_field_line("month", mv, prior, "", MONTH_HINT))
         for name in ("isbn", "issn", "editor", "series", "address"):
             lines.append(_field_line(name, mv, prior, "", ""))
     lines.append("")
@@ -302,6 +285,7 @@ HEADER = """\
 # '# from YEAR edition'    value copied from the previous edition in the library
 # '# from CrossRef'        value that CrossRef reports for a paper of this venue
 # '# auto-guessed'         value inferred from the venue name; verify it
+# A record's '# entries:' comment names the entries that cite the venue.
 # Merging skips records with no field (and no interim booktitle) filled in.
 # Every run merges into this file and keeps what you fill in.
 """

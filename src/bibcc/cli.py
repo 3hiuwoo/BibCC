@@ -16,7 +16,7 @@ Subcommands:
     venues     Manage the user and project venue libraries
 
 Usage:
-    bibcc check input.bib --fields month --title-case
+    bibcc check title input.bib
     bibcc complete input.bib --output out.bib
     bibcc add 2501.13198 10.1109/TPAMI.2024.3429383 --against bibs/
     bibcc upgrade input.bib --in-place
@@ -94,8 +94,7 @@ def usage_text() -> str:
              "bibcc add 2501.13198 10.1109/TPAMI.2024.3429383 --against bib/"),
             ("Fill venue fields, such as publisher, ISSN, and month, from the venue library",
              "bibcc complete bib/topic.bib --in-place"),
-            ("Check titles, braces, keys, field typos, and duplicates",
-             "bibcc check bib/topic.bib --title-case --quote --check-keys --check-fields"),
+            ("Report words in the titles that need {braces}", "bibcc check quote bib/topic.bib"),
             ("Replace preprints with their published versions", "bibcc upgrade bib/topic.bib --in-place"),
             ("Only report which preprints are now published", "bibcc upgrade --report-only bib/"),
             ("Give every file the same layout", "bibcc format bib/ --in-place"),

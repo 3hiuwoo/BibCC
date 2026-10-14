@@ -51,7 +51,9 @@ def test_help_is_self_contained(name, parser):
 
 
 @pytest.mark.parametrize(
-    "argv", [["librarian", "missing", "-h"], ["scholar", "titles", "-h"], ["compose", "compose", "-h"]]
+    "argv",
+    [["librarian", "missing", "-h"], ["scholar", "titles", "-h"], ["compose", "compose", "-h"],
+     ["check", "quote", "-h"]],
 )
 def test_subcommand_help_runs(argv, capsys):
     with pytest.raises(SystemExit) as exc:

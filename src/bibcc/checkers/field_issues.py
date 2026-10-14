@@ -9,6 +9,14 @@ Reports problems BibTeX itself stays silent about:
 - **suspicious values**: empty values, years that are not four digits,
   single-hyphen page ranges, DOIs written as URLs or malformed, months that
   are not macros, malformed ISSNs, URLs without a scheme;
+- **interim fields**: fields that only an interim or preprint version gives
+  (a CVF Open Access, OpenReview, or arXiv ``url``; ``eprint``,
+  ``archiveprefix``, ``primaryclass``; an arXiv ``note``) on an entry whose
+  BibTeX comes from somewhere else, such as IEEE Xplore BibTeX with the CVF
+  page as its ``url``.  ``trim_fields`` deletes them, and the empty values;
+- **conference articles**: ``@article`` entries whose ``journal`` names
+  conference proceedings, as AAAI's export does; ``bibcc complete`` makes
+  them ``@inproceedings``;
 - **duplicates**: the same paper (same DOI, arXiv ID, or title) or the same
   citation key appearing twice in the file or in the ``against`` files.
 
@@ -24,12 +32,23 @@ from __future__ import annotations
 import difflib
 import re
 from pathlib import Path
-from typing import Callable, Iterable, List, Optional, Sequence, Set, Tuple
+from typing import Callable, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
 import bibtexparser
 
-from bibcc.bibedit import BibEditError, month_macro, page_range, read_bib, scan, unwrap, value_tokens
+from bibcc.bibedit import (
+    BibEditError,
+    month_macro,
+    page_range,
+    read_bib,
+    remove_fields,
+    scan,
+    unwrap,
+    value_tokens,
+    write_bib,
+)
 from bibcc.logging_utils import SEPARATOR_LIGHT, SEPARATOR_WIDTH
+from bibcc.venues import is_conference_journal
 
 # Standard BibTeX fields, biblatex fields, and fields that CrossRef, DBLP,
 # ACM, IEEE, Zotero, and BibCC itself commonly write.
@@ -60,6 +79,13 @@ _DOI = re.compile(r"^10\.\d{4,9}/\S+$")
 _DOI_PREFIX = re.compile(r"^(https?://(dx\.)?doi\.org/|doi:\s*)", re.IGNORECASE)
 
 Issue = Tuple[str, str, str]  # (entry_id, issue_type, detail)
+
+INTERIM_FIELD = "interim_field"
+CONFERENCE_ARTICLE = "conference_article"
+_ARXIV_FIELDS = ("eprint", "archiveprefix", "primaryclass", "eprinttype", "eprintclass")
+_PREPRINT_VENUE = re.compile(r"\b(arxiv|corr|preprint)\b", re.IGNORECASE)
+# Entry types that stand for a preprint, where arXiv fields belong.
+_PREPRINT_TYPES = {"misc", "unpublished", "online", "techreport"}
 
 
 def suggest_field(name: str, known: Iterable[str] = KNOWN_FIELDS) -> Optional[str]:
@@ -104,6 +130,103 @@ def value_issues(name: str, raw: str) -> List[Tuple[str, str]]:
     return issues
 
 
+def interim_leftovers(entry: Dict[str, str]) -> List[Tuple[str, str]]:
+    """``(field, detail)`` for the interim or preprint fields of a parsed entry that isn't that version.
+
+    A CVF Open Access ``url`` belongs only to an entry with the CVF booktitle,
+    an OpenReview one only to an OpenReview booktitle (or a journal, such as
+    TMLR, published there), and arXiv fields only to preprint entries.  On
+    any other entry they're left over from the version it replaced, because
+    the official export (IEEE Xplore's, for example) doesn't have them.
+    """
+    # Imported here: bibcc.official and bibcc.sources import this package.
+    from bibcc.official import ICLR_PROCEEDINGS_SINCE, INTERIM_CVF, INTERIM_OPENREVIEW, interim_source_of
+    from bibcc.sources import normalize_arxiv_id
+
+    entry_type = entry.get("ENTRYTYPE", "").lower()
+    venue = entry.get("booktitle") or entry.get("journal") or ""
+    if entry_type in _PREPRINT_TYPES or not venue.strip() or _PREPRINT_VENUE.search(venue):
+        return []
+    # Without the year, every OpenReview-style name counts, ICLR before 2024 included.
+    named = interim_source_of(venue)
+    year = entry.get("year", "").strip()
+    old_iclr = "learning representations" in venue.lower() and year.isdigit() and int(year) < ICLR_PROCEEDINGS_SINCE
+    found: List[Tuple[str, str]] = []
+    url = entry.get("url", "")
+    if "openaccess.thecvf.com" in url.lower():
+        if named != INTERIM_CVF:
+            found.append(("url", "CVF Open Access URL on an entry that isn't the CVF Open Access BibTeX"))
+    elif "openreview.net" in url.lower():
+        if entry_type == "inproceedings" and named != INTERIM_OPENREVIEW and not old_iclr:
+            found.append(("url", "OpenReview URL on an entry that isn't the OpenReview BibTeX"))
+    elif normalize_arxiv_id(url):
+        found.append(("url", "arXiv URL on an entry that isn't a preprint"))
+    archive = (entry.get("archiveprefix", "") + entry.get("eprinttype", "")).lower()
+    if "arxiv" in archive or normalize_arxiv_id(entry.get("eprint", "")):
+        found += [(n, "arXiv field on an entry that isn't a preprint") for n in _ARXIV_FIELDS if n in entry]
+    if _PREPRINT_VENUE.search(entry.get("note", "")):
+        found.append(("note", "arXiv note on an entry that isn't a preprint"))
+    return found
+
+
+def _parsed(text: str) -> List[Dict[str, str]]:
+    parser = bibtexparser.bparser.BibTexParser(common_strings=True)
+    return bibtexparser.loads(text, parser=parser).entries
+
+
+def _empty_fields(text: str) -> Dict[str, List[str]]:
+    """``{key: [field, ...]}`` of the fields whose value is empty (``volume = {}``)."""
+    found: Dict[str, List[str]] = {}
+    for entry in scan(text):
+        names = [
+            name for name, span in entry.fields.items()
+            if ("empty_value", f"{name} is empty") in value_issues(name, text[span.value_start : span.value_end])
+        ]
+        if names:
+            found[entry.key] = names
+    return found
+
+
+def trim_fields(input_path: str, log: Optional[Callable[[str], None]] = None) -> List[Tuple[str, str]]:
+    """Remove the interim fields (:func:`interim_leftovers`) and the empty fields of *input_path*.
+
+    Only those fields change, and the edit is verified before the file is
+    written.  An entry whose every field is empty is left alone.  Returns
+    ``(entry_id, field)`` for each field removed; nothing is written if the
+    edit cannot be verified.
+    """
+    log = log or print
+    log(f"🧹 Removing interim and empty fields from the entries of {input_path}...\n")
+    text = read_bib(input_path)
+    try:
+        fields_of = {e.key: set(e.fields) for e in scan(text)}
+    except BibEditError as e:
+        log(f"❌ Cannot read {input_path}: {e}")
+        return []
+    removals: Dict[str, List[str]] = {}
+    for entry in _parsed(text):
+        for name, _ in interim_leftovers(entry):
+            removals.setdefault(entry["ID"], []).append(name)
+    for key, names in _empty_fields(text).items():
+        removals.setdefault(key, []).extend(n for n in names if n not in removals.get(key, []))
+    removals = {k: v for k, v in removals.items() if set(v) != fields_of.get(k)}
+    if not removals:
+        log("✅ No entry has interim or empty fields.")
+        return []
+    try:
+        new_text, applied = remove_fields(text, removals)
+    except BibEditError as e:
+        log(f"❌ Could not remove the fields safely: {e}")
+        log("   Nothing was written.")
+        return []
+    write_bib(input_path, new_text)
+    for edit in applied:
+        log(f"{edit.key:<45} | {edit.field:<13} | {unwrap(edit.old or '')}")
+    log(SEPARATOR_LIGHT * SEPARATOR_WIDTH)
+    log(f"✏️  Removed {len(applied)} fields from {len(removals)} entries of {input_path}.\n")
+    return [(edit.key, edit.field) for edit in applied]
+
+
 def _duplicates(
     text: str,
     input_path: str,
@@ -118,8 +241,7 @@ def _duplicates(
     index = BibIndex()
     if against:
         index.add_paths(against, exclude=Path(input_path), log=log)
-    parser = bibtexparser.bparser.BibTexParser(common_strings=True)
-    entries = bibtexparser.loads(text, parser=parser).entries
+    entries = _parsed(text)
     issues: List[Issue] = []
     for entry in entries:
         key = entry["ID"]
@@ -180,6 +302,13 @@ def check_field_issues(
             raw = text[span.value_start : span.value_end]
             issues.extend((entry.key, kind, detail) for kind, detail in value_issues(name, raw))
 
+    for parsed in _parsed(text):
+        issues.extend((parsed["ID"], INTERIM_FIELD, f"{name}: {detail}") for name, detail in interim_leftovers(parsed))
+        if parsed.get("ENTRYTYPE") == "article" and is_conference_journal(parsed.get("journal")):
+            issues.append((parsed["ID"], CONFERENCE_ARTICLE,
+                           f"@article for conference proceedings '{parsed['journal']}'; "
+                           "'bibcc complete' makes it @inproceedings with this booktitle"))
+
     issues.extend(_duplicates(text, str(input_path), against, log))
 
     log(f"{'ID':<45} | {'Issue':<16} | Detail")
@@ -193,6 +322,9 @@ def check_field_issues(
             counts[kind] = counts.get(kind, 0) + 1
         breakdown = "; ".join(f"{k}: {n}" for k, n in sorted(counts.items()))
         log(f"⚠️  Found {len(issues)} issues in {len(entries)} entries. Breakdown -> {breakdown}")
+        trimmed = [kind for kind in (INTERIM_FIELD, "empty_value") if kind in counts]
+        if trimmed:
+            log(f"   To remove the {' and '.join(trimmed)} fields, run 'bibcc check fields {input_path} --apply'.")
     else:
         log(f"✅ No field issues in {len(entries)} entries.")
     return issues

@@ -47,7 +47,7 @@ import json
 import re
 import urllib.parse
 from dataclasses import dataclass
-from typing import Dict, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import bibtexparser
 
@@ -64,7 +64,7 @@ from bibcc.sources import (
     openreview_search,
     titles_match,
 )
-from bibcc.venues import VenueLibrary
+from bibcc.venues import VenueLibrary, is_conference_journal
 
 INTERIM_CVF = "cvf"
 INTERIM_OPENREVIEW = "openreview"
@@ -82,9 +82,6 @@ ACL_FAMILIES = {"ACL", "EMNLP", "NAACL", "EACL", "COLING", "AACL", "Findings"}
 _KNOWN_FAMILIES = CVF_FAMILIES | OPENREVIEW_FAMILIES | PMLR_FAMILIES | ACL_FAMILIES | {"ECCV", "AAAI", "IJCAI"}
 # First ICLR year published on proceedings.iclr.cc; OpenReview is official before it.
 ICLR_PROCEEDINGS_SINCE = 2024
-
-# Fields of official exports that do not belong in a bibliography entry.
-DROPPED_FIELDS = {"abstract", "keywords", "pdf", "file"}
 
 _CVF = "https://openaccess.thecvf.com"
 _PMLR = "https://proceedings.mlr.press"
@@ -634,28 +631,73 @@ def parse_bibtex(text: str) -> Tuple[str, Dict[str, str]]:
     return entry["ENTRYTYPE"].lower(), fields
 
 
-def official_fields(text: str) -> Tuple[str, Dict[str, str]]:
-    """``(entry_type, fields)`` of official BibTeX, cleaned for a bibliography.
+@dataclass
+class OfficialFields:
+    """Official BibTeX cleaned for a bibliography, and what the cleaning changed."""
 
-    Drops :data:`DROPPED_FIELDS` and empty fields, puts each value on one
-    line, writes page ranges with ``--``, and splits PMLR's ``21--27 Jul``
-    month into ``month`` and ``day``.
+    entry_type: str
+    fields: Dict[str, str]
+    # The month value dropped because it gives a period across two months
+    # (PMLR's "29 Jul--01 Aug"), or "".
+    dropped_period: str = ""
+    # The entry type the export used, when it was changed (AAAI's "article"), or "".
+    retyped_from: str = ""
+
+    def notes(self) -> List[str]:
+        """Report lines that say what the cleaning changed."""
+        out = []
+        if self.dropped_period:
+            out.append(f"month: the official BibTeX gives '{self.dropped_period}', a period across two "
+                       "months, so the entry has no month")
+        if self.retyped_from:
+            out.append(f"type: the official BibTeX is @{self.retyped_from} for conference proceedings "
+                       f"'{self.fields.get('booktitle', '')}', so the entry is @{self.entry_type} "
+                       "with the name as its booktitle")
+        return out
+
+
+def _months_in(value: str) -> List[str]:
+    return list(dict.fromkeys(m for m in map(month_macro, re.findall(r"[A-Za-z]+", value)) if m))
+
+
+def clean_official(text: str) -> OfficialFields:
+    """Official BibTeX cleaned for a bibliography.
+
+    Keeps every field of the export, empty ones included, puts each value
+    on one line, writes page ranges with ``--``, and splits PMLR's
+    ``21--27 Jul`` month into ``month`` and ``day``.  The one field removed
+    is a month that gives a period across two months (``29 Jul--01 Aug``),
+    with its ``day``; the month and day that a journal export gives are
+    kept.  Conference proceedings exported as ``@article`` (AAAI) become
+    ``@inproceedings``, with the ``journal`` value as the ``booktitle``.
     """
     entry_type, raw = parse_bibtex(text)
     fields: Dict[str, str] = {}
     for name, value in raw.items():
-        value = " ".join(str(value).split())
-        if name in DROPPED_FIELDS or not value:
-            continue
-        fields[name] = value
+        fields[name] = " ".join(str(value).split())
     if fields.get("pages"):
         fields["pages"] = page_range(fields["pages"])
+    cleaned = OfficialFields(entry_type, fields)
     month = fields.get("month", "")
     m = re.match(r"^(\d{1,2}(?:\s*-+\s*\d{1,2})?)\s+([A-Za-z]+)\.?$", month)
-    if m and month_macro(m.group(2)):
+    if len(_months_in(month)) > 1:
+        cleaned.dropped_period = month
+        fields.pop("month")
+        fields.pop("day", None)
+    elif m and month_macro(m.group(2)):
         fields["month"] = m.group(2)
         fields.setdefault("day", page_range(m.group(1).replace(" ", "")))
-    return entry_type, fields
+    if entry_type == "article" and "booktitle" not in fields and is_conference_journal(fields.get("journal")):
+        cleaned.retyped_from = entry_type
+        cleaned.entry_type = "inproceedings"
+        cleaned.fields = {("booktitle" if k == "journal" else k): v for k, v in fields.items()}
+    return cleaned
+
+
+def official_fields(text: str) -> Tuple[str, Dict[str, str]]:
+    """``(entry_type, fields)`` of official BibTeX, cleaned by :func:`clean_official`."""
+    cleaned = clean_official(text)
+    return cleaned.entry_type, cleaned.fields
 
 
 def record_from_official(official: Official) -> Optional[Record]:

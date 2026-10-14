@@ -6,9 +6,10 @@ papers are replaced by their published version when one is found) and its
 official BibTeX is downloaded from the publisher or proceedings site (see
 :mod:`bibcc.official`).  The entry is that BibTeX, polished to the survey's
 style: Title Case with technical terms brace-protected, ``--`` page ranges,
-month macros, abstracts and keywords dropped, venue fields the entry lacks
-added from the venue library (differences are reported, never overwritten),
-and a ``METHOD_AUTHOR_VENUEYEAR`` key.
+month macros, venue fields the entry lacks added from the venue library
+(differences are reported, never overwritten), and a
+``METHOD_AUTHOR_VENUEYEAR`` key.  Every field of the official BibTeX is
+kept, ``abstract``, ``keywords``, and empty fields included.
 
 When the official BibTeX cannot be downloaded (AAAI, ACM, and Elsevier
 block it; ECCV papers not on SpringerLink yet), an *empty* entry is written
@@ -57,6 +58,7 @@ from bibcc.checkers.citation_keys import abbreviate_venue, first_author_surname
 from bibcc.checkers.smart_protection import (
     MIN_TERM_LENGTH,
     _classify_word,
+    brace_compound_parts,
     find_unprotected_terms,
     protect_terms,
 )
@@ -73,6 +75,7 @@ from bibcc.official import (
     NEXT_WAIT,
     Official,
     OfficialLookup,
+    clean_official,
     family_of,
     find_official,
     interim_source_of,
@@ -93,7 +96,7 @@ from bibcc.sources import (
     resolve,
 )
 from bibcc.titlecases import APA_STOPWORDS, suggest_title_case
-from bibcc.venues import JOURNAL, PROCEEDINGS, VenueLibrary, load_library, normalize_venue
+from bibcc.venues import JOURNAL, NO_MONTH, PROCEEDINGS, VenueLibrary, is_no_month, load_library, normalize_venue
 
 DEFAULT_OUTPUT = "added.bib"
 
@@ -154,9 +157,12 @@ def _texify(value: str) -> str:
 
 
 def format_entry(entry_type: str, key: str, fields: Dict[str, str]) -> str:
-    """Format an entry in the survey's style: aligned ``=``, months as macros."""
-    names = [n for n in FIELD_ORDER if fields.get(n)]
-    names += [n for n in fields if n not in FIELD_ORDER and fields[n]]
+    """Format an entry in the survey's style: aligned ``=``, months as macros.
+
+    Every field is written, empty ones included (``volume = {}``).
+    """
+    names = [n for n in FIELD_ORDER if n in fields]
+    names += [n for n in fields if n not in FIELD_ORDER]
     width = max((len(n) for n in names), default=0)
     lines = [f"@{entry_type}{{{key},"]
     for i, name in enumerate(names):
@@ -380,28 +386,13 @@ def _normalize_word_braces(title: str) -> str:
             "{" in o or "}" in o or bool(_classify_word(p, MIN_TERM_LENGTH))
             for o, p in zip(orig_tokens, plain_tokens)
         ]
-        parts = [i for i, t in enumerate(plain_tokens) if t not in ("-", "/")]
-        if all(needs[i] for i in parts):
-            words.append("{" + "".join(plain_tokens) + "}" + tail)
-            continue
-        out, i, n = [], 0, len(plain_tokens)
-        while i < n:
-            if needs[i] and plain_tokens[i] not in ("-", "/"):
-                j = i
-                while j + 2 < n and needs[j + 2]:
-                    j += 2
-                out.append("{" + "".join(plain_tokens[i : j + 1]) + "}")
-                i = j + 1
-            else:
-                out.append(plain_tokens[i])
-                i += 1
-        words.append("".join(out) + tail)
+        words.append(brace_compound_parts(plain_tokens, needs) + tail)
     return " ".join(words)
 
 
 def polish_fields(fields: Dict[str, str], keep_title: bool = False) -> Dict[str, str]:
     """Official BibTeX values in the survey's style (Title Case, protected terms, escapes)."""
-    out = {k: _texify(v) if k in _TEXT_FIELDS else v for k, v in fields.items() if v}
+    out = {k: _texify(v) if k in _TEXT_FIELDS else v for k, v in fields.items()}
     title = _normalize_word_braces(out.get("title", "").rstrip("."))
     if title:
         if not keep_title:
@@ -450,7 +441,15 @@ def _complete_built(built: BuiltEntry, library: VenueLibrary, interim_provider: 
         for name, value in done.patch.items():
             fields.setdefault(name, value)
         for name, existing, value in done.conflicts:
-            if library_wins:
+            if not str(existing).strip() and not is_no_month(name, value):
+                # An empty official field (IEEE's `issn={}`) takes the library's value.
+                fields[name] = value
+            elif library_wins and is_no_month(name, value):
+                fields.pop(name, None)
+                fields.pop("day", None)
+                built.notes.append(f"{name}: metadata '{existing}' dropped; the venue library says the venue "
+                                   "has no month")
+            elif library_wins:
                 fields[name] = value
                 built.notes.append(f"{name}: metadata '{existing}' replaced by the venue library's '{value}'")
             else:
@@ -493,19 +492,26 @@ def build_entry(official: Official, library: VenueLibrary, keep_title: bool = Fa
     DOI the paper was located by, is added when the official BibTeX has none
     (Springer's export never does).
     """
-    entry_type, raw = official_fields(official.text)
+    cleaned = clean_official(official.text)
+    raw = cleaned.fields
     doi = normalize_doi(doi)
     if doi and not is_arxiv_doi(doi) and not raw.get("doi"):
         raw["doi"] = doi
     built = BuiltEntry(
-        entry_type,
+        cleaned.entry_type,
         polish_fields(raw, keep_title=keep_title),
+        notes=cleaned.notes(),
         venue_name=raw.get("booktitle") or raw.get("journal") or "",
         year=raw.get("year", ""),
         raw=raw,
     )
     interim = official.provider if official.interim else ""
-    return _complete_built(built, library, interim_provider=interim)
+    built = _complete_built(built, library, interim_provider=interim)
+    if cleaned.dropped_period and "month" in built.fields:
+        added = built.fields.pop("month")
+        built.notes.append(f"month: the venue library's '{added}' isn't added either; set the record's "
+                           f"month to '{NO_MONTH}'")
+    return built
 
 
 def build_metadata_entry(record: Record, library: VenueLibrary, keep_title: bool = False) -> BuiltEntry:
@@ -569,6 +575,7 @@ def venue_proposals(
         built.year,
         collected={n: raw[n] for n in names if raw.get(n)},
         collected_label=f"from {built.source_label}",
+        entries=[key],
     )
     if record is not None and record.source.startswith("CrossRef"):
         proposal.crossref = venue_fields_from_crossref(record, done.kind)
@@ -905,7 +912,7 @@ class AddOutcome:
         return "\t".join(" ".join(c.split()) for c in cells)
 
 
-REPORT_HEADER = "add: identifier\tstatus\tkey\ttitle\tdetail\tget it\tnext"
+REPORT_HEADER = "add: identifier\tstatus\tkey\ttitle\tdetail\turl\tnext"
 LEFT_TO_DO = ("empty", "failed")
 # The groups of the list at the end of the log, in order: (next, heading).
 _LEFT_TO_DO_GROUPS = (
@@ -1236,7 +1243,8 @@ def add_papers(
         if metadata:
             log(f"   check the entries built from metadata ({len(metadata)}); `bibcc upgrade {output}` "
                 "replaces them once their official BibTeX can be downloaded")
-        log(f"   bibcc check {output} --check-keys --title-case --quote")
+        for check in ("keys", "title", "quote"):
+            log(f"   bibcc check {check} {output}")
         log(f"   bibcc complete {output}")
     return {"added": added, "filled": filled, "empty": empty, "metadata": metadata, "duplicates": duplicates,
             "failed": failed, "outcomes": outcomes}
@@ -1290,9 +1298,12 @@ check the identifier, or wait until the proceedings are out.
 
 The command formats each entry like the rest of the bibliography: Title
 Case, {{braces}} around acronyms and technical terms, -- page ranges, month
-macros, no abstract or keywords, venue fields that the official BibTeX lacks
-added from the venue library (differences are reported, never overwritten),
-and a suggested METHOD_AUTHOR_VENUEYEAR key (check the METHOD part). The
+macros, venue fields that the official BibTeX lacks added from the venue
+library (differences are reported, never overwritten), and a suggested
+METHOD_AUTHOR_VENUEYEAR key (check the METHOD part). The entry keeps every
+field of the official BibTeX, including abstract, keywords, and empty
+fields; the one exception is a month that spans two months, such as
+29 Jul--01 Aug, which is removed with its day. The
 command proposes venues that are missing from the library in a fill-in YAML
 file. It skips papers that are already in the --against files or in the
 staging file (same DOI, arXiv ID, or title). An empty entry in another file

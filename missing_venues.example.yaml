@@ -17,16 +17,22 @@
 # '# from YEAR edition'    value copied from the previous edition in the library
 # '# from CrossRef'        value that CrossRef reports (`bibcc complete --online`, `bibcc add`)
 # '# auto-guessed'         value inferred from the venue name; verify it
+# A record's '# entries:' comment names the entries that cite the venue.
 # When merging, BibCC skips records that have no field (and no interim booktitle) filled in.
 # BibCC merges this file on every run, so it keeps what you fill in.
+# To check only these records for missing fields before merging (instead of checking the
+# whole library afterwards), run:
+#   bibcc check venues --venues .bibcc/refs.bib/missing_venues.yaml
 
 journals:
   - name: "IEEE Transactions on Example Journal"
+    # entries: Doe_Example2026
     # aliases: []  # other spellings of this venue
     fields:
       publisher: "IEEE"  # auto-guessed
       issn: "1234-5678"  # from CrossRef
       # address: ""  # optional; for example, New York, NY, USA
+      # month: ""  # optional; none for a journal without monthly issues
 
 proceedings:
   - name: "2026 Example Conference on Something (EXC)"
@@ -35,7 +41,7 @@ proceedings:
     fields:
       venue: ""  # for example, City, Country
       publisher: "IEEE"  # from 2025 edition
-      month: "June"  # auto-guessed
+      month: ""  # the event month, such as June, if the whole event falls in it; none if it runs across two months
       # isbn: ""
       # issn: ""
       # editor: ""
@@ -51,7 +57,7 @@ proceedings:
     fields:
       venue: ""  # for example, City, Country
       publisher: "IEEE"  # from 2025 edition
-      month: "June"  # from 2025 edition
+      month: "June"  # from bib (Key_A_CVPR2026)
       isbn: ""
       issn: "2575-7075"  # from 2025 edition
 
@@ -71,13 +77,17 @@ proceedings:
 #   - publisher: Publisher name (for example, "IEEE", "Elsevier", or "Springer")
 #   - issn: ISSN
 #   - address: Publisher location (optional)
+#   - month: "none" for a journal without monthly issues (optional). Otherwise leave it out:
+#     each entry takes the month of its issue.
 #
 # For proceedings:
 #   - venue: Conference location (for example, "Seattle, WA, USA")
 #   - publisher: Publisher name
 #   - isbn: ISBN
 #   - issn: ISSN (if applicable)
-#   - month: Conference month (for example, "June" or "October")
+#   - month: Conference month (for example, "June" or "October"), only when the whole event
+#     falls in it; "none" when the event runs across two months. For an event held in several
+#     places, use the dates of the main venue. A month in the official BibTeX always wins.
 #   - editor: Editor names in BibTeX format
 #   - series: Conference series name
 #   - address: Publisher location

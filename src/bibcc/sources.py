@@ -38,7 +38,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from bibcc import __version__
 from bibcc.checkers.citation_keys import VENUE_ABBREVIATIONS, _keyword_in
-from bibcc.venues import VenueLibrary, normalize_venue
+from bibcc.venues import VenueLibrary, is_conference_journal, normalize_venue
 
 USER_AGENT = f"BibCC/{__version__} (https://github.com/3hiuwoo/BibCC)"
 S2_API_KEY_ENV = "S2_API_KEY"
@@ -322,7 +322,7 @@ def record_from_crossref(msg: Dict[str, Any]) -> Record:
     series = [c for c in containers if _SERIES_TITLE.match(c)]
     books = [c for c in containers if not _SERIES_TITLE.match(c)]
 
-    if ctype == "journal-article" and containers and containers[0].lower().startswith("proceedings of"):
+    if ctype == "journal-article" and containers and is_conference_journal(containers[0]):
         # AAAI, IJCAI, and PMLR register conference papers as journal articles.
         entry_type = "inproceedings"
     elif ctype == "journal-article":
@@ -353,9 +353,14 @@ def record_from_crossref(msg: Dict[str, Any]) -> Record:
         if series:
             fields["series"] = series[0]
 
-    year, month = _date_parts(msg, "published-print", "issued", "published-online", "published")
+    year = _date_parts(msg, "published-print", "issued", "published-online", "published")[0]
     fields["year"] = year
-    fields["month"] = month
+    # A journal entry takes the month of its issue, not of the online version;
+    # a conference paper takes the event month from the venue library.
+    if entry_type == "article":
+        _, fields["month"] = _date_parts(msg, "published-print")
+        if not fields["month"]:
+            _, fields["month"] = _date_parts(msg.get("journal-issue") or {}, "published-print")
     fields["volume"] = clean_text(msg.get("volume"))
     fields["number"] = clean_text(msg.get("issue"))
     pages = clean_text(msg.get("page"))
@@ -373,6 +378,9 @@ def record_from_crossref(msg: Dict[str, Any]) -> Record:
     # entry; these values only locate it and fill or validate venue records.
     event = msg.get("event") or {}
     _, event_month = _date_parts(event, "start")
+    _, end_month = _date_parts(event, "end")
+    if end_month and end_month != event_month:
+        event_month = ""  # held across two months: no event month
     extra = {
         "landing_url": clean_text(((msg.get("resource") or {}).get("primary") or {}).get("URL")),
         "issn": ", ".join(dict.fromkeys(msg.get("ISSN") or [])),

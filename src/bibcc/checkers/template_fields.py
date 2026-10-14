@@ -4,7 +4,9 @@ Venue library completeness checker.
 Inspects the journal and proceedings records of a venue library file (see
 :mod:`bibcc.venues`) for missing fields (publisher, ISSN, venue, etc.).  Supports per-venue
 field overrides so that specific conferences can require additional fields
-(e.g., ECCV → ``series``, some conferences → ``editor``).
+(e.g., ECCV → ``series``, some conferences → ``editor``).  Also compares the
+editions of each conference with one another and reports fields that one
+edition defines and another lacks.
 
 Usage:
     from bibcc.checkers.template_fields import check_template_fields
@@ -19,7 +21,7 @@ from pathlib import Path
 from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
 from bibcc.logging_utils import SEPARATOR_LIGHT, SEPARATOR_WIDTH
-from bibcc.venues import VenueLibrary
+from bibcc.venues import EVENT_FIELDS, VenueLibrary, family_key, family_label
 
 DEFAULT_JOURNAL_FIELDS = ["publisher", "issn"]
 DEFAULT_PROCEEDINGS_FIELDS = ["venue", "publisher", "month"]
@@ -45,6 +47,57 @@ def _get_venue_extra_fields(
                 if f not in extras:
                     extras.append(f)
     return extras
+
+
+def _norm_value(value: str) -> str:
+    """Braces, case, and whitespace don't matter when comparing field values."""
+    return " ".join(value.replace("{", "").replace("}", "").split()).casefold()
+
+
+def check_edition_consistency(
+    proceedings_templates: Dict[Tuple[str, str], Dict],
+    log: Callable[[str], None],
+) -> None:
+    """Report fields that one edition of a venue defines and another lacks.
+
+    Editions of the same conference (grouped by :func:`bibcc.venues.family_key`,
+    which ignores years and ordinals in the name) should define the same
+    fields.  When every edition that has a field agrees on its value, the
+    report suggests that value for the editions that lack it.  A record still
+    named by its interim (CVF or OpenReview) booktitle describes proceedings
+    that aren't out yet, so only its event fields count as missing.
+    """
+    # Imported here: bibcc.official imports this package.
+    from bibcc.official import interim_source_of
+
+    families: Dict[str, List[Tuple[str, str, Dict]]] = {}
+    for (venue, year), fields in proceedings_templates.items():
+        families.setdefault(family_key(venue), []).append((venue, year, fields))
+
+    log("\n🔗 Cross-edition consistency (fields one edition has and another lacks):")
+    found = False
+    for editions in (e for _, e in sorted(families.items()) if len(e) > 1):
+        editions.sort(key=lambda edition: edition[1])
+        interim = {year for venue, year, _ in editions if interim_source_of(venue, year=year)}
+        published = [venue for venue, year, _ in editions if year not in interim]
+        label = family_label(published[-1] if published else editions[-1][0])
+        all_fields = sorted({f for _, _, fields in editions for f in fields})
+        for fname in all_fields:
+            have = [(year, fields[fname]) for _, year, fields in editions if fields.get(fname)]
+            lack = [
+                year for _, year, fields in editions
+                if not fields.get(fname) and (year not in interim or fname in EVENT_FIELDS)
+            ]
+            if not lack or not have:
+                continue
+            found = True
+            hint = ""
+            if len({_norm_value(value) for _, value in have}) == 1:
+                years = ", ".join(year for year, _ in have)
+                hint = f"; {years} {'have' if len(have) > 1 else 'has'} '{have[0][1]}'"
+            log(f"  🔸 {label}: '{fname}' missing in {', '.join(lack)}{hint}")
+    if not found:
+        log("  ✅ Editions of the same venue define the same fields.")
 
 
 def check_template_fields(
@@ -162,3 +215,6 @@ def check_template_fields(
         log(f"\n  {label}:")
         for field, count in counts.items():
             log(f"    {field}: {count} missing")
+
+    # Cross-edition consistency
+    check_edition_consistency(proceedings_templates, log)
