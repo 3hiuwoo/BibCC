@@ -40,7 +40,7 @@ bibcc venues where           # show which libraries apply here, and which one is
 
 ## Commands
 
-BibCC provides nine commands through a single entry point, `bibcc`:
+BibCC provides the following commands through a single entry point, `bibcc`:
 
 | Command | Description |
 | --- | --- |
@@ -53,6 +53,7 @@ BibCC provides nine commands through a single entry point, `bibcc`:
 | [`scholar`](#scholar) | Fill in citation counts and verify titles against online sources |
 | [`compose`](#compose) | Merge the `.bib` files of a directory tree into a single bibliography |
 | `venues` | Manage your user and project venue libraries: `where`, `init`, `import`, and `examples` |
+| [`config`](#config) | Manage your user and project config files, which hold the `format` settings: `where`, `init`, `import`, and `examples` |
 | `surface` | Print the machine-readable command surface as JSON, for tools and skills that track BibCC |
 
 For command-specific help, run `bibcc COMMAND -h`. To see the installed version, run `bibcc --version`.
@@ -684,11 +685,13 @@ In detail, `format` does the following:
 - Turns months into macros (`{June}`, `"6"`, `Jun.` → `jun`).
 - Writes page ranges with a double hyphen (`12-15`, `12 – 15` → `12--15`). It handles lists such as `S1-S9, 20-22` part by part.
 - Puts one blank line between entries, and a single newline at the end of the file.
-- Keeps the field order, unless you pass `--sort-fields`.
+- Keeps the field order, unless you pass `--sort-fields`. With `--sort-fields`, the fields that `--field-order` lists come first, and every other field follows in source order. A `*` in the order marks where those other fields go, so `--field-order 'title,author,year,*,citation'` keeps `citation` last whatever fields an entry has.
 - Otherwise copies values exactly, including line breaks inside them.
 - Keeps `%` comments and `@string`, `@comment`, and `@preamble` blocks. With `--sort-entries`, a comment directly above an entry moves with it, and `@string` and `@preamble` blocks stay at the top.
 
 `format` checks every result before writing anything: it parses the file again, which must contain the same entries, types, fields, and values (up to the preceding conversions), and formatting the file a second time must change nothing. `format` reports and skips files that fail the check, can't be parsed, or have duplicate keys.
+
+Every style option can also come from the `format:` section of a config file, so that a project formats the same way for everyone without a long command line. `format` reads the user config and the nearest `.bibcc.yaml` above each `.bib` file. The options that you pass win over both, and each yes-or-no option has a `--no-` form that turns off a value from a config file (`--no-sort-fields`). For details, see [Config files](#config).
 
 <details>
 <summary>All <code>format</code> options</summary>
@@ -700,17 +703,20 @@ In detail, `format` does the following:
 | `-o`, `--output FILE` | Write the formatted file here (single input file only) |
 | `--check` | Write nothing; exit 1 if any file would change |
 | `--sort-fields` | Reorder fields by `--field-order`; other fields follow in source order |
-| `--field-order LIST` | Comma-separated order for `--sort-fields` (default: the order that `add` uses) |
+| `--field-order LIST` | Comma-separated order for `--sort-fields`; a `*` marks where the other fields go (default: the order that `add` uses, with the other fields last) |
 | `--sort-entries` | Sort entries by citation key (case-insensitive) |
 | `--keep-quotes` | Keep `"..."` values and bare numbers |
 | `--keep-outer-braces` | Keep values wrapped in extra braces (`{{...}}`) |
 | `--keep-months` | Don't turn months into macros |
 | `--keep-pages` | Don't turn page ranges into `--` ranges |
-| `--no-align` | Write `name = value` without aligning `=` |
+| `--no-align` | Write `name = value` without aligning `=` (`--align` turns alignment back on) |
 | `--indent N` | Field indent: a number of spaces, or `tab` (default: `2`) |
 | `--blank-lines N` | Blank lines between entries (default: `1`) |
 | `--trailing-comma` | Put a comma after the last field |
 | `--drop-empty` | Remove fields with empty values (`{}` or `""`) |
+| `--no-sort-fields`, `--no-keep-quotes`, and so on | Turn off a yes-or-no setting that a config file turns on |
+| `--config FILE` | Use only this config file, instead of the user config and the project's `.bibcc.yaml` |
+| `--no-config` | Read no config file |
 | `--log-dir DIR` | Directory for diffs and logs (default: `.bibcc/` next to each input) |
 
 </details>
@@ -1001,6 +1007,56 @@ bibcc complete input.bib --update-venues-only
 
 `complete` skips entries without a year or a venue. The log lists the proceedings and journal entries among them as entries to fix, and only counts the `@misc` ones (such as arXiv preprints), which aren't expected to have a venue. Both are reported, with their entry type, in `.bibcc/INPUT/incomplete_entries.txt`.
 
+## Config files <a id="config"></a>
+
+A config file holds your settings, so that you don't repeat options on every run and everyone on a project gets the same result. Like the venue library, a config has two scopes:
+
+| Scope | File | Holds |
+| --- | --- | --- |
+| `user` | `$BIBCC_CONFIG` if it's set, or else `$XDG_CONFIG_HOME/bibcc/config.yaml` (`~/.config/bibcc/config.yaml`) | Settings for all your projects |
+| `project` | `.bibcc.yaml`: the nearest one in the directory of the `.bib` file or a parent directory | Settings for one project; commit it with the bibliography |
+
+A command reads both files. Where both set a key, the project's value wins, and an option that you pass on the command line wins over both. Each command reads its own section of the file. This release reads the `format:` section, which `bibcc format` uses:
+
+```yaml
+format:
+  sort_fields: true
+  field_order:
+    first: [title, author, year, month, booktitle, journal, publisher, pages, doi, url]
+    last: [citation]
+  indent: 2
+```
+
+The `field_order` puts the `first` fields at the top and the `last` fields at the bottom. Every field that it doesn't list goes between them, in source order, so a field that you've never seen before keeps its place instead of breaking the order. The `format:` section takes the following keys:
+
+| Key | Default | Description |
+| --- | --- | --- |
+| `sort_fields` | `false` | Reorder fields by `field_order` |
+| `field_order` | The order that `add` uses | `first` and `last` lists, or one list in which `"*"` marks where the other fields go |
+| `sort_entries` | `false` | Sort entries by citation key |
+| `keep_quotes` | `false` | Keep `"..."` values and bare numbers |
+| `keep_outer_braces` | `false` | Keep values wrapped in extra braces (`{{...}}`) |
+| `keep_months` | `false` | Don't turn months into macros |
+| `keep_pages` | `false` | Don't turn page ranges into `--` ranges |
+| `align` | `true` | Align `=` to the longest field name |
+| `indent` | `2` | A number of spaces, or `tab` |
+| `blank_lines` | `1` | Blank lines between entries |
+| `trailing_comma` | `false` | Put a comma after the last field |
+| `drop_empty` | `false` | Remove fields with empty values |
+
+BibCC checks every file it reads. An invalid value, such as `indent: wide`, stops the command for the files that the config applies to. A key that this release doesn't know, a section that it doesn't read, and a field name in `field_order` that isn't a known BibTeX field (`volumn`) are reported in the log, and the rest of the file still applies.
+
+To manage config files, use `bibcc config`:
+
+```bash
+bibcc config where bib/refs.bib          # the files that apply, and each setting with where it comes from
+bibcc config init --scope project        # a .bibcc.yaml that lists every setting, commented out
+bibcc config examples                    # list the shared configs
+bibcc config import miaa --scope project # merge a shared config into the project's .bibcc.yaml
+```
+
+[`examples/config/`](examples/config/) holds shared configs, such as the MIAA lab's [`miaa`](examples/config/miaa.yaml), which sets the title-first field order of the lab's surveys with `citation` last. `import` adds the settings that your file lacks. Where a setting differs, it keeps your value and lists the difference, unless you pass `--overwrite`. `import` rewrites the file, so comments other than the header aren't kept. To share a config, see [Contributing a config](examples/config/README.md#contributing-a-config).
+
 ## Development <a id="development"></a>
 
 To set up a development checkout, run the following:
@@ -1014,7 +1070,7 @@ uv run ruff check .            # lint
 uv tool install --editable .   # optional: put bibcc on your PATH, following the checkout
 ```
 
-The code lives in `src/bibcc/`. Each command is one module, registered in `cli.py`: `checker.py`, `completer.py`, `adder.py`, `upgrader.py`, `formatter.py`, and `utils/` for `librarian`, `scholar`, `compose`, and `venues`. These modules hold the shared pieces:
+The code lives in `src/bibcc/`. Each command is one module, registered in `cli.py`: `checker.py`, `completer.py`, `adder.py`, `upgrader.py`, `formatter.py`, and `utils/` for `librarian`, `scholar`, `compose`, `venues`, and `config`. These modules hold the shared pieces:
 
 - `bibedit.py`: minimal, verified edits.
 - `sources.py`: CrossRef, arXiv, OpenReview, and Semantic Scholar lookups.
@@ -1023,6 +1079,7 @@ The code lives in `src/bibcc/`. Each command is one module, registered in `cli.p
 - `cache.py`: the disk cache of downloaded official BibTeX.
 - `schemas.py`: learning venue schemas.
 - `venues.py`: the venue libraries and their scopes.
+- `config.py`: the config files, their scopes, and the settings of each section.
 - `missing_venues.py`: the fill-in YAML file.
 - `crosscheck.py`: the CrossRef check of `complete --online`.
 - `logging_utils.py`: reports and logs.

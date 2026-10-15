@@ -4,6 +4,17 @@ This file lists notable changes to BibCC. The format follows [Keep a Changelog](
 
 ## [0.8.0] - Unreleased
 
+### Added
+
+- **Config files**: A user config (`$BIBCC_CONFIG`, or else `~/.config/bibcc/config.yaml`) and a project config (`.bibcc.yaml`, the nearest one above the `.bib` file) hold your settings, in the same two scopes as the venue library. Where both set a key, the project's value wins, and a command-line option wins over both. Each command reads its own section; `format` reads `format:`, which takes every style option of `format`. An invalid value stops the command for the files that the config applies to, and a key, section, or `field_order` field name that BibCC doesn't know is reported in the log.
+- **`bibcc config`**: Manages the config files. `where` shows the files that apply to a path and each setting with where it comes from, `init` writes a config that lists every setting commented out, `import` merges a config file, URL, or shared config into the user or project config (keeping your values unless you pass `--overwrite`), and `examples` lists the shared configs in `examples/config/`, starting with the MIAA lab's `miaa`.
+- **A place for unlisted fields in the field order**: In `format --field-order`, a `*` marks where the fields that the order doesn't list go, in source order, so `title,author,*,citation` keeps `citation` last whatever fields an entry has. In a config file, `field_order` takes `first` and `last` lists, with the other fields between them.
+- **`format --config FILE` and `--no-config`**: Use one config file instead of the user and project configs, or read none.
+
+### Changed
+
+- **`format` yes-or-no options have a `--no-` form**: `--no-sort-fields`, `--no-keep-quotes`, `--no-drop-empty`, and so on turn off a setting that a config file turns on, and `--align` turns alignment back on after a config's `align: false`. `--no-align` works as before.
+
 ## [0.7.1] - 2026-10-15
 
 ### Fixed

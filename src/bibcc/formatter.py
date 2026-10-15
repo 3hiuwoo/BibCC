@@ -60,7 +60,20 @@ from bibcc.bibedit import (
     value_tokens,
     write_bib,
 )
-from bibcc.helptext import HelpFormatter, epilog
+from bibcc.config import (
+    FORMAT_SECTION,
+    FORMAT_SETTINGS,
+    OTHER_FIELDS,
+    PROJECT_CONFIG_NAME,
+    USER_CONFIG_DISPLAY,
+    Config,
+    ConfigError,
+    field_order_warnings,
+    load_config,
+    parse_field_order,
+    parse_indent,
+)
+from bibcc.helptext import ENV_CONFIG, HelpFormatter, epilog
 from bibcc.logging_utils import (
     OUTPUT_DIR_NAME,
     SEPARATOR_THIN,
@@ -82,6 +95,7 @@ class FormatOptions:
     """Style settings for :func:`format_text`."""
 
     sort_fields: bool = False
+    # OTHER_FIELDS ("*") marks where unlisted fields go; without it they go last.
     field_order: Sequence[str] = tuple(FIELD_ORDER)
     sort_entries: bool = False
     braces: bool = True  # "..." and bare numbers become {...}
@@ -93,6 +107,27 @@ class FormatOptions:
     blank_lines: int = 1
     trailing_comma: bool = False
     drop_empty: bool = False
+
+    @classmethod
+    def from_settings(cls, values: Dict[str, object]) -> "FormatOptions":
+        """Options from ``format:`` settings (:data:`bibcc.config.FORMAT_SETTINGS`); unset keys keep defaults."""
+        merged = {key: s.default for key, s in FORMAT_SETTINGS.items()}
+        merged.update(values)
+        indent = merged["indent"]
+        return cls(
+            sort_fields=bool(merged["sort_fields"]),
+            field_order=tuple(merged["field_order"]) if merged["field_order"] is not None else tuple(FIELD_ORDER),
+            sort_entries=bool(merged["sort_entries"]),
+            braces=not merged["keep_quotes"],
+            outer_braces=not merged["keep_outer_braces"],
+            months=not merged["keep_months"],
+            pages=not merged["keep_pages"],
+            align=bool(merged["align"]),
+            indent="\t" if indent == "tab" else " " * int(indent),
+            blank_lines=int(merged["blank_lines"]),
+            trailing_comma=bool(merged["trailing_comma"]),
+            drop_empty=bool(merged["drop_empty"]),
+        )
 
 
 @dataclass
@@ -198,9 +233,15 @@ def _render_entry(text: str, entry: EntrySpan, options: FormatOptions) -> str:
         fields.append((name, _convert(name, raw, options)))
 
     if options.sort_fields:
-        rank = {n.lower(): i for i, n in enumerate(options.field_order)}
+        rank: Dict[str, int] = {}
+        others = len(options.field_order)
+        for i, n in enumerate(options.field_order):
+            if n == OTHER_FIELDS:
+                others = i
+            else:
+                rank[n.lower()] = i
         # sorted() is stable, so unlisted fields keep their source order.
-        fields.sort(key=lambda f: rank.get(f[0], len(rank)))
+        fields.sort(key=lambda f: rank.get(f[0], others))
 
     width = max((len(n) for n, _ in fields), default=0) if options.align else 0
     lines = [f"@{entry.entry_type.lower()}{{{entry.key},"]
@@ -509,7 +550,7 @@ def collect_bib_files(paths: Sequence[str | Path]) -> Tuple[List[Path], List[str
 
 def format_paths(
     paths: Sequence[str | Path],
-    options: FormatOptions,
+    options: FormatOptions | Callable[[Path], FormatOptions],
     *,
     in_place: bool = False,
     output: Optional[str | Path] = None,
@@ -521,6 +562,8 @@ def format_paths(
 
     Without *in_place*, *output*, or *check* this is a dry run that writes a
     ``.bibcc/<file>/format.diff`` per changed file.  *check* writes nothing.
+    *options* may be a function of the file, which picks each file's
+    settings (from the config that applies to it).
 
     Returns ``{"changed": [path], "unchanged": [path], "failed": [(path, error)]}``.
     """
@@ -536,9 +579,10 @@ def format_paths(
 
     for path in files:
         try:
+            file_options = options(path) if callable(options) else options
             text = read_bib(path)
-            result = format_bib(text, options)
-        except (BibEditError, UnicodeDecodeError) as e:
+            result = format_bib(text, file_options)
+        except (BibEditError, ConfigError, UnicodeDecodeError) as e:
             log(f"❌ {path}: {e} (skipped)")
             failed.append((str(path), str(e)))
             continue
@@ -579,18 +623,24 @@ def format_paths(
     return {"changed": changed, "unchanged": unchanged, "failed": failed}
 
 
-def _indent(value: str) -> str:
-    if value.lower() in ("tab", "\\t", "\t"):
-        return "\t"
-    if value.isdigit():
-        return " " * int(value)
-    raise argparse.ArgumentTypeError("use a number of spaces or 'tab'")
+def _indent(value: str) -> int | str:
+    try:
+        return parse_indent(value)
+    except ConfigError:
+        raise argparse.ArgumentTypeError("use a number of spaces or 'tab'") from None
 
 
 def _non_negative(value: str) -> int:
     if not value.isdigit():
         raise argparse.ArgumentTypeError("expected a non-negative integer")
     return int(value)
+
+
+def _field_order(value: str) -> Tuple[str, ...]:
+    try:
+        return parse_field_order(value, "--field-order")
+    except ConfigError as e:
+        raise argparse.ArgumentTypeError(str(e)) from None
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -617,8 +667,16 @@ entry. The default style:
 - Months become macros ({June}, "6", or Jun. -> jun).
 - Page ranges use a double hyphen (12-15 -> 12--15).
 - One blank line between entries, and one newline at the end of the file.
-- The command keeps the field order, the values (including line breaks
-  inside them), % comments, and @string, @comment, and @preamble blocks.
+- The command keeps the field order (unless you sort fields), the values
+  (including line breaks inside them), % comments, and @string, @comment,
+  and @preamble blocks.
+
+Each style option can also come from the format: section of a config file:
+the user config ($BIBCC_CONFIG, or else ~/.config/bibcc/config.yaml) and the
+nearest .bibcc.yaml in the directory of each .bib file or a parent
+directory. The project's values win over the user's, and the options you pass
+win over both. For the keys, and to start from a shared config, see
+'bibcc config -h'.
 
 The command parses every result again. The result must contain the same
 entries, types, fields, and values, and formatting it a second time must
@@ -633,6 +691,9 @@ can't be parsed, or have duplicate keys. Without --in-place, --output, or
                 ("In CI, fail if a file isn't formatted", "bibcc format bib/ --check"),
                 ("Also sort fields and entries, and indent with tabs",
                  "bibcc format refs.bib --in-place --sort-fields --sort-entries --indent tab"),
+                ("Sort fields, keeping citation last after every unlisted field",
+                 "bibcc format bib/ --in-place --sort-fields --field-order 'title,author,year,*,citation'"),
+                ("Ignore the config files for one run", "bibcc format bib/ --no-config"),
             ],
             outputs=[
                 (".bibcc/FILE/format.diff", "Dry run: the changes for each changed file"),
@@ -640,6 +701,7 @@ can't be parsed, or have duplicate keys. Without --in-place, --output, or
             ],
             exit_status="0 on success, 1 if a file fails (or, with --check, would change),\n"
             "2 on usage errors.",
+            env=[ENV_CONFIG],
         ),
         formatter_class=HelpFormatter,
     )
@@ -657,46 +719,69 @@ can't be parsed, or have duplicate keys. Without --in-place, --output, or
     mode.add_argument(
         "--check", action="store_true", help="Write nothing, and exit with status 1 if any file would change."
     )
-    style = parser.add_argument_group("style")
-    style.add_argument("--sort-fields", action="store_true", help="Reorder fields using --field-order.")
+    style = parser.add_argument_group(
+        "style (each also a key of the format: config section; the --no- forms turn a config value off)"
+    )
+    flag = argparse.BooleanOptionalAction
+    style.add_argument("--sort-fields", action=flag, default=None, help="Reorder fields using --field-order.")
     style.add_argument(
         "--field-order",
-        default=",".join(FIELD_ORDER),
+        type=_field_order,
+        default=None,
         metavar="FIELDS",
-        help="Comma-separated field order for --sort-fields; other fields follow in "
-        f"source order (default: {', '.join(FIELD_ORDER)}).",
+        help=f"Comma-separated field order for --sort-fields. A {OTHER_FIELDS} marks where every unlisted "
+        f"field goes, in source order (default: after the listed fields), so "
+        f"'title,author,{OTHER_FIELDS},citation' keeps citation last "
+        f"(default: {', '.join(FIELD_ORDER)}).",
     )
     style.add_argument(
         "--sort-entries",
-        action="store_true",
+        action=flag,
+        default=None,
         help="Sort entries by citation key (case-insensitive). A comment directly before an "
         "entry moves with it; @string and @preamble blocks stay at the top.",
     )
-    style.add_argument("--keep-quotes", action="store_true", help='Keep "..." values and bare numbers as they are.')
+    style.add_argument("--keep-quotes", action=flag, default=None,
+                       help='Keep "..." values and bare numbers as they are.')
     style.add_argument(
         "--keep-outer-braces",
-        action="store_true",
+        action=flag,
+        default=None,
         help="Keep values wrapped in extra braces ({{...}}) as they are.",
     )
-    style.add_argument("--keep-months", action="store_true", help="Don't turn month values into macros (jun).")
-    style.add_argument("--keep-pages", action="store_true", help="Don't turn page ranges such as 12-15 into 12--15.")
-    style.add_argument("--no-align", action="store_true", help="Write 'name = value' without aligning '='.")
+    style.add_argument("--keep-months", action=flag, default=None,
+                       help="Don't turn month values into macros (jun).")
+    style.add_argument("--keep-pages", action=flag, default=None,
+                       help="Don't turn page ranges such as 12-15 into 12--15.")
+    style.add_argument("--align", action=flag, default=None,
+                       help="Align '=' to the longest field name (default); --no-align writes 'name = value'.")
     style.add_argument(
         "--indent",
         type=_indent,
-        default="2",
+        default=None,
         metavar="N",
         help="Field indent: a number of spaces, or 'tab' (default: 2).",
     )
     style.add_argument(
         "--blank-lines",
         type=_non_negative,
-        default=1,
+        default=None,
         metavar="N",
         help="Blank lines between entries (default: 1).",
     )
-    style.add_argument("--trailing-comma", action="store_true", help="Put a comma after the last field.")
-    style.add_argument("--drop-empty", action="store_true", help="Remove fields with empty values ({} or \"\").")
+    style.add_argument("--trailing-comma", action=flag, default=None, help="Put a comma after the last field.")
+    style.add_argument("--drop-empty", action=flag, default=None,
+                       help="Remove fields with empty values ({} or \"\").")
+    settings = parser.add_argument_group("config files").add_mutually_exclusive_group()
+    settings.add_argument(
+        "--config",
+        default="",
+        metavar="FILE",
+        help=f"Use only this config file instead of the user config ({USER_CONFIG_DISPLAY}) "
+        f"and the project's {PROJECT_CONFIG_NAME}.",
+    )
+    settings.add_argument("--no-config", action="store_true",
+                          help="Read no config file: use the built-in style and the options you pass.")
     parser.add_argument(
         "--log-dir",
         default="",
@@ -706,31 +791,52 @@ can't be parsed, or have duplicate keys. Without --in-place, --output, or
     return parser
 
 
+def _option_settings(args: argparse.Namespace) -> Dict[str, object]:
+    """The format: settings given on the command line."""
+    return {key: getattr(args, key) for key in FORMAT_SETTINGS if getattr(args, key, None) is not None}
+
+
+def _settings_warnings(values: Dict[str, object]) -> List[str]:
+    if "field_order" in values and not values.get("sort_fields"):
+        return ["field_order has no effect without sort_fields (or --sort-fields)"]
+    return []
+
+
 def run(args: argparse.Namespace) -> None:
+    parser = build_parser()
     files, missing = collect_bib_files(args.paths)
     if args.output and (len(args.paths) != 1 or len(files) != 1 or missing or Path(args.paths[0]).is_dir()):
-        build_parser().error("--output needs exactly one input .bib file")
-    options = FormatOptions(
-        sort_fields=args.sort_fields,
-        field_order=tuple(f.strip().lower() for f in args.field_order.split(",") if f.strip()),
-        sort_entries=args.sort_entries,
-        braces=not args.keep_quotes,
-        outer_braces=not args.keep_outer_braces,
-        months=not args.keep_months,
-        pages=not args.keep_pages,
-        align=not args.no_align,
-        indent=args.indent,
-        blank_lines=args.blank_lines,
-        trailing_comma=args.trailing_comma,
-        drop_empty=args.drop_empty,
-    )
+        parser.error("--output needs exactly one input .bib file")
+    given = _option_settings(args)
+    fixed: Optional[Config] = None
+    if args.config:
+        try:
+            fixed = load_config(args.config)
+        except ConfigError as e:
+            parser.error(str(e))
     log_dir = Path(args.log_dir) if args.log_dir else None
     first = Path(args.paths[0])
 
     with Logger("formatter", input_file=first, log_dir=log_dir, enabled=not args.check) as logger:
+        for warning in field_order_warnings(given.get("field_order") or (), "--field-order"):
+            logger.log(f"⚠️  {warning}")
+        resolved: Dict[Tuple[str, ...], FormatOptions] = {}
+
+        def options_for(path: Path) -> FormatOptions:
+            config = fixed or load_config(start=path, use_files=not args.no_config)
+            key = config.key()
+            if key not in resolved:
+                values = {**config.section(FORMAT_SECTION), **given}
+                if config.present:
+                    logger.log(f"⚙️  Format settings from {config.describe()}")
+                for warning in config.warnings + _settings_warnings(values):
+                    logger.log(f"⚠️  {warning}")
+                resolved[key] = FormatOptions.from_settings(values)
+            return resolved[key]
+
         summary = format_paths(
             args.paths,
-            options,
+            options_for,
             in_place=args.in_place,
             output=args.output or None,
             check=args.check,

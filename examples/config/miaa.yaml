@@ -1,0 +1,22 @@
+# MIAA lab config: the survey bibliography's layout.
+#
+# Import it into a survey with: bibcc config import miaa --scope project
+format:
+  sort_fields: true
+  # Publisher extras keep their place: ACM's numpages after url, PMLR's pdf
+  # after editor, and Springer LNCS's editor and part after series and volume.
+  # Every field this order doesn't list goes before citation, in source order.
+  field_order:
+    first: [title, author, year, month, day, booktitle, journal, publisher, address, series, volume, number,
+      pages, doi, isbn, issn, url, eprint, archiveprefix, primaryclass, numpages, editor, pdf, part, venue]
+    last: [citation]
+  sort_entries: false
+  keep_quotes: false
+  keep_outer_braces: false
+  keep_months: false
+  keep_pages: false
+  align: true
+  indent: 2
+  blank_lines: 1
+  trailing_comma: false
+  drop_empty: false
