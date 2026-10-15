@@ -121,10 +121,16 @@ class Check:
 
 
 def check_entry(
-    key: str, entry: Mapping[str, str], kind: str, venue: Optional[Venue], record: Record
+    key: str, entry: Mapping[str, str], kind: str, venue: Optional[Venue], record: Record,
+    fields: Optional[Mapping[str, str]] = None,
 ) -> List[Check]:
-    """Compare *entry* and its library record *venue* with CrossRef's *record*."""
+    """Compare *entry* and its library record *venue* with CrossRef's *record*.
+
+    *fields* are the record's fields with its family's (default: the record's own).
+    """
     checks = []
+    if venue is not None and fields is None:
+        fields = venue.fields
     for name, theirs in crossref_values(record, kind).items():
         ours = " ".join(str(entry.get(name, "")).split())
         if venue is None:
@@ -132,7 +138,7 @@ def check_entry(
         elif name in _NAME_FIELDS:
             lib = venue.name
         else:
-            lib = venue.fields.get(name, "")
+            lib = fields.get(name, "")
         if is_no_month(name, lib):
             lib = ""  # a statement about the venue, not a value CrossRef can confirm
         if not ours and not lib:

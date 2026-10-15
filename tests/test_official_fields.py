@@ -162,6 +162,26 @@ def test_check_official_fields_with_local_exports(tmp_path: Path, web):
     assert f"{ICML} (2024): the venue library lacks 'publisher', official 'PMLR'" in log
 
 
+@pytest.mark.parametrize("publisher, expected", [
+    ("PMLR", None),
+    ("Other Press", ("library_differs", "library 'Other Press', official 'PMLR' (from family "
+                     "Proceedings of the International Conference on Machine Learning)")),
+])
+def test_check_official_compares_the_family_fields(tmp_path: Path, web, publisher, expected):
+    bib = _write(tmp_path)
+    library = VenueLibrary.loads(LIBRARY + f"""\
+families:
+- name: Proceedings of the International Conference on Machine Learning
+  acronym: ICML
+  fields: {{publisher: '{publisher}'}}
+""")
+    result = check_official_fields(
+        str(bib), library, local=[tmp_path / "exports"], offline=True, log=lambda _: None,
+    )
+    rows = [(r[3], r[6]) for r in result.venues if r[2] == "publisher" and r[3].startswith("library_")]
+    assert rows == ([expected] if expected else [])
+
+
 def test_check_official_apply_adds_named_fields_only(tmp_path: Path, web):
     bib = _write(tmp_path)
     result = check_official_fields(
@@ -277,3 +297,19 @@ def test_check_official_learns_venue_schemas(tmp_path: Path, web):
                                    log=lambda _: None)
     assert result.proposals == []
     assert not [r for r in result.venues if r[2] == "entry_fields"]
+
+
+def test_check_official_never_proposes_a_journal_month(tmp_path: Path, web):
+    bib = tmp_path / "refs.bib"
+    bib.write_text("@article{J_Doe_IJCV2026,\n  title = {Journal Paper},\n  author = {Doe, Jane},\n"
+                   "  journal = {International Journal of Computer Vision},\n  year = {2026}\n}\n")
+    exports = tmp_path / "exports"
+    exports.mkdir()
+    (exports / "J_Doe_IJCV2026.bib").write_text(
+        "@article{x,\n  title = {Journal Paper},\n  author = {Doe, Jane},\n"
+        "  journal = {International Journal of Computer Vision},\n  year = {2026},\n  month = sep,\n"
+        "  publisher = {Springer}\n}\n")
+    library = VenueLibrary.loads("journals:\n- name: International Journal of Computer Vision\n  fields: {}\n")
+    result = check_official_fields(str(bib), library, local=[exports], offline=True, log=lambda _: None)
+    lacks = {r[2] for r in result.venues if r[3] == "library_lacks"}
+    assert lacks == {"publisher"}

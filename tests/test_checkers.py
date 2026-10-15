@@ -5,6 +5,7 @@ import pytest
 from bibcc.checkers.citation_keys import check_citation_keys
 from bibcc.checkers.missing_fields import check_missing_fields
 from bibcc.checkers.template_fields import check_template_fields
+from bibcc.terms import add_terms, read_terms
 from bibcc.titlecases import suggest_title_case
 
 VENUES = """\
@@ -334,7 +335,7 @@ def test_check_quote_apply_and_interactive_are_exclusive(tmp_path: Path, capsys)
     assert _check(["quote", str(bib), "--apply", "--interactive"], capsys)[0] == 2
 
 
-def test_check_quote_interactive_accept_skip_remember(tmp_path: Path, capsys, monkeypatch):
+def test_check_quote_interactive_accept_skip_remember(tmp_path: Path, capsys, monkeypatch, isolated_user_library):
     bib = tmp_path / "refs.bib"
     bib.write_text(
         "@article{A_Zhou_TPAMI2024,\n"
@@ -356,10 +357,12 @@ def test_check_quote_interactive_accept_skip_remember(tmp_path: Path, capsys, mo
     # The remembered compound stays whole in the second entry without asking.
     assert "title  = {Revisiting {CIP-Net} Models}," in text
     assert "Interactive summary: 1 accepted, 0 edited, 0 skipped, 1 remembered" in out
-    vocab = tmp_path / ".bibcc" / "refs.bib" / "vocab.txt"
-    assert vocab.read_text(encoding="utf-8").strip() == "CIP-Net"
+    # Kept compounds go to the user terms file by default.
+    user_terms = isolated_user_library.parent / "terms.txt"
+    assert read_terms(user_terms) == ["CIP-Net"]
+    assert not (tmp_path / ".bibcc" / "refs.bib" / "vocab.txt").exists()
 
-    # Later runs read the vocabulary file and leave the compound whole.
+    # Later runs read the terms file and leave the compound whole.
     code, out = _check(["quote", str(bib)], capsys)
     assert code == 0
     assert "Over-Braced" not in out
@@ -396,6 +399,32 @@ def test_check_quote_interactive_skip_and_quit(tmp_path: Path, capsys, monkeypat
     assert not (tmp_path / ".bibcc" / "refs.bib" / "vocab.txt").exists()
     # The compounds are still reported after the review.
     assert "Over-Braced" in out
+
+
+def test_check_quote_interactive_scope_project_writes_the_project_terms(tmp_path: Path, capsys, monkeypatch,
+                                                                       isolated_user_library):
+    bib = tmp_path / "bib" / "refs.bib"
+    bib.parent.mkdir()
+    bib.write_text("@article{k, title = {{CIP-Net} Models}, year = {2024}}\n", encoding="utf-8")
+    (tmp_path / ".bibcc-venues.yaml").write_text("journals: []\n", encoding="utf-8")
+    monkeypatch.setattr("builtins.input", lambda _prompt="": "r")
+    assert _check(["quote", str(bib), "--interactive", "--scope", "project"], capsys)[0] == 0
+    # Without a terms file, the project's goes next to its venue library.
+    assert read_terms(tmp_path / ".bibcc-terms.txt") == ["CIP-Net"]
+    assert not (isolated_user_library.parent / "terms.txt").exists()
+    assert _check(["quote", str(bib), "--scope", "project"], capsys)[0] == 2  # needs --interactive
+
+
+def test_check_quote_reads_user_and_project_terms(tmp_path: Path, capsys, isolated_user_library):
+    bib = tmp_path / "refs.bib"
+    bib.write_text("@article{k, title = {{CIP-Net} and SD-LoRA Models}, year = {2024}}\n", encoding="utf-8")
+    add_terms(isolated_user_library.parent / "terms.txt", ["CIP-Net"])
+    add_terms(tmp_path / ".bibcc-terms.txt", ["SD-LoRA"])
+    code, out = _check(["quote", str(bib), "--apply"], capsys)
+    assert code == 0
+    assert "1 terms from the user terms file" in out and "1 terms from the project terms file" in out
+    # Both files count as your own terms: kept whole, and braced by --apply.
+    assert "title = {{CIP-Net} and {SD-LoRA} Models}" in bib.read_text()
 
 
 def test_check_quote_reads_auto_vocab_file(tmp_path: Path, capsys):

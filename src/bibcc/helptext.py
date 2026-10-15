@@ -26,6 +26,7 @@ from typing import Optional, Sequence, Tuple
 from bibcc.cache import CACHE_DISPLAY, CACHE_ENV_VAR
 from bibcc.cache import OFF as CACHE_OFF
 from bibcc.config import CONFIG_ENV_VAR, USER_CONFIG_DISPLAY
+from bibcc.terms import TERMS_ENV_VAR, USER_TERMS_DISPLAY
 from bibcc.venues import LIBRARY_ENV_VAR, PROJECT_LIBRARY_NAME, USER_LIBRARY_DISPLAY
 
 REPO = "3hiuwoo/BibCC"
@@ -40,6 +41,11 @@ ENV_CACHE: Tuple[str, str] = (
     CACHE_ENV_VAR,
     "Directory that keeps downloaded official BibTeX for 30 days (default: $XDG_CACHE_HOME/bibcc, "
     f"or {CACHE_DISPLAY} if XDG_CACHE_HOME isn't set). To turn the cache off, set it to '{CACHE_OFF}'.",
+)
+ENV_TERMS: Tuple[str, str] = (
+    TERMS_ENV_VAR,
+    "User terms file for 'check quote' (default: $XDG_CONFIG_HOME/bibcc/terms.txt, or "
+    f"{USER_TERMS_DISPLAY} if XDG_CONFIG_HOME isn't set).",
 )
 ENV_CONFIG: Tuple[str, str] = (
     CONFIG_ENV_VAR,

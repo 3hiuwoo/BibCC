@@ -61,10 +61,14 @@ from bibcc.checkers import (
 from bibcc.helptext import ENV_CACHE, ENV_VENUES, SCOPE_HELP, VENUES_HELP, HelpFormatter, epilog
 from bibcc.logging_utils import Logger, remove_report, report_dir, write_report
 from bibcc.schemas import Proposal, apply_proposals
+from bibcc.terms import load_terms, terms_path
 from bibcc.titlecases import STYLES
+from bibcc.utils.termlib import TERMS_SCOPE_HELP
 from bibcc.venues import (
     PROJECT_LIBRARY_NAME,
+    PROJECT_SCOPE,
     SCOPES,
+    USER_LIBRARY_DISPLAY,
     USER_SCOPE,
     LibraryNotFound,
     VenueLibrary,
@@ -289,9 +293,14 @@ The check also reports hyphenated or slashed compounds braced as a whole when
 only some parts need braces: {CLIP-Based} should be {CLIP}-Based, so that
 styles can still lowercase "Based". A compound stays whole when every part
 needs braces, as in method names such as {SD-LoRA}, {R-CNN}, and {GPT-4}. To
-keep another compound whole, such as the method name {CIP-Net}, list it with
---terms or --vocab-file, or add it to .bibcc/INPUT/vocab.txt (one term per
-line), which the check always reads.""",
+keep another compound whole, such as the method name {CIP-Net}, add it to
+your terms ('bibcc terms add CIP-Net'), or list it with --terms or
+--vocab-file.
+
+The check always reads the user terms file ($BIBCC_TERMS, or else
+~/.config/bibcc/terms.txt), the nearest .bibcc-terms.txt of the project, and
+.bibcc/INPUT/vocab.txt, and --apply braces their terms. For details, see
+'bibcc terms -h'.""",
         examples=[
             ("Report words to brace", "bibcc check quote refs.bib"),
             ("Report words to brace, with extra terms",
@@ -300,6 +309,8 @@ line), which the check always reads.""",
              "bibcc check quote refs.bib --apply --terms LoRA,CLIP,Transformer-XL"),
             ("Review each compound split, and keep the method names whole",
              "bibcc check quote refs.bib --interactive"),
+            ("Review the splits, and share the method names you keep with your coauthors",
+             "bibcc check quote refs.bib --interactive --scope project"),
         ],
         report=(".bibcc/INPUT/smart_protection.txt", "Words that need {braces}, and over-braced compounds"),
     )
@@ -307,18 +318,19 @@ line), which the check always reads.""",
     quote_mode.add_argument(
         "--apply",
         action="store_true",
-        help="Wrap the --terms and --vocab-file terms in braces wherever they appear in a title "
-        "with the same case, split over-braced compounds, and then report what else needs "
-        "braces. The built-in vocabulary and the other suggestions are never applied.",
+        help="Wrap your terms (the terms files, --terms, and --vocab-file) in braces wherever they "
+        "appear in a title with the same case, split over-braced compounds, and then report what "
+        "else needs braces. The built-in vocabulary and the other suggestions are never applied.",
     )
     quote_mode.add_argument(
         "--interactive",
         action="store_true",
         help="Review each over-braced compound one at a time: split it, skip it, edit the "
-        "suggestion, or keep it whole and add it to .bibcc/INPUT/vocab.txt, so that later "
-        "runs leave it whole. The --terms and --vocab-file terms are still braced, and "
-        "the accepted changes are written to the input file.",
+        "suggestion, or keep it whole and add it to the terms file that --scope selects, so that "
+        "later runs leave it whole. Your terms are still braced, and the accepted changes are "
+        "written to the input file.",
     )
+    quote.add_argument("--scope", choices=SCOPES, default=None, help=TERMS_SCOPE_HELP)
     quote.add_argument(
         "--terms",
         type=str,
@@ -332,7 +344,8 @@ line), which the check always reads.""",
         default=None,
         metavar="FILE",
         help="Text file with one extra term to protect per line; blank lines and # comments "
-        "are ignored. .bibcc/INPUT/vocab.txt is always read, with or without this option.",
+        "are ignored. The terms files and .bibcc/INPUT/vocab.txt are always read, with or "
+        "without this option.",
     )
     quote.add_argument(
         "--no-default",
@@ -605,15 +618,30 @@ only upstream_only, differs, and type findings count.""",
         description=f"""\
 Report venue library records that are missing fields, and fields that one
 edition of a conference defines and another lacks. The check reads the user
-library and the nearest {PROJECT_LIBRARY_NAME} separately, or only
---venues FILE (a .bibcc/INPUT/missing_venues.yaml fill-in file works too).""",
+library and the nearest {PROJECT_LIBRARY_NAME} separately, only the one that
+--scope names, or only --venues FILE (a .bibcc/INPUT/missing_venues.yaml
+fill-in file works too).
+
+It also lists the values that every published edition of a conference
+shares, such as the publisher and ISSN of CVPR. A family record holds them
+once for every edition. To move them there, pass --apply: the check creates
+the family records that are missing (with the provider table's acronym when
+the table knows the conference), adds the shared values, and removes them
+from the editions, so no edition's fields change. An edition whose value
+differs only in braces or case keeps it.""",
         epilog=epilog(
             examples=[
                 ("Check the user and project libraries", "bibcc check venues"),
                 ("Check a fill-in file before you merge it",
                  "bibcc check venues --venues .bibcc/refs.bib/missing_venues.yaml"),
+                ("Move the values every edition shares into family records, in the project library",
+                 "bibcc check venues --scope project --apply"),
             ],
-            outputs=[(".bibcc/logs/checker.log", "Everything printed to the terminal")],
+            outputs=[
+                (f"{USER_LIBRARY_DISPLAY}, {PROJECT_LIBRARY_NAME}, or --venues FILE",
+                 "The libraries that --apply rewrites"),
+                (".bibcc/logs/checker.log", "Everything printed to the terminal"),
+            ],
             env=[ENV_VENUES],
         ),
         formatter_class=HelpFormatter,
@@ -649,18 +677,37 @@ library and the nearest {PROJECT_LIBRARY_NAME} separately, or only
         help="Fields every proceedings record should have "
         f"(default: {','.join(DEFAULT_PROCEEDINGS_FIELDS)}).",
     )
+    venues.add_argument(
+        "--scope",
+        choices=SCOPES,
+        default=None,
+        help="Check only this library: 'user' or 'project' (default: both).",
+    )
+    venues.add_argument(
+        "--apply",
+        action="store_true",
+        help="Move the values that every edition of a conference shares into its family record, "
+        "creating the record when it's missing, and save each library the check reads.",
+    )
 
     return parser
 
 
 def _run_venues(args: argparse.Namespace) -> None:
+    if args.venues and args.scope:
+        build_parser().error("--venues already names the library; drop --scope")
     if args.venues:
         targets = [("library", Path(args.venues))]
     else:
-        targets = [("user library", user_library_path())]
+        targets = []
+        if args.scope in (None, USER_SCOPE):
+            targets.append(("user library", user_library_path()))
         project = find_project_library(args.path or None)
-        if project is not None:
+        if project is not None and args.scope in (None, PROJECT_SCOPE):
             targets.append(("project library", project))
+        elif args.scope == PROJECT_SCOPE:
+            build_parser().error(f"no {PROJECT_LIBRARY_NAME} in {Path(args.path or '.').resolve()} "
+                                 "or its parent directories")
     with Logger("checker") as logger:
         journal_fields = parse_list_arg(args.journal_fields)
         proceedings_fields = parse_list_arg(args.proceedings_fields)
@@ -676,6 +723,7 @@ def _run_venues(args: argparse.Namespace) -> None:
                 journal_fields,
                 proceedings_fields,
                 log=logger.log,
+                apply=args.apply,
             )
 
 
@@ -738,6 +786,10 @@ def _check_quote(args: argparse.Namespace, log: Callable[[str], None], save: Sav
     file_terms = (
         load_vocab_file(Path(args.vocab_file), log=log, keep_case=True) if args.vocab_file else set()
     )
+    for source in load_terms(args.input):
+        if source.terms:
+            log(f"🔤 {len(source.terms)} terms from the {source.scope} terms file {source.path}")
+        file_terms |= set(source.terms)
     cli_vocab: List[str] = [t.lower() for t in file_terms]
     cli_vocab.extend(parse_list_arg(args.terms))
     if args.apply or args.interactive:
@@ -750,7 +802,7 @@ def _check_quote(args: argparse.Namespace, log: Callable[[str], None], save: Sav
             own_terms,
             vocab_terms=vocab,
             interactive=args.interactive,
-            vocab_path=Path(args.vocab_file) if args.vocab_file else auto_vocab,
+            vocab_path=terms_path(args.scope or USER_SCOPE, start=args.input, create=True),
             log=log,
         )
         log("\n")
@@ -864,9 +916,11 @@ def run(args: argparse.Namespace) -> None:
         build_parser().error(f"no such file: {args.input}")
     if args.check == "missing" and not parse_list_arg(args.fields):
         build_parser().error("--fields needs at least one field name")
-    if getattr(args, "scope", None) and not args.learn:
+    if getattr(args, "scope", None) and args.check == "quote" and not args.interactive:
+        build_parser().error("--scope only applies with --interactive")
+    if getattr(args, "scope", None) and args.check != "quote" and not args.learn:
         build_parser().error("--scope only applies with --learn")
-    if getattr(args, "scope", None) and args.venues:
+    if getattr(args, "scope", None) and getattr(args, "venues", None):
         build_parser().error("--venues already names the library to write; drop --scope")
     findings = 0
 

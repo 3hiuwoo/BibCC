@@ -10,10 +10,21 @@ This file lists notable changes to BibCC. The format follows [Keep a Changelog](
 - **`bibcc config`**: Manages the config files. `where` shows the files that apply to a path and each setting with where it comes from, `init` writes a config that lists every setting commented out, `import` merges a config file, URL, or shared config into the user or project config (keeping your values unless you pass `--overwrite`), and `examples` lists the shared configs in `examples/config/`, starting with the MIAA lab's `miaa`.
 - **A place for unlisted fields in the field order**: In `format --field-order`, a `*` marks where the fields that the order doesn't list go, in source order, so `title,author,*,citation` keeps `citation` last whatever fields an entry has. In a config file, `field_order` takes `first` and `last` lists, with the other fields between them.
 - **`format --config FILE` and `--no-config`**: Use one config file instead of the user and project configs, or read none.
+- **`check venues --apply`**: Moves the values that every published edition of a conference shares, such as the `publisher` and `issn` of CVPR, into the conference's family record, and removes them from the editions. It creates the family record when it's missing, with the provider table's acronym when the table knows the conference. An edition keeps a value that differs only in braces or case, so no edition's fields change. `check venues --scope user` or `--scope project` checks, and with `--apply` rewrites, only that library.
+- **`bibcc venues providers`**: Prints the provider table that applies to a path: for each conference, where its official BibTeX comes from, where it comes from before the proceedings are out, and whether the row is built in or set by a family record of your venue libraries. `--format json` prints it for scripts.
+- **Protected terms in two scopes**: A user terms file (`$BIBCC_TERMS`, or else `~/.config/bibcc/terms.txt`) and a project terms file (`.bibcc-terms.txt`, the nearest one above the `.bib` file) hold the terms that `check quote` keeps in braces, such as `CLIP`, `LoRA`, and `CIP-Net`. `check quote` reads both, and `--apply` braces their terms, as it does the `--terms` and `--vocab-file` terms.
+- **`bibcc terms`**: Manages the terms files. `where` shows the files that apply to a path, `list` prints every term with its scope, `add` adds terms, `import` adds the terms of a file, URL, or shared list, and `examples` lists the shared lists in `examples/terms/`, starting with the MIAA lab's `miaa`.
 
 ### Changed
 
+- **`check quote --interactive` remembers kept compounds in a terms file**: A compound that you keep whole goes to the user terms file, or with `--scope project` to the project terms file, instead of `.bibcc/INPUT/vocab.txt`, so it stays whole in every file of the project and your coauthors can share it. `check quote` still reads `.bibcc/INPUT/vocab.txt`.
+- **A record named by its interim booktitle gets no family fields**: A proceedings record still named by its CVF Open Access or OpenReview booktitle describes proceedings that aren't out yet, so `complete` no longer gives its entries the published fields of the family record, such as an IEEE `publisher`.
 - **`format` yes-or-no options have a `--no-` form**: `--no-sort-fields`, `--no-keep-quotes`, `--no-drop-empty`, and so on turn off a setting that a config file turns on, and `--align` turns alignment back on after a config's `align: false`. `--no-align` works as before.
+
+### Fixed
+
+- **`check official` and `complete --online` compare family fields**: The library comparison of `check official` (`library_lacks` and `library_differs`) and the CrossRef check of `complete --online` now use a record's fields together with those of its family record, so a `publisher` that the family supplies is no longer reported as missing. When the differing value comes from the family record, the detail says so. An entry field that the family record supplies doesn't count as `local_only` either.
+- **`check official` no longer proposes a month for a journal record**: Each issue of a journal has its own month, so `library_lacks` and `library_differs` leave out a journal's `month`.
 
 ## [0.7.1] - 2026-10-15
 

@@ -202,3 +202,105 @@ def test_official_downloads_read_the_disk_cache(monkeypatch):
     official.clear_cache()  # a new run: only the disk cache remembers
     assert official._get(url, keep=official._is_bibtex) == first
     assert calls == [url]
+
+
+# ------------------------------------------- moving shared values, providers
+
+CVPR = "IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)"
+CVF_CVPR = "Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)"
+SHARED_LIBRARY = f"""\
+proceedings:
+- name: 2022 {CVPR}
+  year: '2022'
+  fields: {{venue: 'New Orleans, LA, USA', publisher: '{{IEEE}}', issn: 2575-7075}}
+- name: 2023 {CVPR}
+  year: '2023'
+  fields: {{venue: 'Vancouver, BC, Canada', publisher: IEEE, issn: 2575-7075, isbn: 979-8-3503-0129-8}}
+- name: 2024 {CVPR}
+  year: '2024'
+  fields: {{venue: 'Seattle, WA, USA', publisher: IEEE, issn: 2575-7075, isbn: 979-8-3503-5300-6}}
+- name: {CVF_CVPR}
+  year: '2025'
+  fields: {{venue: 'Nashville, TN, USA', publisher: IEEE}}
+"""
+
+
+def _effective(library: VenueLibrary) -> dict:
+    return {(v.name, v.year): library.fields_of(v) for v in library.proceedings}
+
+
+def test_check_venues_apply_moves_shared_values_into_a_new_family_record(tmp_path: Path, capsys):
+    from bibcc.cli import main
+
+    path = tmp_path / "venues.yaml"
+    VenueLibrary.loads(SHARED_LIBRARY).save(path)
+    before = _effective(VenueLibrary.load(path))
+
+    main(["check", "venues", "--venues", str(path), "--apply"])
+    out = capsys.readouterr().out
+    library = VenueLibrary.load(path)
+
+    [family] = library.families
+    assert (family.name, family.acronym) == ("IEEE/CVF Conference on Computer Vision and Pattern Recognition", "CVPR")
+    assert family.fields == {"issn": "2575-7075", "publisher": "IEEE"}  # not the per-edition isbn
+    fields = {v.year: v.fields for v in library.proceedings}
+    assert "issn" not in fields["2023"] and "publisher" not in fields["2024"]
+    assert fields["2022"]["publisher"] == "{IEEE}"  # differs in braces only: kept
+    assert fields["2025"]["publisher"] == "IEEE"  # the CVF record isn't published yet
+    # No record's fields change, and the CVF record gets no family fields.
+    assert _effective(library) == before
+    assert "Moved 5 values into family records" in out
+
+    main(["check", "venues", "--venues", str(path), "--apply"])
+    assert "No values to move" in capsys.readouterr().out
+
+
+def test_check_venues_apply_fills_an_existing_family_record(tmp_path: Path, capsys):
+    from bibcc.cli import main
+
+    path = tmp_path / "venues.yaml"
+    path.write_text(SHARED_LIBRARY + "families:\n- name: Computer Vision and Pattern Recognition\n"
+                    "  acronym: CVPR\n  fields: {publisher: IEEE}\n", encoding="utf-8")
+    main(["check", "venues", "--venues", str(path), "--apply"])
+    library = VenueLibrary.load(path)
+    [family] = library.families
+    assert family.fields == {"issn": "2575-7075", "publisher": "IEEE"}
+    assert "Computer Vision and Pattern Recognition (CVPR): issn" in capsys.readouterr().out
+
+
+def test_check_venues_scope_needs_a_project_library(tmp_path: Path, monkeypatch):
+    import pytest
+
+    from bibcc.cli import main
+
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(SystemExit):
+        main(["check", "venues", "--scope", "project"])
+    with pytest.raises(SystemExit):
+        main(["check", "venues", "--scope", "user", "--venues", str(tmp_path / "x.yaml")])
+
+
+def test_venues_providers_shows_built_in_and_library_rows(tmp_path: Path, capsys):
+    import json
+
+    import pytest
+
+    from bibcc.cli import main
+
+    path = tmp_path / "venues.yaml"
+    path.write_text("families:\n- name: Conference on Parsimony and Learning\n  acronym: CPAL\n  provider: pmlr\n"
+                    "- acronym: ICLR\n  interim_since: '2025'\n", encoding="utf-8")
+    with pytest.raises(SystemExit) as exc:
+        main(["venues", "providers", "--venues", str(path), "--format", "json"])
+    assert exc.value.code == 0
+    data = json.loads(capsys.readouterr().out)
+    rows = {row["acronym"]: row for row in data["families"]}
+    assert (rows["CPAL"]["provider"], rows["CPAL"]["source"]) == ("pmlr", "file")
+    assert (rows["ICLR"]["interim_since"], rows["ICLR"]["source"]) == ("2025", "built-in + file")
+    assert rows["CVPR"]["source"] == "built-in"
+    assert data["doi_prefixes"]["10.1109"] == "xplore"
+
+    with pytest.raises(SystemExit):
+        main(["venues", "providers", "--venues", str(path)])
+    out = capsys.readouterr().out
+    assert "CPAL" in out and "Blocked DOI prefixes" in out

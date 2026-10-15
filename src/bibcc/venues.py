@@ -117,8 +117,10 @@ _LIBRARY_HEADER = """\
 # families:    a conference across its editions: fields every edition shares,
 #              and entry_fields, the fields the official BibTeX of each paper has.
 #
-# This file is rewritten by `bibcc complete --update-venues` and
-# `bibcc venues import`; comments other than this header are not preserved.
+# This file is rewritten by `bibcc complete --update-venues`,
+# `bibcc venues import`, `bibcc check venues --apply`, and `--learn` of
+# `bibcc check official` and `bibcc check editions`; comments other than this
+# header are not preserved.
 """
 
 
@@ -531,9 +533,20 @@ class VenueLibrary:
         return self.family_of(venue.name) if venue.kind == PROCEEDINGS else None
 
     def fields_of(self, venue: Venue) -> Dict[str, str]:
-        """A record's fields, with the fields of its family under them (the record's value wins)."""
+        """A record's fields, with the fields of its family under them (the record's value wins).
+
+        A record still named by its interim booktitle (CVF Open Access or
+        OpenReview) describes proceedings that aren't out yet, whose BibTeX
+        lacks the published fields (an IEEE publisher, a Springer series),
+        so it gets no family fields.
+        """
         family = self.family_of_record(venue)
         if family is None or not family.fields:
+            return dict(venue.fields)
+        # Imported here: bibcc.official imports this module.
+        from bibcc.official import interim_source_of
+
+        if interim_source_of(venue.name, year=str(venue.year or ""), library=self):
             return dict(venue.fields)
         return {**family.fields, **venue.fields}
 

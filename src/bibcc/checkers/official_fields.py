@@ -57,7 +57,7 @@ from bibcc.schemas import (
     observe,
     propose,
 )
-from bibcc.venues import Venue, VenueLibrary, venue_kind
+from bibcc.venues import JOURNAL, Venue, VenueLibrary, venue_kind
 
 UPSTREAM_ONLY = "upstream_only"
 DIFFERS = "differs"
@@ -164,18 +164,20 @@ def _compare(
     entry: Dict[str, str],
     entry_type: str,
     upstream: Dict[str, str],
-    record: Optional[Venue],
+    supplied: Set[str],
     ignored: Set[str],
     source: str,
 ) -> Tuple[List[FieldRow], Dict[str, str]]:
-    """Field rows for one entry, and the official values of the fields it lacks."""
+    """Field rows for one entry, and the official values of the fields it lacks.
+
+    *supplied* names the fields that the entry's venue record (or its family) supplies.
+    """
     key = entry["ID"]
     local = {k: v for k, v in entry.items() if k not in ("ID", "ENTRYTYPE") and str(v).strip()}
     rows: List[FieldRow] = []
     missing: Dict[str, str] = {}
     if entry_type and entry.get("ENTRYTYPE", "").lower() != entry_type:
         rows.append((key, "ENTRYTYPE", TYPE, entry.get("ENTRYTYPE", "").lower(), entry_type, source))
-    supplied = set(record.fields) if record is not None else set()
     for name in sorted(set(local) | set(upstream)):
         if name in ignored or name == "title":
             continue
@@ -230,7 +232,7 @@ def _lookup(entry: Dict[str, str], offline: bool, index: Sequence[_Local], libra
     return lookup.official, doi, lookup
 
 
-def _venue_rows(checked: List[_Checked]) -> List[VenueRow]:
+def _venue_rows(checked: List[_Checked], library: VenueLibrary) -> List[VenueRow]:
     from bibcc.completer import same_field_value
 
     rows: List[VenueRow] = []
@@ -250,15 +252,21 @@ def _venue_rows(checked: List[_Checked]) -> List[VenueRow]:
             by_record[id(item.record)].append(item)
     for items in by_record.values():
         record = items[0].record
+        fields = library.fields_of(record)
+        family = library.family_of_record(record)
         for name in sorted(_LIBRARY_FIELDS):
+            if name == "month" and record.kind == JOURNAL:
+                continue  # each issue has its own month
             values = [i.upstream[name] for i in items if name in i.upstream]
             if not values or any(not same_field_value(name, v, values[0]) for v in values[1:]):
                 continue
-            ours = record.fields.get(name, "")
+            ours = fields.get(name, "")
             if ours and same_field_value(name, ours, values[0]):
                 continue
             issue = LIBRARY_DIFFERS if ours else LIBRARY_LACKS
             detail = f"library '{ours}', official '{values[0]}'" if ours else f"official '{values[0]}'"
+            if ours and name not in record.fields and family is not None:
+                detail += f" (from family {family.name})"
             rows.append((record.name, str(record.year or ""), name, issue, str(len(values)), "", detail))
     return rows
 
@@ -355,7 +363,8 @@ def check_official_fields(
         record = library.lookup(venue, year, venue_kind(entry.get("ENTRYTYPE", ""), entry),
                                 issn=entry.get("issn")).venue
         source = " ".join(f"{official.provider} {official.url}".split())
-        rows, missing = _compare(entry, entry_type, upstream, record, ignored, source)
+        supplied = set(library.fields_of(record)) if record is not None else set()
+        rows, missing = _compare(entry, entry_type, upstream, supplied, ignored, source)
         local_fields = {k for k, v in entry.items() if str(v).strip()}
         item = _Checked(key, record.name if record is not None else venue, year, source, record,
                         upstream, local_fields, missing)
@@ -390,7 +399,7 @@ def check_official_fields(
                     item.missing = {n: v for n, v in item.missing.items() if (item.key, n) not in done}
                 log(f"✍️  Added {len(applied)} official field values to {input_path}.")
 
-    result.venues = _venue_rows(checked)
+    result.venues = _venue_rows(checked, library)
     result.proposals = propose(observations, library, OFFICIAL)
     result.venues += schema_rows(result.proposals)
     _log_result(result, log)

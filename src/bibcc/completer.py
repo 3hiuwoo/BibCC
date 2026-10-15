@@ -271,6 +271,7 @@ def _online_checks(
     result: Dict[str, Any],
     cache: CrossrefCache,
     log: Callable[[str], None],
+    library: Optional[VenueLibrary] = None,
 ) -> Tuple[List[Check], List[Tuple[str, str]], List[Suggestion], Dict[Tuple[str, str], Dict[str, str]]]:
     """Check entries against CrossRef; returns checks, unchecked entries, suggestions, and CrossRef fills."""
     by_id = {e["ID"]: e for e in entries}
@@ -293,7 +294,8 @@ def _online_checks(
             continue
         venue = result["matched"].get(key)
         kind = venue_kind(entry.get("ENTRYTYPE", ""), entry)
-        for check in check_entry(key, entry, kind, venue, record):
+        fields = library.fields_of(venue) if library is not None and venue is not None else None
+        for check in check_entry(key, entry, kind, venue, record, fields):
             checks.append(check)
             if venue is not None and check.verdict in ("library differs", "bib and library differ") \
                     and check.name not in ("journal", "booktitle"):
@@ -439,7 +441,7 @@ def main(
     fills: Dict[Tuple[str, str], Dict[str, str]] = {}
     if online:
         checks, unchecked, suggestions, fills = _online_checks(
-            bib_db.entries, result, CrossrefCache(delay), log
+            bib_db.entries, result, CrossrefCache(delay), log, library
         )
 
     conflict_rows: List[str] = []

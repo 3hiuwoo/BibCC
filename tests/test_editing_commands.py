@@ -16,10 +16,11 @@ def test_complete_output_only_adds_fields(sample_bib: Path, tmp_path: Path, miaa
     main(["complete", str(sample_bib), "--output", str(out)])
     result = out.read_text()
 
-    # Fields land before the closing brace, aligned like the entry's own fields.
+    # Fields land before the closing brace, aligned like the entry's own fields;
+    # the CVPR family's fields come first.
     added_ispc = (
-        ",\n  venue     = {Seattle, WA, USA},\n  issn      = {2575-7075},\n"
-        "  isbn      = {979-8-3503-5300-6},\n  publisher = {IEEE},\n  month     = jun"
+        ",\n  issn      = {2575-7075},\n  publisher = {IEEE},\n"
+        "  venue     = {Seattle, WA, USA},\n  isbn      = {979-8-3503-5300-6},\n  month     = jun"
     )
     assert added_ispc in result
     # "publisher" is longer than DualPrompt's '=' column, so that entry's column widens.

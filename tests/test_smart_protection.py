@@ -105,7 +105,7 @@ def test_check_smart_protection_reports_overbraced_compounds(tmp_path: Path):
     assert rows == [("k", "BERT", "Acronym"), ("k", "{CLIP-Based}", "Over-Braced: use {CLIP}-Based")]
     assert "⚠️  Found 1 terms to protect and 1 over-braced compounds to split." in messages
     hint = "\n".join(messages)
-    assert ".bibcc/refs.bib/vocab.txt" in hint
+    assert "bibcc terms add COMPOUND" in hint
     assert "--interactive" in hint
 
 

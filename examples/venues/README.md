@@ -8,7 +8,7 @@ The following table lists the libraries in this directory:
 
 | Library | Maintained by | Covers |
 | --- | --- | --- |
-| [`miaa`](miaa.yaml) | MIAA lab ([@3hiuwoo](https://github.com/3hiuwoo)) | Machine learning, computer vision, and multimedia: 30 journals (including IEEE TPAMI, TIP, TNNLS, TCSVT, IJCV, Pattern Recognition, Neurocomputing, and TMLR) and 75 proceedings from 2016 to 2026 (including CVPR, ICCV, ECCV, WACV and their workshops, NeurIPS, ICML, ICLR, AAAI, IJCAI, ACM MM, ACL, NAACL, KDD, WSDM, MICCAI, and BMVC), with the CVF and OpenReview interim booktitles linked |
+| [`miaa`](miaa.yaml) | MIAA lab ([@3hiuwoo](https://github.com/3hiuwoo)) | Machine learning, computer vision, and multimedia: 30 journals (including IEEE TPAMI, TIP, TNNLS, TCSVT, IJCV, Pattern Recognition, Neurocomputing, and TMLR) and 75 proceedings from 2016 to 2026 (including CVPR, ICCV, ECCV, WACV and their workshops, NeurIPS, ICML, ICLR, AAAI, IJCAI, ACM MM, ACL, NAACL, KDD, WSDM, MICCAI, and BMVC), with the CVF and OpenReview interim booktitles linked, 11 family records (CVPR, ICCV, ECCV, WACV, CVPRW, NeurIPS, ICML, ICLR, AAAI, ACM MM, and CoLLAs) with the fields that every edition shares, and venue schemas learned from official BibTeX for CVPR, ICCV, ECCV, NeurIPS, ICML, ICLR, TPAMI, and IJCV |
 
 ## Using a library
 
@@ -45,7 +45,7 @@ To share your library so that others in your field can start from it, follow the
 4. Add a row for it to the [table of libraries](#example-venue-libraries): its name, who maintains it, and what it covers.
 5. Open a pull request. CI checks that every library in this directory loads and is in canonical form (`tests/test_scopes.py`).
 
-Take values from official sources, such as the publisher's or the proceedings' own pages, not from other bibliographies. Put a value that every edition of a conference shares, such as its `publisher` or `series`, in a family record (see [Venue families](../../README.md#venue-families)); `bibcc check venues` suggests the values to move. To add venue schemas, run `bibcc check official FILE.bib --learn --venues examples/venues/NAME.yaml` on a bibliography of the venues' papers, so that the schemas come from official BibTeX. For `month`, give the month the event took place only when the whole event falls within one month. For an event that spans two months, or a journal that doesn't publish by month, write `month: none`. For details, see [Months](../../README.md#months). To improve someone else's library, open a pull request that edits it. The library's maintainer reviews it.
+Take values from official sources, such as the publisher's or the proceedings' own pages, not from other bibliographies. Put a value that every edition of a conference shares, such as its `publisher` or `series`, in a family record (see [Venue families](../../README.md#venue-families)); `bibcc check venues --venues examples/venues/NAME.yaml` lists the values to move, and with `--apply` moves them. To add venue schemas, run `bibcc check official FILE.bib --learn --venues examples/venues/NAME.yaml` on a bibliography of the venues' papers, so that the schemas come from official BibTeX. For `month`, give the month the event took place only when the whole event falls within one month. For an event that spans two months, or a journal that doesn't publish by month, write `month: none`. For details, see [Months](../../README.md#months). To improve someone else's library, open a pull request that edits it. The library's maintainer reviews it.
 
 ### Keeping a library up to date
 

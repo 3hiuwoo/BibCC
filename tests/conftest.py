@@ -13,6 +13,7 @@ def isolated_user_library(tmp_path_factory, monkeypatch) -> Path:
     """Point the user venue library at an empty temporary folder, never the real one."""
     config = tmp_path_factory.mktemp("config")
     monkeypatch.delenv("BIBCC_VENUES", raising=False)
+    monkeypatch.delenv("BIBCC_TERMS", raising=False)
     monkeypatch.delenv("BIBCC_CONFIG", raising=False)
     monkeypatch.setenv("XDG_CONFIG_HOME", str(config))
     # Each test gets its own download cache, so no test reads another's downloads.

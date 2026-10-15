@@ -1,6 +1,7 @@
 *.bib
 !tests/fixtures/**/*.bib
 *.txt
+!examples/**/*.txt
 *.bak
 *.yaml
 !missing_venues.example.yaml

@@ -52,7 +52,8 @@ BibCC provides the following commands through a single entry point, `bibcc`:
 | [`librarian`](#librarian) | Compare a PDF library with `.bib` files: find missing and extra PDFs, and rename PDFs to citation keys |
 | [`scholar`](#scholar) | Fill in citation counts and verify titles against online sources |
 | [`compose`](#compose) | Merge the `.bib` files of a directory tree into a single bibliography |
-| `venues` | Manage your user and project venue libraries: `where`, `init`, `import`, and `examples` |
+| `venues` | Manage your user and project venue libraries: `where`, `init`, `import`, `examples`, and `providers` |
+| [`terms`](#protected-terms) | Manage your user and project protected-terms files, which `check quote` reads: `where`, `list`, `add`, `import`, and `examples` |
 | [`config`](#config) | Manage your user and project config files, which hold the `format` settings: `where`, `init`, `import`, and `examples` |
 | `surface` | Print the machine-readable command surface as JSON, for tools and skills that track BibCC |
 
@@ -140,17 +141,20 @@ bibcc check quote input.bib --terms Gaussian,BERT
 bibcc check quote input.bib --vocab-file my_terms.txt
 bibcc check quote input.bib --apply --terms LoRA,CLIP    # brace these terms, then report the rest
 bibcc check quote input.bib --interactive                # review each compound split
+bibcc check quote input.bib --interactive --scope project   # and share the compounds you keep
 ```
+
+Besides `--terms` and `--vocab-file`, `quote` always reads your [protected terms](#protected-terms): the user terms file and the project's `.bibcc-terms.txt`.
 
 `quote` also reports hyphenated or slashed compounds that are braced as a whole when only some parts need braces. `{CLIP-Based}` should be `{CLIP}-Based`, so that styles can still lowercase "Based". A compound stays whole in the following cases:
 
 - Every part needs braces, as in method names such as `{SD-LoRA}`, `{R-CNN}`, and `{GPT-4}`.
 - No part needs braces, as in `{Navier-Stokes}`.
-- The compound itself is in the vocabulary. A listed part doesn't keep the compound whole: `{CLIP-Based}` still becomes `{CLIP}-Based` when the vocabulary lists `CLIP`. To keep a method name such as `{CIP-Net}` or `{Transformer-XL}` whole, list the compound with `--terms` or `--vocab-file`, or add it to `.bibcc/INPUT/vocab.txt`.
+- The compound itself is in the vocabulary. A listed part doesn't keep the compound whole: `{CLIP-Based}` still becomes `{CLIP}-Based` when the vocabulary lists `CLIP`. To keep a method name such as `{CIP-Net}` or `{Transformer-XL}` whole, add the compound to your terms (`bibcc terms add CIP-Net`), or list it with `--terms` or `--vocab-file`.
 
-`--apply` wraps the terms from `--terms` and `--vocab-file` in braces wherever they appear in a title with the same case, splits the over-braced compounds, and then reports what else might need braces. It changes only the title values, and never applies the built-in vocabulary or the other suggestions, because those need review.
+`--apply` wraps your terms (the terms files, `--terms`, and `--vocab-file`) in braces wherever they appear in a title with the same case, splits the over-braced compounds, and then reports what else might need braces. It changes only the title values, and never applies the built-in vocabulary or the other suggestions, because those need review.
 
-To review each over-braced compound one at a time, pass `--interactive`: split it, skip it, edit the suggestion, or keep it whole. Keeping a compound whole also adds it to `.bibcc/INPUT/vocab.txt` (one term per line), which `check quote` always reads on top of `--terms` and `--vocab-file`, so a method name such as `CIP-Net` stays in one brace group for good. You can also write that file yourself.
+To review each over-braced compound one at a time, pass `--interactive`: split it, skip it, edit the suggestion, or keep it whole. Keeping a compound whole also adds it to the user terms file, or with `--scope project` to the project's `.bibcc-terms.txt`, so a method name such as `CIP-Net` stays in one brace group for good, in every file. `quote` still reads `.bibcc/INPUT/vocab.txt`, where earlier releases kept these compounds.
 
 #### Citation keys
 
@@ -255,9 +259,12 @@ Check the venue library for records with missing fields:
 ```bash
 bibcc check venues
 bibcc check venues --journal-fields publisher,issn --proceedings-fields venue,month,isbn
+bibcc check venues --scope project --apply    # move shared values into family records
 ```
 
-Besides the required-field check, `venues` compares the editions of each conference with one another, and reports fields that one edition defines and another lacks. When every edition that has a field agrees on its value, the report suggests that value for the editions that lack it, or suggests moving it into a [family record](#venue-families) when every edition has the same value. Editions are grouped by their family record, or else by their name without the year and ordinal. The check also lists the family records, with their editions and whether they have a schema. A record still named by its interim (CVF or OpenReview) booktitle describes proceedings that aren't out yet, so only its event fields (`venue` and `month`) count as missing.
+Besides the required-field check, `venues` compares the editions of each conference with one another, and reports fields that one edition defines and another lacks. When every edition that has a field agrees on its value, the report suggests that value for the editions that lack it, or suggests moving it into a [family record](#venue-families) when every published edition has the same value. Editions are grouped by their family record, or else by their name without the year and ordinal. The check also lists the family records, with their editions and whether they have a schema. A record still named by its interim (CVF or OpenReview) booktitle describes proceedings that aren't out yet, so only its event fields (`venue` and `month`) count as missing.
+
+To move those shared values, pass `--apply`. For each conference, the check creates the family record if it's missing (with the acronym of the [provider table](#venue-families) when the table knows the conference), adds the shared values to it, and removes them from the editions. An edition keeps a value that differs only in braces or case, and a record still named by its interim booktitle keeps its values, because it gets no family fields. So no edition's fields change. `--apply` saves each library that the check reads; to check and rewrite only one, pass `--scope user` or `--scope project`.
 
 To check only the records you're about to merge, point `--venues` at the fill-in file instead of a whole library:
 
@@ -286,10 +293,11 @@ bibcc check keys input.bib --strict && bibcc check fields input.bib --strict
 | `title` | `--interactive` | Review each suggestion interactively, and write the accepted ones |
 | `title` | `--style STYLE` | Title case style (default: `apa`) |
 | `title` | `--extra-stopwords WORDS` | Additional stopwords to keep lowercase |
-| `quote` | `--apply` | Wrap the `--terms` and `--vocab-file` terms in braces in the titles, split over-braced compounds, then report the rest |
-| `quote` | `--interactive` | Review each over-braced compound: split, skip, edit, or keep whole and remember it in the vocabulary file |
+| `quote` | `--apply` | Wrap your terms (the terms files, `--terms`, and `--vocab-file`) in braces in the titles, split over-braced compounds, then report the rest |
+| `quote` | `--interactive` | Review each over-braced compound: split, skip, edit, or keep whole and remember it in the terms file |
+| `quote` | `--scope SCOPE` | Terms file that `--interactive` adds the compounds you keep to: `user` (default) or `project` |
 | `quote` | `--terms TERMS` | Extra terms to protect |
-| `quote` | `--vocab-file FILE` | Vocabulary file with one term per line; blank lines and `#` comments are ignored (`.bibcc/INPUT/vocab.txt` is always read) |
+| `quote` | `--vocab-file FILE` | Vocabulary file with one term per line; blank lines and `#` comments are ignored (the terms files and `.bibcc/INPUT/vocab.txt` are always read) |
 | `quote` | `--no-default` | Turn off the built-in vocabulary of names |
 | `quote` | `--min-length N` | Minimum length for mixed-case, acronym, and number-bearing terms (default: `2`) |
 | `fields` | `--apply` | Remove the interim fields and the empty fields from the input file, then report the rest |
@@ -315,6 +323,8 @@ bibcc check keys input.bib --strict && bibcc check fields input.bib --strict
 | `venues` | `--venues FILE` | Check only this venue library file (a `missing_venues.yaml` fill-in file works too) |
 | `venues` | `--journal-fields FIELDS` | Fields to check in journal records (default: `publisher,issn`) |
 | `venues` | `--proceedings-fields FIELDS` | Fields to check in proceedings records (default: `venue,publisher,month`) |
+| `venues` | `--scope SCOPE` | Check only this library: `user` or `project` (default: both) |
+| `venues` | `--apply` | Move the values that every edition of a conference shares into its family record, and save each library that the check reads |
 
 </details>
 
@@ -963,7 +973,7 @@ families:
     provider: pmlr
 ```
 
-The keys are `provider` (`xplore`, `springer`, `proceedings`, `pmlr`, `acl`, `ijcai`, `openreview`, or `blocked`), `site` (the proceedings site, for `proceedings`), `interim` (`cvf` or `openreview`), `interim_since` (the first year that the interim BibTeX isn't the official one), `pattern` (a regular expression that names the conference in a booktitle), `workshop_of`, `acronym_aliases`, `blocked_by`, and `manual_url`. For the built-in table, see [`src/bibcc/data/families.yaml`](src/bibcc/data/families.yaml).
+To see the table that applies, with the rows your family records change, run `bibcc venues providers` (`--format json` for scripts). The keys are `provider` (`xplore`, `springer`, `proceedings`, `pmlr`, `acl`, `ijcai`, `openreview`, or `blocked`), `site` (the proceedings site, for `proceedings`), `interim` (`cvf` or `openreview`), `interim_since` (the first year that the interim BibTeX isn't the official one), `pattern` (a regular expression that names the conference in a booktitle), `workshop_of`, `acronym_aliases`, `blocked_by`, and `manual_url`. For the built-in table, see [`src/bibcc/data/families.yaml`](src/bibcc/data/families.yaml).
 
 ### Venue schemas <a id="venue-schemas"></a>
 
@@ -1006,6 +1016,30 @@ bibcc complete input.bib --update-venues-only
 ```
 
 `complete` skips entries without a year or a venue. The log lists the proceedings and journal entries among them as entries to fix, and only counts the `@misc` ones (such as arXiv preprints), which aren't expected to have a venue. Both are reported, with their entry type, in `.bibcc/INPUT/incomplete_entries.txt`.
+
+## Protected terms <a id="protected-terms"></a>
+
+`check quote` keeps your protected terms in `{braces}`: acronyms such as `CLIP`, mixed-case names such as `LoRA`, and method names such as `CIP-Net`. Like the venue library, terms live in two scopes:
+
+| Scope | File | Holds |
+| --- | --- | --- |
+| `user` | `$BIBCC_TERMS` if it's set, or else `$XDG_CONFIG_HOME/bibcc/terms.txt` (`~/.config/bibcc/terms.txt`) | Terms for all your projects |
+| `project` | `.bibcc-terms.txt`: the nearest one in the directory of the `.bib` file or a parent directory | Terms for one project; commit it with the bibliography so that your coauthors share it |
+
+A terms file has one term per line, with the case that titles use; blank lines and `#` comments are ignored. `check quote` reads both files on top of its built-in vocabulary of names, and `--apply` braces their terms. To list a hyphenated method name, list the whole compound (`CIP-Net`), because a listed part doesn't keep a compound whole.
+
+To manage terms files, use `bibcc terms`. Commands write to the user file, unless you pass `--scope project`; a project file that doesn't exist yet goes next to the project venue library, or else into the current directory.
+
+```bash
+bibcc terms where bib/refs.bib              # the files that apply, and how many terms each has
+bibcc terms list                            # every term, with the scope of its file
+bibcc terms add CIP-Net Transformer-XL      # keep two method names whole in every project
+bibcc terms add SD-LoRA --scope project     # share a term with your coauthors
+bibcc terms examples                        # list the shared terms files
+bibcc terms import miaa                     # add the MIAA lab's terms to your user file
+```
+
+[`examples/terms/`](examples/terms/) holds shared terms files, such as the MIAA lab's [`miaa`](examples/terms/miaa.txt). `import` adds only the terms that your file lacks, ignoring case. To share a terms file, see [Contributing a terms file](examples/terms/README.md#contributing-a-terms-file).
 
 ## Config files <a id="config"></a>
 
@@ -1070,7 +1104,7 @@ uv run ruff check .            # lint
 uv tool install --editable .   # optional: put bibcc on your PATH, following the checkout
 ```
 
-The code lives in `src/bibcc/`. Each command is one module, registered in `cli.py`: `checker.py`, `completer.py`, `adder.py`, `upgrader.py`, `formatter.py`, and `utils/` for `librarian`, `scholar`, `compose`, `venues`, and `config`. These modules hold the shared pieces:
+The code lives in `src/bibcc/`. Each command is one module, registered in `cli.py`: `checker.py`, `completer.py`, `adder.py`, `upgrader.py`, `formatter.py`, and `utils/` for `librarian`, `scholar`, `compose`, `venues`, `terms`, and `config`. These modules hold the shared pieces:
 
 - `bibedit.py`: minimal, verified edits.
 - `sources.py`: CrossRef, arXiv, OpenReview, and Semantic Scholar lookups.
@@ -1079,6 +1113,7 @@ The code lives in `src/bibcc/`. Each command is one module, registered in `cli.p
 - `cache.py`: the disk cache of downloaded official BibTeX.
 - `schemas.py`: learning venue schemas.
 - `venues.py`: the venue libraries and their scopes.
+- `terms.py`: the protected-terms files and their scopes.
 - `config.py`: the config files, their scopes, and the settings of each section.
 - `missing_venues.py`: the fill-in YAML file.
 - `crosscheck.py`: the CrossRef check of `complete --online`.
@@ -1118,6 +1153,7 @@ This section lists planned and shipped work, grouped by command. [`CHANGELOG.md`
   - Merging the fill-in file into the library without completing the `.bib` file (`--update-venues-only`).
   - Family records with the fields that every edition of a conference shares, and the facts about where its official BibTeX comes from (`families:` in the library).
   - Venue schemas, the per-paper fields that a venue's official BibTeX has, learned by `check official --learn` and `check editions --learn` (`entry_fields`).
+  - The values that every edition of a conference shares, moved into its family record (`check venues --apply`), and the provider table that applies, with the rows your family records change (`venues providers`).
 - **`check`**
   - Citation key legibility, including the first author's surname (`check keys`).
   - Exit status 1 on findings, for scripts (`--strict`), and your own terms braced in titles (`check quote --apply`).
@@ -1127,6 +1163,7 @@ This section lists planned and shipped work, grouped by command. [`CHANGELOG.md`
   - Entry fields of the venue's schema, learned from official BibTeX or proposed by the other entries of the venue (`check editions`).
   - Entries compared with their official BibTeX, downloaded again or saved by hand, and the official fields that they lack added back (`check official`).
   - Robust term protection that skips numbers and filters author names (`check quote`).
+  - User and project protected-terms files that `check quote` reads and `--interactive` adds to, with shared ones in `examples/terms/` (`bibcc terms`).
   - Robust title case with hyphenated words and a configurable style (`check title`).
   - Interactive title case application (`check title --interactive`).
   - A modular sub-checker architecture (the `checkers/` package), with one subcommand for each check.

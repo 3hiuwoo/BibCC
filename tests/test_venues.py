@@ -45,7 +45,8 @@ def test_miaa_example_library_loads():
     assert len(lib.journals) >= 30
     assert len(lib.proceedings) >= 70
     eccv = lib.find_exact(PROCEEDINGS, "Computer Vision -- ECCV 2024", "2025")
-    assert eccv is not None and eccv.fields["series"] == "Lecture Notes in Computer Science"
+    assert eccv is not None and "series" not in eccv.fields
+    assert lib.fields_of(eccv)["series"] == "Lecture Notes in Computer Science"  # from the family
 
 
 def test_normalize_venue_ignores_braces_escapes_case_and_spacing():

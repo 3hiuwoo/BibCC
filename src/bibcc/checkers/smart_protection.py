@@ -411,8 +411,8 @@ def check_smart_protection(
         split = f" and {overbraced} over-braced compounds to split" if overbraced else ""
         log(f"⚠️  Found {len(protection_rows) - overbraced} terms to protect{split}.")
         if overbraced:
-            log(f"   To keep a method-name compound whole, add it to {auto_vocab_path(input_path)} "
-                "(one term per line), or pass it with --terms.")
+            log("   To keep a method-name compound whole, run 'bibcc terms add COMPOUND' "
+                "(with --scope project to share it), or pass it with --terms.")
             log("   To review each split one by one, pass --interactive.")
     else:
         log(f"✅ No unprotected terms in {len(bib_db.entries)} entries.")
@@ -422,15 +422,13 @@ def check_smart_protection(
 
 def _remember_compound(content: str, vocab: Set[str], vocab_path: Path, log: Callable[[str], None]) -> None:
     """Keep the braced compound *content* whole for good: add it to *vocab* and *vocab_path*."""
+    # Imported here: bibcc.terms imports bibcc.venues, which this package's importers load later.
+    from bibcc.terms import add_terms
+
     vocab.add(content.lower())
-    if vocab_path.is_file():
-        lines = {line.strip().lower() for line in vocab_path.read_text(encoding="utf-8").splitlines()}
-        if content.lower() in lines:
-            log(f"  📝 Kept whole; {content} is already in {vocab_path}.")
-            return
-    vocab_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(vocab_path, "a", encoding="utf-8") as f:
-        f.write(content + "\n")
+    if not add_terms(vocab_path, [content]):
+        log(f"  📝 Kept whole; {content} is already in {vocab_path}.")
+        return
     log(f"  📝 Kept whole, and added to {vocab_path}; later runs leave it alone.")
 
 

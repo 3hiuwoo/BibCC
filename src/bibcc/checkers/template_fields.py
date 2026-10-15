@@ -7,21 +7,32 @@ on).  A proceedings record also has the fields of its family record, so a
 field that the family supplies is never missing.  The check also lists the
 family records, compares the editions of each conference with one another,
 reports fields that one edition defines and another lacks, and suggests
-moving the fields that every edition shares into a family record.
+moving the fields that every edition shares into a family record; with
+``apply``, it moves them.
 
 Usage:
     from bibcc.checkers.template_fields import check_template_fields
 
     check_template_fields(Path("venues.yaml"), ["publisher", "issn"], ["venue"])
+    check_template_fields(Path("venues.yaml"), ["publisher", "issn"], ["venue"], apply=True)
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
 from bibcc.logging_utils import SEPARATOR_LIGHT, SEPARATOR_WIDTH
-from bibcc.venues import EVENT_FIELDS, Venue, VenueLibrary, edition_group, family_label
+from bibcc.venues import (
+    EVENT_FIELDS,
+    Family,
+    Venue,
+    VenueLibrary,
+    edition_group,
+    family_label,
+    family_match_keys,
+)
 
 DEFAULT_JOURNAL_FIELDS = ["publisher", "issn"]
 DEFAULT_PROCEEDINGS_FIELDS = ["venue", "publisher", "month"]
@@ -85,28 +96,119 @@ def check_edition_consistency(library: VenueLibrary, log: Callable[[str], None])
                 years = ", ".join(year for year, _ in have)
                 hint = f"; {years} {'have' if len(have) > 1 else 'has'} '{have[0][1]}'"
             log(f"  🔸 {label}: '{fname}' missing in {', '.join(lack)}{hint}")
-        shared = {}
-        for fname in sorted({f for v in published for f in v.fields} - _PER_EDITION):
-            values = {_norm_value(v.fields.get(fname, "")) for v in published}
-            if len(published) > 1 and len(values) == 1 and "" not in values:
-                shared[fname] = published[-1].fields[fname]
         if family is not None:
-            shared = {k: v for k, v in shared.items() if k not in family.fields}
             for venue in editions:
                 for fname, value in venue.fields.items():
                     if fname in family.fields and _norm_value(value) != _norm_value(family.fields[fname]):
                         log(f"  ℹ️  {label}: {venue.year} overrides the family's '{fname}' "
                             f"('{family.fields[fname]}') with '{value}'")
-        if shared:
-            pairs = ", ".join(f"{k}: '{v}'" for k, v in shared.items())
-            target = f"the family record {family.label}" if family is not None else "a family record"
-            moves.append(f"  💡 {label}: every edition has {pairs}; move it into {target}")
+    for move in shared_values(library):
+        pairs = ", ".join(f"{k}: '{v}'" for k, v in move.fields.items())
+        target = f"the family record {move.family.label}" if move.family is not None else "a family record"
+        moves.append(f"  💡 {move.label}: every edition has {pairs}; move it into {target}")
     if not found:
         log("  ✅ Editions of the same venue define the same fields.")
     if moves:
         log("\n🧩 Fields that every edition shares (a family record supplies them to each edition):")
         for line in moves:
             log(line)
+        log("   To move them, pass --apply.")
+
+
+@dataclass
+class SharedValues:
+    """Fields that every published edition of one conference gives the same value."""
+
+    label: str
+    family: Optional[Family]
+    editions: List[Venue]
+    published: List[Venue]
+    fields: Dict[str, str]
+
+
+def shared_values(library: VenueLibrary) -> List[SharedValues]:
+    """The fields a family record could supply, for each conference with two or more published editions.
+
+    A field counts when every published edition has it with the same value
+    (braces, case, and spaces aside), it isn't a per-edition field (venue,
+    month, editor, ISBN, volume, day), and the family record doesn't have
+    it yet.  The value is the latest edition's.
+    """
+    from bibcc.official import interim_source_of
+
+    found: List[SharedValues] = []
+    for editions in (e for _, e in sorted(_editions(library).items()) if len(e) > 1):
+        editions = sorted(editions, key=lambda venue: str(venue.year))
+        published = [v for v in editions
+                     if not interim_source_of(v.name, year=str(v.year), library=library)]
+        if len(published) < 2:
+            continue
+        family = library.family_of_record(editions[0])
+        shared: Dict[str, str] = {}
+        for fname in sorted({f for v in published for f in v.fields} - _PER_EDITION):
+            values = {_norm_value(v.fields.get(fname, "")) for v in published}
+            if len(values) == 1 and "" not in values and (family is None or fname not in family.fields):
+                shared[fname] = published[-1].fields[fname]
+        if shared:
+            label = family.label if family is not None else family_label(published[-1].name)
+            found.append(SharedValues(label, family, editions, published, shared))
+    return found
+
+
+def _same(a: str, b: str) -> bool:
+    return " ".join(a.split()) == " ".join(b.split())
+
+
+def move_shared_values(library: VenueLibrary, log: Callable[[str], None]) -> int:
+    """Move the values every edition shares into family records; return the number of values moved.
+
+    A conference without a family record gets one, named after its latest
+    published edition (without the year and ordinal), with the acronym of
+    the provider table when the table knows it.  An edition gives up a
+    value only when it's the family's value exactly, so the fields that
+    each edition ends up with don't change; an edition whose value differs
+    only in braces or case keeps it.
+    """
+    from bibcc.families import registry
+
+    moved = 0
+    for move in shared_values(library):
+        family = move.family
+        if family is None:
+            name = family_label(move.published[-1].name)
+            reg = registry(library)
+            acronym = reg.acronym_of(name, library)
+            acronym = acronym if reg.get(acronym) is not None else ""
+            if acronym and name.endswith(f"({acronym})"):
+                name = name[: -len(f"({acronym})")].rstrip()
+            draft = Family(name=name, acronym=acronym)
+            family = library.find_family(draft)
+            if family is None:
+                library.families.append(draft)
+                family = draft
+                log(f"  ➕ Family record {family.label}")
+        taken = {k: v for k, v in move.fields.items() if k not in family.fields}
+        if not taken:
+            continue
+        family.fields.update(taken)
+        for venue in move.editions:
+            if library.family_of_record(venue) is not family:
+                alias = family_label(venue.name)
+                if alias and not (family_match_keys(alias) & family.keys()):
+                    family.aliases.append(alias)
+            if library.family_of_record(venue) is not family:
+                log(f"  ⚠️  {venue.label} matches another family record; it keeps its fields")
+                continue
+            # An edition named by its interim booktitle gets no family fields (see fields_of).
+            if all(venue is not p for p in move.published):
+                continue
+            for fname, value in taken.items():
+                if fname in venue.fields and _same(venue.fields[fname], value):
+                    del venue.fields[fname]
+                    moved += 1
+        pairs = ", ".join(f"{k}: '{v}'" for k, v in taken.items())
+        log(f"  🧩 {family.label}: {pairs}")
+    return moved
 
 
 def _log_families(library: VenueLibrary, log: Callable[[str], None]) -> None:
@@ -130,7 +232,8 @@ def check_template_fields(
     journal_fields: Sequence[str],
     proceedings_fields: Sequence[str],
     log: Optional[Callable[[str], None]] = None,
-) -> None:
+    apply: bool = False,
+) -> int:
     """Check the records of a venue library for missing fields.
 
     Args:
@@ -139,6 +242,12 @@ def check_template_fields(
         proceedings_fields: Fields to require in proceedings records, which
             also have the fields of their family record.
         log: Optional logging callback; falls back to ``print``.
+        apply: Move the values that every edition of a conference shares
+            into its family record (see :func:`move_shared_values`), and
+            save the library.
+
+    Returns:
+        The number of values moved into family records.
     """
     log = log or print
 
@@ -146,7 +255,16 @@ def check_template_fields(
         library = VenueLibrary.load(templates_path)
     except Exception as e:
         log(f"❌ Error loading venue library {templates_path}: {e}")
-        return
+        return 0
+    if apply:
+        log(f"🧩 Moving the values that every edition shares into family records ({templates_path}):")
+        before = [f.to_dict() for f in library.families]
+        moved = move_shared_values(library, log)
+        if moved or [f.to_dict() for f in library.families] != before:
+            library.save()
+            log(f"✅ Moved {moved} values into family records, and saved {templates_path}.\n")
+        else:
+            log("  ℹ️  No values to move.\n")
 
     journal_templates: Dict[str, Dict] = {v.name: v.fields for v in library.journals}
     proceedings_templates: Dict[Tuple[str, str], Dict] = {
@@ -226,3 +344,4 @@ def check_template_fields(
 
     _log_families(library, log)
     check_edition_consistency(library, log)
+    return moved if apply else 0

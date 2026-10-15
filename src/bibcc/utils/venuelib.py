@@ -12,6 +12,7 @@ Usage:
     bibcc venues where bib/refs.bib
     bibcc venues init --scope project
     bibcc venues examples
+    bibcc venues providers
     bibcc venues import miaa
     bibcc venues import ./lab-venues.yaml --scope project
 """
@@ -19,16 +20,18 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import re
 import sys
 from pathlib import Path
-from typing import Callable, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
 import yaml
 
 import bibcc
 from bibcc import sources
+from bibcc.families import PROVIDERS, builtin_families, registry
 from bibcc.helptext import ENV_VENUES, REPO, SCOPE_HELP, HelpFormatter, epilog
 from bibcc.logging_utils import Logger
 from bibcc.venues import (
@@ -48,21 +51,21 @@ from bibcc.venues import (
 )
 
 EXAMPLES_BRANCH = "main"
-EXAMPLE_RAW_URL = f"https://raw.githubusercontent.com/{REPO}/{EXAMPLES_BRANCH}/examples/venues/{{name}}.yaml"
-EXAMPLES_API_URL = f"https://api.github.com/repos/{REPO}/contents/examples/venues?ref={EXAMPLES_BRANCH}"
-EXAMPLES_PAGE_URL = f"https://github.com/{REPO}/tree/{EXAMPLES_BRANCH}/examples/venues"
+EXAMPLE_RAW_URL = f"https://raw.githubusercontent.com/{REPO}/{EXAMPLES_BRANCH}/examples/{{kind}}/{{name}}{{suffix}}"
+EXAMPLES_API_URL = f"https://api.github.com/repos/{REPO}/contents/examples/{{kind}}?ref={EXAMPLES_BRANCH}"
+EXAMPLES_PAGE_URL = f"https://github.com/{REPO}/tree/{EXAMPLES_BRANCH}/examples/{{kind}}"
 
 _EXAMPLE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*")
 
 
-def local_examples_dir() -> Optional[Path]:
-    """``examples/venues/`` of the checkout BibCC runs from, if it runs from one (editable install)."""
-    folder = Path(bibcc.__file__).resolve().parents[2] / "examples" / "venues"
+def local_examples_dir(kind: str = "venues") -> Optional[Path]:
+    """``examples/KIND/`` of the checkout BibCC runs from, if it runs from one (editable install)."""
+    folder = Path(bibcc.__file__).resolve().parents[2] / "examples" / kind
     return folder if folder.is_dir() else None
 
 
-def read_source(source: str) -> Tuple[str, str]:
-    """``(yaml text, where it came from)`` for a library file, URL, or example name."""
+def read_source(source: str, kind: str = "venues", suffix: str = ".yaml") -> Tuple[str, str]:
+    """``(text, where it came from)`` for a file, URL, or the name of a file in ``examples/KIND/``."""
     path = Path(source).expanduser()
     if path.is_file():
         return path.read_text(encoding="utf-8"), str(path)
@@ -71,42 +74,51 @@ def read_source(source: str) -> Tuple[str, str]:
         if error:
             raise ValueError(f"could not download {source}: {error}")
         return content or "", source
-    name = re.sub(r"\.ya?ml$", "", source)
+    name = source[: -len(suffix)] if source.endswith(suffix) else source
+    if kind == "venues":
+        name = re.sub(r"\.ya?ml$", "", source)
+    what = "example library" if kind == "venues" else f"example {kind} file"
     if not _EXAMPLE_NAME.fullmatch(name):
-        raise ValueError(f"{source}: no such file, URL, or example library name")
-    local = local_examples_dir()
-    if local is not None and (local / f"{name}.yaml").is_file():
-        example = local / f"{name}.yaml"
+        raise ValueError(f"{source}: no such file, URL, or {what} name")
+    local = local_examples_dir(kind)
+    if local is not None and (local / f"{name}{suffix}").is_file():
+        example = local / f"{name}{suffix}"
         return example.read_text(encoding="utf-8"), str(example)
-    url = EXAMPLE_RAW_URL.format(name=name)
+    url = EXAMPLE_RAW_URL.format(kind=kind, name=name, suffix=suffix)
     content, error = sources.fetch_url(url)
     if error:
         raise ValueError(
-            f"{source}: no such file, and no example library of that name ({url}: {error}). "
-            "List them with: bibcc venues examples"
+            f"{source}: no such file, and no {what} of that name ({url}: {error}). "
+            f"List them with: bibcc {kind} examples"
         )
     return content or "", url
 
 
+def example_names(kind: str, suffix: str) -> Tuple[List[Path], List[str], str]:
+    """``(local files, remote names, where)`` of the files in ``examples/KIND/``, local checkout first."""
+    local = local_examples_dir(kind)
+    if local is not None:
+        return sorted(local.glob(f"*{suffix}")), [], str(local)
+    page = EXAMPLES_PAGE_URL.format(kind=kind)
+    data, error = sources.fetch_json(EXAMPLES_API_URL.format(kind=kind))
+    if error or not isinstance(data, list):
+        raise ValueError(f"could not list the examples ({error or 'unexpected answer'}); see {page}")
+    names = [item["name"][: -len(suffix)] for item in data
+             if isinstance(item, dict) and str(item.get("name", "")).endswith(suffix)]
+    return [], sorted(names), page
+
+
 def list_examples() -> Tuple[List[Tuple[str, str]], str]:
     """``([(name, details)], where)`` for the example libraries, local checkout first."""
-    local = local_examples_dir()
-    if local is not None:
-        rows = []
-        for path in sorted(local.glob("*.yaml")):
-            lib = VenueLibrary.load(path)
-            details = f"{len(lib.journals)} journals, {len(lib.proceedings)} proceedings"
-            if lib.families:
-                details += f", {len(lib.families)} families"
-            rows.append((path.stem, details))
-        return rows, str(local)
-    data, error = sources.fetch_json(EXAMPLES_API_URL)
-    if error or not isinstance(data, list):
-        raise ValueError(f"could not list the example libraries ({error or 'unexpected answer'}); "
-                         f"see {EXAMPLES_PAGE_URL}")
-    rows = [(item["name"][: -len(".yaml")], "") for item in data
-            if isinstance(item, dict) and str(item.get("name", "")).endswith(".yaml")]
-    return sorted(rows), EXAMPLES_PAGE_URL
+    paths, names, origin = example_names("venues", ".yaml")
+    rows = []
+    for path in paths:
+        lib = VenueLibrary.load(path)
+        details = f"{len(lib.journals)} journals, {len(lib.proceedings)} proceedings"
+        if lib.families:
+            details += f", {len(lib.families)} families"
+        rows.append((path.stem, details))
+    return rows + [(name, "") for name in names], origin
 
 
 # ------------------------------------------------------------- subcommands
@@ -137,6 +149,70 @@ def where(start: Optional[str], log: Callable[[str], None]) -> None:
         f"to {project or PROJECT_LIBRARY_NAME} instead, pass --scope project.")
     if not len(merged):
         log("💡 No venues yet. Start from a shared library: bibcc venues examples")
+
+
+_PROVIDER_DETAILS = ("acronym_aliases", "workshop_of", "pattern", "site", "interim_since", "blocked_by",
+                     "manual_url")
+
+
+def provider_rows(library: VenueLibrary) -> List[Dict[str, object]]:
+    """The effective provider table: the built-in rows with *library*'s family records applied.
+
+    Each row has the :class:`bibcc.families.Spec` keys and ``source``:
+    ``built-in``, or the scopes of the family records that add or change
+    the row (``built-in + project``, ``user``, and so on).
+    """
+    reg = registry(library)
+    builtin = {spec.acronym.casefold() for spec in builtin_families()}
+    lookup = reg._lookup
+    overrides: Dict[str, List[str]] = {}
+    for family in library.families:
+        if family.acronym and family.routing:
+            key = lookup.get(family.acronym.casefold(), family.acronym.casefold())
+            origins = overrides.setdefault(key, [])
+            for origin in (family.origin or "library").split("+"):
+                if origin not in origins:
+                    origins.append(origin)
+    rows: List[Dict[str, object]] = []
+    for key, spec in sorted(reg.specs.items(), key=lambda item: item[1].acronym.casefold()):
+        parts = (["built-in"] if key in builtin else []) + overrides.get(key, [])
+        row: Dict[str, object] = dict(vars(spec))
+        row["source"] = " + ".join(parts) or "built-in"
+        rows.append(row)
+    return rows
+
+
+def providers(start: Optional[str], venues: Optional[str], fmt: str, log: Callable[[str], None]) -> int:
+    """Print the effective provider table; returns the exit status."""
+    library = load_library(venues, start=start)
+    rows = provider_rows(library)
+    reg = registry(library)
+    if fmt == "json":
+        log(json.dumps({
+            "families": rows,
+            "doi_prefixes": reg.doi_prefixes,
+            "blocked_doi_prefixes": reg.blocked_prefixes,
+        }, indent=2, ensure_ascii=False))
+        return 0
+    log(f"🧭 Where BibCC finds the official BibTeX of each conference ({library.describe()})")
+    log("")
+    table = [("ACRONYM", "PROVIDER", "INTERIM", "SOURCE", "DETAILS")]
+    for row in rows:
+        details = []
+        for key in _PROVIDER_DETAILS:
+            value = row.get(key)
+            if value:
+                details.append(f"{key}: {', '.join(value) if isinstance(value, list) else value}")
+        table.append((str(row["acronym"]), str(row["provider"] or "-"), str(row["interim"] or "-"),
+                      str(row["source"]), "; ".join(details)))
+    widths = [max(len(r[i]) for r in table) for i in range(4)]
+    for r in table:
+        log(("  " + "  ".join(f"{r[i]:<{widths[i]}}" for i in range(4)) + f"  {r[4]}").rstrip())
+    log("\n🔗 DOI prefixes: " + ", ".join(f"{p} {name}" for p, name in reg.doi_prefixes.items()))
+    log("⛔ Blocked DOI prefixes: " + ", ".join(f"{p} {name}" for p, name in reg.blocked_prefixes.items()))
+    log("\nTo change a row or add a conference, give its family record in your venue library the "
+        "keys to set (for example, provider: pmlr). For the keys, see 'bibcc venues providers -h'.")
+    return 0
 
 
 def init(scope: str, log: Callable[[str], None]) -> int:
@@ -222,7 +298,7 @@ def examples(log: Callable[[str], None]) -> int:
         log(f"  {name:<{width}}  {details}".rstrip())
     log("\nTo import one into your user library, run 'bibcc venues import NAME'.")
     log("To import it into the project library instead, add --scope project.")
-    log(f"What each one covers: {EXAMPLES_PAGE_URL}")
+    log(f"What each one covers: {EXAMPLES_PAGE_URL.format(kind='venues')}")
     return 0
 
 
@@ -261,6 +337,7 @@ def build_parser() -> argparse.ArgumentParser:
                  "bibcc venues where bib/refs.bib"),
                 ("Start a project library in the current directory", "bibcc venues init --scope project"),
                 ("List the shared libraries", "bibcc venues examples"),
+                ("Show where BibCC finds each conference's official BibTeX", "bibcc venues providers"),
                 ("Start your user library from the MIAA lab's library", "bibcc venues import miaa"),
                 ("Merge a colleague's file into the project library",
                  "bibcc venues import ~/lab-venues.yaml --scope project"),
@@ -349,6 +426,41 @@ def build_parser() -> argparse.ArgumentParser:
     p_import.add_argument("--dry-run", action="store_true",
                           help="Report what would change without writing anything.")
 
+    p_providers = subparsers.add_parser(
+        "providers",
+        help="Show where BibCC finds each conference's official BibTeX.",
+        description="Show the provider table that 'add', 'upgrade', and 'check official' use: for\n"
+        "each conference family, where its published BibTeX comes from (the provider),\n"
+        "where it comes from before the proceedings are out (the interim source), and\n"
+        "whether the row is built in or set by a family record of your venue libraries.\n\n"
+        "To change a row, or to add a conference, give the family record in your venue\n"
+        "library an acronym and the keys to set:\n\n"
+        f"  provider         {', '.join(PROVIDERS)}\n"
+        "  site             The proceedings site, for provider proceedings\n"
+        "  interim          cvf or openreview\n"
+        "  interim_since    The first year whose interim BibTeX isn't the official one\n"
+        "  acronym_aliases  Other spellings of the acronym\n"
+        "  pattern          A regular expression that names the family in a booktitle\n"
+        "  workshop_of      The family whose booktitle, with \"workshop\", names this one\n"
+        "  blocked_by       Who blocks downloads, for provider blocked\n"
+        "  manual_url       Where to get the BibTeX by hand",
+        epilog=epilog(
+            examples=[
+                ("Show the table for the current directory", "bibcc venues providers"),
+                ("Show it as JSON", "bibcc venues providers --format json"),
+            ],
+            env=[ENV_VENUES],
+        ),
+        formatter_class=HelpFormatter,
+    )
+    p_providers.add_argument("path", nargs="?", default=None, metavar="PATH",
+                             help="A .bib file or directory, to find the project library "
+                             "(default: the current directory).")
+    p_providers.add_argument("--venues", default="", metavar="FILE",
+                             help="Apply only the family records of this library file.")
+    p_providers.add_argument("--format", choices=("text", "json"), default="text",
+                             help="Output format: 'text' (default) or 'json'.")
+
     subparsers.add_parser(
         "examples",
         help="List the shared example libraries.",
@@ -374,6 +486,8 @@ def main() -> None:
         elif args.command == "import":
             status = import_library(args.source, args.scope or USER_SCOPE, args.venues or None,
                                     args.overwrite, args.dry_run, logger.log)
+        elif args.command == "providers":
+            status = providers(args.path, args.venues or None, args.format, logger.log)
         else:
             status = examples(logger.log)
     sys.exit(status)

@@ -211,7 +211,7 @@ def render(mv: MissingVenue, library: VenueLibrary) -> List[str]:
     return lines
 
 
-def _render_suggestions(suggestions: List[Suggestion]) -> List[str]:
+def _render_suggestions(suggestions: List[Suggestion], library: VenueLibrary) -> List[str]:
     by_venue: Dict[int, List[Suggestion]] = {}
     for s in suggestions:
         by_venue.setdefault(id(s.venue), []).append(s)
@@ -223,13 +223,14 @@ def _render_suggestions(suggestions: List[Suggestion]) -> List[str]:
     ]
     for group in by_venue.values():
         venue = group[0].venue
+        fields = library.fields_of(venue)
         lines.append(f"#  - name: {yaml_str(venue.name)}")
         if venue.kind == PROCEEDINGS:
             lines.append(f"#    year: {yaml_str(str(venue.year))}")
         lines.append("#    fields:")
         for s in group:
             lines.append(
-                f"#      {s.name}: {yaml_str(s.value)}  # library has {yaml_str(venue.fields.get(s.name, ''))}; "
+                f"#      {s.name}: {yaml_str(s.value)}  # library has {yaml_str(fields.get(s.name, ''))}; "
                 f"{s.evidence}"
             )
         lines.append("#")
@@ -356,7 +357,7 @@ def write_missing_venues(
         kept[section].append("\n".join(render(mv, library)).rstrip("\n"))
         counts["new"] += 1
 
-    suggestion_lines = _render_suggestions(suggestions) if suggestions else old_suggestions
+    suggestion_lines = _render_suggestions(suggestions, library) if suggestions else old_suggestions
     if not (kept["journals"] or kept["proceedings"] or suggestion_lines) and not path.exists():
         return counts
     out = [HEADER.format(rerun=rerun)]
