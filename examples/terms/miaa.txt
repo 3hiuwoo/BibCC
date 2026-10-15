@@ -1,6 +1,7 @@
 # MIAA lab protected terms for 'bibcc check quote'.
 #
-# To use them, run 'bibcc terms import miaa' (or add --scope project).
+# To use them, run 'bibcc terms import miaa' (or add --scope project), or
+# 'bibcc config profile miaa' to import the lab's config and venues too.
 # One term per line, with the case that titles use. Blank lines and lines
 # that start with # are ignored. The terms add to BibCC's built-in
 # vocabulary of names. Protect a term only if a BibTeX style would

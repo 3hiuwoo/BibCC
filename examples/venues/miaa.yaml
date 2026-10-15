@@ -188,6 +188,7 @@ families:
 - name: IEEE/CVF International Conference on Computer Vision
   acronym: ICCV
   fields:
+    issn: 2380-7504
     publisher: IEEE
   entry_fields:
   - doi
@@ -239,11 +240,23 @@ proceedings:
   fields:
     venue: Tucson, AZ, USA
     month: March
+- name: Computer Vision -- ECCV 2026
+  year: '2026'
+  fields:
+    venue: Malmö, Sweden
+    publisher: Springer Nature Switzerland
+    month: September
+    issn: 1611-3349
+    editor: Favaro, Paolo and Kukelova, Zuzana and Maki, Atsuto and Rohrbach, Anna and Schindler, Konrad and Tombari, Federico
+    series: Lecture Notes in Computer Science
+    address: Cham
 - name: International Conference on Learning Representations
   year: '2026'
   interim:
     openreview: The Fourteenth International Conference on Learning Representations
-  fields: {}
+  fields:
+    month: April
+    venue: Rio de Janeiro, Brazil
 - name: Proceedings of the 43rd International Conference on Machine Learning
   year: '2026'
   interim:
@@ -252,10 +265,12 @@ proceedings:
     editor: Zhang, Tong and Dudik, Miroslav and Jaggi, Martin and Agarwal, Alekh and Li, Sharon and Schuurmans, Dale and Zhu, Jerry and Berkenkamp, Felix and Dong, Hanze and Bietti, Alberto
     month: July
     day: 06--11
+    venue: Seoul, South Korea
 - name: Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)
   year: '2026'
   fields:
     month: June
+    venue: Denver, CO, USA
 - name: 2025 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)
   year: '2025'
   interim:
@@ -273,6 +288,7 @@ proceedings:
   fields:
     venue: Honolulu, HI, USA
     month: October
+    isbn: 979-8-3315-8775-8
 - name: 2025 IEEE/CVF Winter Conference on Applications of Computer Vision (WACV)
   year: '2025'
   interim:
@@ -282,6 +298,15 @@ proceedings:
     issn: 2642-9381
     isbn: 979-8-3315-1083-1
     month: none
+- name: Advances in Neural Information Processing Systems
+  year: '2025'
+  interim:
+    openreview: The Thirty-ninth Annual Conference on Neural Information Processing Systems
+  fields:
+    venue: San Diego, CA, USA; Mexico City, Mexico
+    publisher: Curran Associates, Inc.
+    month: December
+    editor: D. Belgrave and C. Zhang and H. Lin and R. Pascanu and P. Koniusz and M. Ghassemi and N. Chen
 - name: Computer Vision -- ECCV 2024
   year: '2025'
   fields:
@@ -365,9 +390,6 @@ proceedings:
     isbn: 978-1-956792-06-5
     publisher: International Joint Conferences on Artificial Intelligence Organization
     month: August
-- name: The Thirty-ninth Annual Conference on Neural Information Processing Systems
-  year: '2025'
-  fields: {}
 - name: 2024 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)
   year: '2024'
   interim:
@@ -777,6 +799,12 @@ proceedings:
     venue: Stockholmsmässan, Stockholm Sweden
     month: July
     editor: Dy, Jennifer and Krause, Andreas
+- name: 2017 IEEE International Conference on Computer Vision (ICCV)
+  year: '2017'
+  fields:
+    venue: Venice, Italy
+    publisher: IEEE
+    month: October
 - name: Advances in Neural Information Processing Systems
   year: '2017'
   fields:

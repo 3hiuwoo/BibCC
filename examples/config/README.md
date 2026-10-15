@@ -21,6 +21,8 @@ bibcc config import miaa --scope project     # merge it into the project's .bibc
 bibcc config where bib/                      # check the settings that apply
 ```
 
+To import a lab's config, venue library, and terms file of the same name in one step, run `bibcc config profile NAME`, for example `bibcc config profile miaa --scope project`. For details, see [Set up a project from a lab profile](../../README.md#config-profile).
+
 When BibCC runs from a checkout, `import` reads the config from the checkout. Otherwise, it reads the config from GitHub.
 
 `import` adds the settings that your file lacks. Where a setting differs, `import` keeps your value and lists the difference, unless you pass `--overwrite`. You can import a config file or a URL the same way, for example `bibcc config import ~/lab-config.yaml`.

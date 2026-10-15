@@ -8,7 +8,7 @@ The following table lists the libraries in this directory:
 
 | Library | Maintained by | Covers |
 | --- | --- | --- |
-| [`miaa`](miaa.yaml) | MIAA lab ([@3hiuwoo](https://github.com/3hiuwoo)) | Machine learning, computer vision, and multimedia: 30 journals (including IEEE TPAMI, TIP, TNNLS, TCSVT, IJCV, Pattern Recognition, Neurocomputing, and TMLR) and 75 proceedings from 2016 to 2026 (including CVPR, ICCV, ECCV, WACV and their workshops, NeurIPS, ICML, ICLR, AAAI, IJCAI, ACM MM, ACL, NAACL, KDD, WSDM, MICCAI, and BMVC), with the CVF and OpenReview interim booktitles linked, 11 family records (CVPR, ICCV, ECCV, WACV, CVPRW, NeurIPS, ICML, ICLR, AAAI, ACM MM, and CoLLAs) with the fields that every edition shares, and venue schemas learned from official BibTeX for CVPR, ICCV, ECCV, NeurIPS, ICML, ICLR, TPAMI, and IJCV |
+| [`miaa`](miaa.yaml) | MIAA lab ([@3hiuwoo](https://github.com/3hiuwoo)) | Machine learning, computer vision, and multimedia: 30 journals (including IEEE TPAMI, TIP, TNNLS, TCSVT, IJCV, Pattern Recognition, Neurocomputing, and TMLR) and 77 proceedings from 2016 to 2026 (including CVPR, ICCV, ECCV, WACV and their workshops, NeurIPS, ICML, ICLR, AAAI, IJCAI, ACM MM, ACL, NAACL, KDD, WSDM, MICCAI, and BMVC), with the CVF and OpenReview interim booktitles linked, 11 family records (CVPR, ICCV, ECCV, WACV, CVPRW, NeurIPS, ICML, ICLR, AAAI, ACM MM, and CoLLAs) with the fields that every edition shares, and venue schemas learned from official BibTeX for CVPR, ICCV, ECCV, NeurIPS, ICML, ICLR, TPAMI, and IJCV |
 
 ## Using a library
 

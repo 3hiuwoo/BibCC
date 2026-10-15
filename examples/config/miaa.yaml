@@ -1,6 +1,8 @@
 # MIAA lab config: the survey bibliography's layout.
 #
-# Import it into a survey with: bibcc config import miaa --scope project
+# To give a survey this config together with the lab's venue library and
+# terms, run: bibcc config profile miaa --scope project
+# To import only this config, run: bibcc config import miaa --scope project
 format:
   sort_fields: true
   # Publisher extras keep their place: ACM's numpages after url, PMLR's pdf
