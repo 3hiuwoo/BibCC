@@ -62,10 +62,13 @@ jobs:
       - run: uv build
       - name: The wheel ships no venue library
         run: |
-          if unzip -l dist/*.whl | grep -E '\.ya?ml$'; then
+          # bibcc/data/families.yaml is the provider table, which holds no venue fields.
+          if unzip -l dist/*.whl | grep -E '\.ya?ml$' | grep -v 'bibcc/data/families\.yaml$'; then
             echo "::error::the wheel contains a YAML file; venue libraries are user data"
             exit 1
           fi
+          unzip -l dist/*.whl | grep -q 'bibcc/data/families\.yaml$' \
+            || { echo "::error::the wheel lacks bibcc/data/families.yaml"; exit 1; }
       - name: The installed tool runs
         run: |
           wheel=$(ls dist/*.whl)
