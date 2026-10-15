@@ -41,6 +41,7 @@ from bibcc.venues import (
     VenueLibrary,
     find_project_library,
     load_library,
+    merge_families,
     merge_records,
     open_library,
     user_library_path,
@@ -94,7 +95,10 @@ def list_examples() -> Tuple[List[Tuple[str, str]], str]:
         rows = []
         for path in sorted(local.glob("*.yaml")):
             lib = VenueLibrary.load(path)
-            rows.append((path.stem, f"{len(lib.journals)} journals, {len(lib.proceedings)} proceedings"))
+            details = f"{len(lib.journals)} journals, {len(lib.proceedings)} proceedings"
+            if lib.families:
+                details += f", {len(lib.families)} families"
+            rows.append((path.stem, details))
         return rows, str(local)
     data, error = sources.fetch_json(EXAMPLES_API_URL)
     if error or not isinstance(data, list):
@@ -123,7 +127,8 @@ def where(start: Optional[str], log: Callable[[str], None]) -> None:
         project_lib = VenueLibrary.load(project, scope=PROJECT_SCOPE)
         log(f"  project  {project_lib.sources[0].describe(with_scope=False)}")
     merged = load_library(start=target)
-    log(f"  merged   {len(merged.journals)} journals, {len(merged.proceedings)} proceedings")
+    log(f"  merged   {len(merged.journals)} journals, {len(merged.proceedings)} proceedings, "
+        f"{len(merged.families)} families")
     if merged.overrides:
         log(f"\n🔀 The project library overrides {len(merged.overrides)} user field(s):")
         for c in merged.overrides:
@@ -167,15 +172,19 @@ def import_library(
         log(f"❌ {e}")
         return 1
     if not len(incoming):
-        log(f"❌ {origin} has no journals or proceedings records.")
+        log(f"❌ {origin} has no journals, proceedings, or families records.")
         return 1
     target = open_library(scope, venues=venues, create=True)
     label = "library" if venues else f"{target.scope} library"
-    log(f"📥 Importing {len(incoming.journals)} journals and {len(incoming.proceedings)} proceedings")
+    log(f"📥 Importing {len(incoming.journals)} journals, {len(incoming.proceedings)} proceedings, "
+        f"and {len(incoming.families)} families")
     log(f"   from {origin}")
     log(f"   into the {label} {target.path}")
     records = incoming.journals + incoming.proceedings
     counts, conflicts = merge_records(target, records, overwrite=overwrite)
+    family_counts, family_conflicts = merge_families(target, incoming.families, overwrite=overwrite)
+    counts = {k: counts[k] + family_counts[k] for k in counts}
+    conflicts += family_conflicts
     log(f"\n➕ {counts['added']} added, 📝 {counts['updated']} updated, ⏭️  {counts['unchanged']} unchanged")
     if conflicts:
         verb = "replaced" if overwrite else "kept yours"

@@ -23,6 +23,8 @@ from __future__ import annotations
 import argparse
 from typing import Optional, Sequence, Tuple
 
+from bibcc.cache import CACHE_DISPLAY, CACHE_ENV_VAR
+from bibcc.cache import OFF as CACHE_OFF
 from bibcc.venues import LIBRARY_ENV_VAR, PROJECT_LIBRARY_NAME, USER_LIBRARY_DISPLAY
 
 REPO = "3hiuwoo/BibCC"
@@ -32,6 +34,11 @@ ENV_VENUES: Tuple[str, str] = (
     LIBRARY_ENV_VAR,
     "User venue library file (default: $XDG_CONFIG_HOME/bibcc/venues.yaml, or "
     f"{USER_LIBRARY_DISPLAY} if XDG_CONFIG_HOME isn't set).",
+)
+ENV_CACHE: Tuple[str, str] = (
+    CACHE_ENV_VAR,
+    "Directory that keeps downloaded official BibTeX for 30 days (default: $XDG_CACHE_HOME/bibcc, "
+    f"or {CACHE_DISPLAY} if XDG_CACHE_HOME isn't set). To turn the cache off, set it to '{CACHE_OFF}'.",
 )
 ENV_S2: Tuple[str, str] = (
     "S2_API_KEY",

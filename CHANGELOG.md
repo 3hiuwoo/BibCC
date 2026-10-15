@@ -4,6 +4,24 @@ This file lists notable changes to BibCC. The format follows [Keep a Changelog](
 
 ## [0.7.0] - Unreleased
 
+### Added
+
+- **`bibcc surface`**: Prints a JSON document describing the command surface: every command and subcommand with its options, the report files BibCC writes, and the status and `next` words its reports use. Tools and agent skills that track BibCC read it to detect when a release changes a command or an option, instead of scraping the help pages. `--format text` prints a short human-readable listing. It also lists the `issue_type` words of the check reports.
+- **Family records in the venue library**: A new `families` list describes a conference across its editions. Its `fields` apply to every edition (an edition's own value wins), so a value such as ICML's `publisher` lives in one place; `complete`, `add`, and `upgrade` use them, the fill-in YAML shows them commented out as `# from family NAME`, and `check venues` lists the families, doesn't report their fields as missing, and suggests moving a value that every edition shares into a family record. Every command that relates editions (the previous-edition pre-fill, `check venues`, and `check editions`) now groups them by family record, or else by their name without the year and ordinal. `venues import` merges family records too.
+- **Venue schemas**: A journal, family, or proceedings record can carry `entry_fields`, the per-paper fields (such as `pages`, `doi`, and `url`) that the official BibTeX of every paper of the venue has, and `learned_from`, which says where they come from. `check official --learn` learns them from the BibTeX it downloads, and `official_venues.txt` reports a venue without a schema (`schema_lacks`) or with a different one (`schema_differs`). `--scope project` writes them to the project library.
+- **`check missing` skips fields a venue never exports**: When the venue library has a schema for an entry's venue, `check missing` doesn't report a per-paper field that the schema leaves out, such as the `doi` of a NeurIPS paper, and lists the entry instead.
+- **Provider facts in a table and in family records**: Where each conference's official BibTeX comes from (which conferences PMLR publishes, which ones use CVF Open Access before IEEE Xplore, the year ICLR's proceedings start, the DOI prefixes, and the blocked publishers) now lives in a data table that ships with BibCC, `src/bibcc/data/families.yaml`, instead of in code. A family record with the same acronym overrides its keys (`provider`, `site`, `interim`, `interim_since`, `pattern`, `workshop_of`, `acronym_aliases`, `blocked_by`, and `manual_url`), and one with a new acronym adds a conference, so a new PMLR conference needs no code change.
+- **A disk cache of official BibTeX**: `add`, `upgrade`, and `check official` keep each paper's downloaded BibTeX for 30 days in `$BIBCC_CACHE`, or else `$XDG_CACHE_HOME/bibcc` (`~/.cache/bibcc`), so a later run on the same paper doesn't download it again. `BIBCC_CACHE=off` turns the cache off, and `check official --refresh` downloads everything again.
+
+### Changed
+
+- **`check editions` checks entries against their venue's schema**: The check now reports the fields of the venue's schema that an entry lacks, with the issue type `missing`, instead of comparing the entry with the other entries of its venue. A journal article not yet in an issue isn't expected to have a `volume`, `number`, or `pages`. For a venue without a schema, the check still compares the entries of the venue, in the input and the `--against` files, but only proposes a schema from them (`schema_lacks` in the new `edition_schemas.txt` report); `--learn` writes the proposals into the venue library and checks the entries against them. With `--strict`, every `missing` finding counts, and proposals don't.
+
+### Removed
+
+- **The `same_year` and `other_years` findings of `check editions`**: A schema in the venue library replaces them; to get one, run `check official --learn`, or `check editions --learn` for the venues whose BibTeX BibCC can't download.
+- **The built-in `series` requirement of `check venues`**: The check no longer requires a `series` in ECCV and LNCS proceedings records by a rule in code. To give every ECCV edition its series, put `series` in an ECCV family record; to require it in every proceedings record, pass it in `--proceedings-fields`.
+
 ## [0.6.0] - 2026-10-14
 
 ### Added

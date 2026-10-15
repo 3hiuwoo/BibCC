@@ -30,12 +30,13 @@ proceedings:
 """
 
 
-def test_template_fields_reports_and_counts_override_fields(tmp_path: Path):
+def test_template_fields_reports_missing_fields_and_counts_family_fields(tmp_path: Path):
     path = tmp_path / "venues.yaml"
     path.write_text(VENUES, encoding="utf-8")
     logs = []
 
-    check_template_fields(path, ["publisher", "issn"], ["venue", "publisher", "month"], log=logs.append)
+    check_template_fields(path, ["publisher", "issn"], ["venue", "publisher", "month", "series"],
+                          log=logs.append)
     text = "\n".join(logs)
 
     assert "Journal Without ISSN" in text and "Journal Complete" not in text
@@ -46,7 +47,23 @@ def test_template_fields_reports_and_counts_override_fields(tmp_path: Path):
     assert "issn: 1 missing" in summary
     assert "venue: 1 missing" in proceedings
     assert "month: 1 missing" in proceedings
-    assert "series: 1 missing" in proceedings
+    assert "series: 2 missing" in proceedings
+
+    # A family record supplies its fields to every edition, so they aren't missing there.
+    path.write_text(VENUES + """\
+families:
+- name: European Conference on Computer Vision
+  acronym: ECCV
+  fields:
+    series: Lecture Notes in Computer Science
+""", encoding="utf-8")
+    logs = []
+    check_template_fields(path, [], ["venue", "publisher", "month", "series"], log=logs.append)
+    text = "\n".join(logs)
+    assert "1/2 proceedings have missing fields" in text
+    assert "series: 1 missing" in text.split("Summary by field")[1]
+    assert "European Conference on Computer Vision (ECCV): no editions" not in text
+    assert "no schema yet" in text
 
 
 def test_template_fields_cross_edition_consistency(tmp_path: Path):
@@ -133,6 +150,34 @@ def test_missing_fields_filters_types_and_blank_values(tmp_path: Path):
         ("NoMonth", "article", "2023", ["month"]),
     ]
     assert "month: 2" in logs[-1]
+
+
+def test_missing_fields_skips_fields_outside_the_venue_schema(tmp_path: Path):
+    from bibcc.venues import VenueLibrary
+
+    library = VenueLibrary.loads("""\
+families:
+- name: Advances in Neural Information Processing Systems
+  acronym: NeurIPS
+  entry_fields: [pages, url]
+""")
+    bib = tmp_path / "refs.bib"
+    bib.write_text(
+        "@inproceedings{N, title={A}, booktitle={Advances in Neural Information Processing Systems}, year={2024}}\n"
+        "@inproceedings{O, title={B}, booktitle={Other Conference}, year={2024}}\n",
+        encoding="utf-8",
+    )
+    logs = []
+
+    rows = check_missing_fields(str(bib), ["doi", "pages", "publisher"], ["inproceedings"], log=logs.append,
+                                library=library)
+
+    # NeurIPS exports no DOI; the library supplies the publisher, so it's still expected.
+    assert rows == [
+        ("N", "inproceedings", "2024", ["pages", "publisher"]),
+        ("O", "inproceedings", "2024", ["doi", "pages", "publisher"]),
+    ]
+    assert any("N (doi)" in line for line in logs)
 
 
 def test_missing_fields_skips_when_no_fields(tmp_path: Path):

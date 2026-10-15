@@ -140,7 +140,8 @@ def interim_leftovers(entry: Dict[str, str]) -> List[Tuple[str, str]]:
     the official export (IEEE Xplore's, for example) doesn't have them.
     """
     # Imported here: bibcc.official and bibcc.sources import this package.
-    from bibcc.official import ICLR_PROCEEDINGS_SINCE, INTERIM_CVF, INTERIM_OPENREVIEW, interim_source_of
+    from bibcc.families import registry
+    from bibcc.official import INTERIM_CVF, INTERIM_OPENREVIEW, interim_source_of
     from bibcc.sources import normalize_arxiv_id
 
     entry_type = entry.get("ENTRYTYPE", "").lower()
@@ -150,7 +151,8 @@ def interim_leftovers(entry: Dict[str, str]) -> List[Tuple[str, str]]:
     # Without the year, every OpenReview-style name counts, ICLR before 2024 included.
     named = interim_source_of(venue)
     year = entry.get("year", "").strip()
-    old_iclr = "learning representations" in venue.lower() and year.isdigit() and int(year) < ICLR_PROCEEDINGS_SINCE
+    # OpenReview is the official source of some years (ICLR before 2024).
+    old_iclr = bool(year) and registry().interim_is_official(venue, year)
     found: List[Tuple[str, str]] = []
     url = entry.get("url", "")
     if "openaccess.thecvf.com" in url.lower():

@@ -14,6 +14,7 @@ Subcommands:
     scholar    Citation counts and title verification via external APIs
     compose    Merge per-directory .bib files into a single bibliography
     venues     Manage the user and project venue libraries
+    surface    Print the machine-readable command surface as JSON
 
 Usage:
     bibcc check title input.bib
@@ -47,6 +48,7 @@ TOOLS = {
     "scholar": "Get Google Scholar citation counts and verify titles",
     "compose": "Merge the .bib files of a directory tree into one bibliography",
     "venues": "Manage the user and project venue libraries: where, init, import, and examples",
+    "surface": "Print the machine-readable command surface as JSON",
 }
 
 # Tools exposing build_parser() + run(args) vs. a self-parsing main().
@@ -62,6 +64,7 @@ _MAIN_TOOLS = {
     "scholar": "bibcc.utils.scholar",
     "compose": "bibcc.utils.composer",
     "venues": "bibcc.utils.venuelib",
+    "surface": "bibcc.surface",
 }
 
 

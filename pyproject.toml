@@ -55,6 +55,7 @@ path = "src/bibcc/__init__.py"
 packages = ["src/bibcc"]
 
 # Venue libraries are user data, so none is packaged; examples/ ships in the sdist only.
+# src/bibcc/data/families.yaml (the provider table) is package data, not a venue library.
 [tool.hatch.build.targets.sdist]
 include = [
     "/src",

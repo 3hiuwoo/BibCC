@@ -23,6 +23,11 @@ ICML, CoLLAs, other PMLR venues        PMLR, else OpenReview (interim)
 arXiv preprint                         ``arxiv.org/bibtex/<id>``
 =====================================  ===========================================
 
+The family facts behind this routing (which families PMLR publishes, the
+ICLR proceedings year, the DOI prefixes, and the blocked publishers) live in
+the provider table of :mod:`bibcc.families`, which a venue library's family
+records can extend; this module holds only the code for each provider.
+
 *Interim* BibTeX comes from a site the paper appears on before (or instead
 of) the published proceedings; :attr:`Official.interim` names the source
 (``cvf`` or ``openreview``) so ``bibcc upgrade`` can replace the entry once
@@ -30,7 +35,8 @@ the proceedings are out.  OpenReview is the official source for ICLR up to
 2023, which has no other proceedings.
 
 Listing pages (CVF, PMLR, NeurIPS, ICLR) are large, so each is fetched once
-per run; :func:`clear_cache` empties the cache.
+per run; :func:`clear_cache` empties the cache.  A paper's own BibTeX
+export is also kept on disk for later runs (see :mod:`bibcc.cache`).
 
 Usage:
     from bibcc.official import find_official, official_fields
@@ -47,13 +53,26 @@ import json
 import re
 import urllib.parse
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
 import bibtexparser
 
+from bibcc import cache as disk_cache
 from bibcc import sources
 from bibcc.bibedit import month_macro, page_range
-from bibcc.checkers.citation_keys import abbreviate_venue
+from bibcc.families import (
+    ACL,
+    BLOCKED,
+    IJCAI,
+    OPENREVIEW,
+    PMLR,
+    PROCEEDINGS_SITE,
+    SPRINGER,
+    XPLORE,
+    Registry,
+    Spec,
+    registry,
+)
 from bibcc.sources import (
     Record,
     clean_text,
@@ -69,23 +88,9 @@ from bibcc.venues import VenueLibrary, is_conference_journal
 INTERIM_CVF = "cvf"
 INTERIM_OPENREVIEW = "openreview"
 
-# Publishers whose sites refuse automated BibTeX downloads.
-BLOCKED_PREFIXES = {
-    "10.1609": "AAAI",
-    "10.1145": "the ACM Digital Library",
-    "10.1016": "Elsevier",
-}
-CVF_FAMILIES = {"CVPR", "ICCV", "WACV", "CVPRW", "ICCVW", "WACVW"}
-OPENREVIEW_FAMILIES = {"NeurIPS", "ICLR", "ICML"}
-PMLR_FAMILIES = {"ICML", "CoLLAs", "AISTATS", "CoRL", "UAI", "COLT", "ACML", "CLeaR", "L4DC", "MIDL"}
-ACL_FAMILIES = {"ACL", "EMNLP", "NAACL", "EACL", "COLING", "AACL", "Findings"}
-_KNOWN_FAMILIES = CVF_FAMILIES | OPENREVIEW_FAMILIES | PMLR_FAMILIES | ACL_FAMILIES | {"ECCV", "AAAI", "IJCAI"}
-# First ICLR year published on proceedings.iclr.cc; OpenReview is official before it.
-ICLR_PROCEEDINGS_SINCE = 2024
-
 _CVF = "https://openaccess.thecvf.com"
+_CVF_LISTED = ("CVPR", "ICCV", "WACV")  # families with a CVF Open Access listing page
 _PMLR = "https://proceedings.mlr.press"
-_PROCEEDINGS_SITES = {"NeurIPS": "https://proceedings.neurips.cc", "ICLR": "https://proceedings.iclr.cc"}
 _LISTING_TIMEOUT = 120
 
 _cache: Dict[str, Tuple[Optional[str], Optional[str]]] = {}
@@ -128,6 +133,9 @@ NEXT_WAIT = "wait"  # no official BibTeX exists yet: `bibcc upgrade` picks it up
 NEXT_CHECK = "check"  # the paper was not found: check the identifier
 NEXT_UPGRADE = "upgrade"  # a better official BibTeX can be downloaded now: run `bibcc upgrade`
 
+NEXT_VALUES = (NEXT_RETRY, NEXT_BY_HAND, NEXT_WAIT, NEXT_CHECK, NEXT_UPGRADE)
+"""Every value of the ``next`` column, in report order."""
+
 
 def next_step(lookup: OfficialLookup) -> str:
     """The ``next`` value for a lookup that found no official BibTeX (``""`` if it found one)."""
@@ -152,14 +160,31 @@ def clear_cache() -> None:
     _cache.clear()
 
 
-def _get(url: str, headers: Optional[Dict[str, str]] = None, timeout: int = 30, cache: bool = False):
+def _get(url: str, headers: Optional[Dict[str, str]] = None, timeout: int = 30, cache: bool = False,
+         keep: Optional[Callable[[str], bool]] = None):
+    """``(content, error)`` of *url*.
+
+    *cache* keeps the answer for the rest of the run (listing pages).
+    *keep* says whether an answer is a paper's BibTeX export worth keeping
+    on disk for later runs; such answers are read from the disk cache first.
+    """
     if cache and url in _cache:
         return _cache[url]
+    if keep is not None:
+        stored = disk_cache.get(url)
+        if stored is not None:
+            return stored, None
     # Looked up on the module so tests can replace sources.fetch_url.
     result = sources.fetch_url(url, headers=headers, timeout=timeout, retries=1)
     if cache:
         _cache[url] = result
+    if keep is not None and not result[1] and result[0] and keep(result[0]):
+        disk_cache.put(url, result[0])
     return result
+
+
+def _is_bibtex(text: str) -> bool:
+    return text.strip().startswith("@")
 
 
 def _bibtex_or_error(text: Optional[str], provider: str) -> Tuple[str, Optional[str]]:
@@ -184,48 +209,43 @@ _OPENREVIEW_NAME = re.compile(
 )
 
 
-def interim_source_of(booktitle: str, url: str = "", year: str = "") -> str:
+def interim_source_of(booktitle: str, url: str = "", year: str = "",
+                      library: Optional[VenueLibrary] = None) -> str:
     """``"cvf"`` or ``"openreview"`` if *booktitle* (or *url*) is that source's, else ``""``.
 
     CVF Open Access names start with "Proceedings of the" and end in the
     acronym; OpenReview names start with an ordinal ("The Thirteenth ...").
-    ICLR before 2024 is not interim: OpenReview is its only proceedings.
+    A family whose ``interim_since`` year is later than *year* (ICLR before
+    2024) is not interim: OpenReview is its only proceedings.
     """
     text = " ".join(booktitle.replace("{", "").replace("}", "").split())
     if "openaccess.thecvf.com" in url or _CVF_NAME.match(text):
         return INTERIM_CVF
     if "openreview.net" in url or _OPENREVIEW_NAME.match(text):
-        if "learning representations" in text.lower() and year.isdigit() and int(year) < ICLR_PROCEEDINGS_SINCE:
+        if year and registry(library).interim_is_official(text, year, library):
             return ""
         return INTERIM_OPENREVIEW
     return ""
 
 
-def family_of(venue_name: str, year: str = "") -> str:
+def family_of(venue_name: str, year: str = "", library: Optional[VenueLibrary] = None) -> str:
     """Conference family of a booktitle (see :func:`venue_family`)."""
-    return venue_family(Record("inproceedings", {"booktitle": venue_name, "year": year}, source=""))[0]
+    return venue_family(Record("inproceedings", {"booktitle": venue_name, "year": year}, source=""), library)[0]
 
 
-def venue_family(record: Record) -> Tuple[str, str]:
+def venue_family(record: Record, library: Optional[VenueLibrary] = None) -> Tuple[str, str]:
     """``(family, conference year)`` of a record, e.g. ``("CVPRW", "2023")``.
 
     Taken from the DBLP key or OpenReview venue when the record has one,
-    else from its booktitle or journal.
+    else from its booktitle or journal (see :meth:`bibcc.families.Registry.acronym_of`).
     """
+    reg = registry(library)
     abbrev = record.extra.get("venue_abbrev", "")
     year = record.extra.get("venue_year", "") or record.fields.get("year", "")
     venue = record.fields.get("booktitle") or record.fields.get("journal") or ""
     if not abbrev and venue:
-        abbrev = abbreviate_venue(venue)
-        if re.search(r"\bworkshops?\b", venue, re.IGNORECASE) and abbrev in ("CVPR", "ICCV", "WACV"):
-            abbrev += "W"
-        if re.search(r"\blifelong learning agents\b", venue, re.IGNORECASE):
-            abbrev = "CoLLAs"
-        if re.match(r"^findings of\b", venue, re.IGNORECASE):
-            abbrev = "Findings"
-    canonical = {f.lower(): f for f in _KNOWN_FAMILIES}
-    canonical["nips"] = "NeurIPS"
-    return canonical.get(abbrev.lower(), abbrev), year
+        abbrev = reg.acronym_of(venue, library)
+    return reg.canonical(abbrev), year
 
 
 # ------------------------------------------------------------- providers
@@ -240,7 +260,8 @@ def _xplore(arnumber: str, download: bool) -> OfficialLookup:
         f"?recordIds={arnumber}&download-format=download-bibtex&lite=true"
     )
     # Without the Referer the export answers with an empty body.
-    content, error = _get(url, headers={"Referer": page, "Accept": "application/json"})
+    content, error = _get(url, headers={"Referer": page, "Accept": "application/json"},
+                          keep=lambda text: '"data"' in text and "@" in text)
     if error:
         return OfficialLookup(error=f"IEEE Xplore: {error}", manual_url=page)
     try:
@@ -254,6 +275,9 @@ def _xplore(arnumber: str, download: bool) -> OfficialLookup:
 
 
 def _xplore_for_doi(doi: str, record: Optional[Record], download: bool) -> OfficialLookup:
+    remembered = disk_cache.get(f"xplore-document:{doi.lower()}")
+    if remembered:
+        return _xplore(remembered, download)
     landing = record.extra.get("landing_url", "") if record else ""
     if "ieeexplore.ieee.org" not in landing:
         crossref, error = crossref_record(doi)
@@ -263,6 +287,7 @@ def _xplore_for_doi(doi: str, record: Optional[Record], download: bool) -> Offic
     m = re.search(r"ieeexplore\.ieee\.org/document/(\d+)", landing)
     if not m:
         return OfficialLookup(reason="IEEE Xplore page not found", manual_url=f"https://doi.org/{doi}")
+    disk_cache.put(f"xplore-document:{doi.lower()}", m.group(1))
     return _xplore(m.group(1), download)
 
 
@@ -274,7 +299,7 @@ def _springer(doi: str, download: bool) -> OfficialLookup:
         "https://citation-needed.springer.com/v2/references/"
         f"{urllib.parse.quote(doi, safe='/')}?format=bibtex&flavour=citation"
     )
-    content, error = _get(url)
+    content, error = _get(url, keep=_is_bibtex)
     if error and error.startswith("HTTP 404"):
         return OfficialLookup(reason="Springer has no BibTeX export for this DOI", manual_url=page)
     if error:
@@ -288,7 +313,7 @@ def _springer(doi: str, download: bool) -> OfficialLookup:
 def _simple(provider: str, page: str, bib_url: str, download: bool, interim: str = "") -> OfficialLookup:
     if not download:
         return OfficialLookup(official=Official(provider, page, interim=interim))
-    content, error = _get(bib_url)
+    content, error = _get(bib_url, keep=_is_bibtex)
     if error and error.startswith("HTTP 404"):
         return OfficialLookup(reason=f"{provider} has no BibTeX for this paper", manual_url=page)
     if error:
@@ -338,7 +363,7 @@ def _cvf_entries(page: str) -> list[Tuple[str, str, str]]:
 
 
 def _cvf(title: str, family: str, year: str) -> OfficialLookup:
-    if family not in ("CVPR", "ICCV", "WACV") or not year:
+    if family not in _CVF_LISTED or not year:
         return OfficialLookup(reason=f"CVF Open Access {family} pages are not searched")
     listing = f"{_CVF}/{family}{year}?day=all"
     content, error = _get(listing, timeout=_LISTING_TIMEOUT, cache=True)
@@ -385,7 +410,7 @@ def _pmlr(title: str, family: str, year: str, download: bool) -> OfficialLookup:
 def _pmlr_paper(url: str, download: bool) -> OfficialLookup:
     if not download:
         return OfficialLookup(official=Official("PMLR", url))
-    content, error = _get(url)
+    content, error = _get(url, keep=lambda text: 'id="bibtex"' in text)
     if error:
         return OfficialLookup(error=f"PMLR: {error}", manual_url=url)
     m = re.search(r'<code class="citecode" id="bibtex">(.*?)</code>', content or "", re.S)
@@ -395,8 +420,8 @@ def _pmlr_paper(url: str, download: bool) -> OfficialLookup:
     return OfficialLookup(official=Official("PMLR", url, text))
 
 
-def _proceedings_site(title: str, family: str, year: str, download: bool) -> OfficialLookup:
-    site = _PROCEEDINGS_SITES[family]
+def _proceedings_site(title: str, family: str, year: str, download: bool, site: str) -> OfficialLookup:
+    site = site.rstrip("/")
     provider = f"{family} Proceedings"
     listing = f"{site}/paper_files/paper/{year}"
     content, error = _get(listing, timeout=_LISTING_TIMEOUT, cache=True)
@@ -413,7 +438,7 @@ def _proceedings_site(title: str, family: str, year: str, download: bool) -> Off
 def _proceedings_paper(provider: str, page: str, download: bool) -> OfficialLookup:
     if not download:
         return OfficialLookup(official=Official(provider, page))
-    content, error = _get(page)
+    content, error = _get(page, keep=lambda text: "-Bibtex" in text)
     if error:
         return OfficialLookup(error=f"{provider}: {error}", manual_url=page)
     m = re.search(r'href="([^"]+-Bibtex[^"]*\.bib)"', content or "")
@@ -424,7 +449,7 @@ def _proceedings_paper(provider: str, page: str, download: bool) -> OfficialLook
     return _simple(provider, page, bib_url, download=True)
 
 
-def _openreview(record: Record, title: str, family: str, year: str) -> OfficialLookup:
+def _openreview(record: Record, title: str, year: str, spec: Optional[Spec]) -> OfficialLookup:
     bibtex = record.extra.get("bibtex", "")
     url = record.extra.get("openreview_url", "")
     if not bibtex:
@@ -439,32 +464,35 @@ def _openreview(record: Record, title: str, family: str, year: str) -> OfficialL
                 )
     if not bibtex:
         return OfficialLookup(reason="no accepted paper with this title on OpenReview", manual_url=url)
-    official_here = family == "ICLR" and year.isdigit() and int(year) < ICLR_PROCEEDINGS_SINCE
-    interim = "" if official_here or family not in OPENREVIEW_FAMILIES else INTERIM_OPENREVIEW
-    return OfficialLookup(official=Official("OpenReview", url, bibtex.strip(), interim=interim))
+    is_interim = spec is not None and spec.interim == INTERIM_OPENREVIEW and not spec.interim_is_official(year)
+    return OfficialLookup(official=Official("OpenReview", url, bibtex.strip(),
+                                            interim=INTERIM_OPENREVIEW if is_interim else ""))
 
 
 # ---------------------------------------------------------------- lookup
 
 
-def _by_doi(doi: str, record: Optional[Record], download: bool) -> Optional[OfficialLookup]:
+def _by_doi(doi: str, record: Optional[Record], download: bool, reg: Registry) -> Optional[OfficialLookup]:
     """Official BibTeX by DOI publisher, or None when the publisher is not routed."""
     prefix = doi.split("/", 1)[0]
-    if prefix in BLOCKED_PREFIXES:
+    if prefix in reg.blocked_prefixes:
         return OfficialLookup(
-            reason=f"{BLOCKED_PREFIXES[prefix]} blocks automated BibTeX downloads",
+            reason=f"{reg.blocked_prefixes[prefix]} blocks automated BibTeX downloads",
             manual_url=f"https://doi.org/{doi}",
         )
-    if prefix == "10.1109":
+    provider = reg.doi_prefixes.get(prefix, "")
+    if provider == XPLORE:
         return _xplore_for_doi(doi, record, download)
-    if prefix in ("10.1007", "10.1038"):
+    if provider == SPRINGER:
         return _springer(doi, download)
-    m = re.match(r"^10\.18653/v1/(.+)$", doi, re.IGNORECASE)
-    if m:
-        return _acl(m.group(1), download)
-    m = re.match(r"^10\.24963/ijcai\.(\d{4})/(\d+)$", doi, re.IGNORECASE)
-    if m:
-        return _ijcai(m.group(1), m.group(2), download)
+    if provider == ACL:
+        m = re.match(r"^10\.\d+/v1/(.+)$", doi, re.IGNORECASE)
+        if m:
+            return _acl(m.group(1), download)
+    if provider == IJCAI:
+        m = re.match(r"^10\.\d+/ijcai\.(\d{4})/(\d+)$", doi, re.IGNORECASE)
+        if m:
+            return _ijcai(m.group(1), m.group(2), download)
     return None
 
 
@@ -489,21 +517,29 @@ def _first(*lookups) -> OfficialLookup:
     return last
 
 
-def find_official(record: Record, download: bool = True, interim: bool = True) -> OfficialLookup:
+def find_official(record: Record, download: bool = True, interim: bool = True,
+                  library: Optional[VenueLibrary] = None) -> OfficialLookup:
     """Locate (and by default download) the official BibTeX of *record*.
 
     With ``interim=False``, CVF Open Access and OpenReview are only used where
-    they are the official source (ICLR before 2024).
+    they are the official source (ICLR before 2024).  The family records of
+    *library* extend the provider table (see :mod:`bibcc.families`).
     """
     title = record.fields.get("title", "")
     doi = normalize_doi(record.doi or record.fields.get("doi", ""))
     if is_arxiv_doi(doi):
         doi = ""
-    family, year = venue_family(record)
+    reg = registry(library)
+    family, year = venue_family(record, library)
+    spec = reg.get(family)
+    provider = spec.provider if spec is not None else ""
+    cvf_interim = spec is not None and spec.interim == INTERIM_CVF
+    openreview_interim = spec is not None and spec.interim == INTERIM_OPENREVIEW
+    openreview_official = openreview_interim and spec.interim_is_official(year)
 
     if doi:
-        routed = _by_doi(doi, record, download)
-        if routed is not None and routed.error and family in CVF_FAMILIES and interim:
+        routed = _by_doi(doi, record, download, reg)
+        if routed is not None and routed.error and cvf_interim and interim:
             fallback = _cvf(title, family, year)
             if fallback.official:
                 fallback.reason = f"IEEE Xplore failed ({routed.error}); used CVF Open Access instead"
@@ -511,57 +547,59 @@ def find_official(record: Record, download: bool = True, interim: bool = True) -
         if routed is not None:
             return routed
 
-    if family in CVF_FAMILIES:
+    if provider == XPLORE:
         def from_xplore() -> OfficialLookup:
-            found, error = crossref_search(title, prefix="10.1109")
+            found, error = crossref_search(title, prefix=reg.search_prefix(XPLORE))
             if found:
                 return _xplore_for_doi(found.doi, found, download)
             return OfficialLookup(error=f"CrossRef: {error}" if error else "", reason="not in IEEE Xplore yet",
                                   waiting=not error)
         steps = [from_xplore]
-        if interim:
+        if interim and cvf_interim:
             steps.append(lambda: _cvf(title, family, year))
         return _first(*steps)
 
-    if family == "ECCV":
-        found, error = crossref_search(title, prefix="10.1007")
+    if provider == SPRINGER:
+        found, error = crossref_search(title, prefix=reg.search_prefix(SPRINGER))
         if found:
             return _springer(found.doi, download)
         if error:
             return OfficialLookup(error=f"CrossRef: {error}")
-        return OfficialLookup(reason="not on SpringerLink yet (the ECVA site has no BibTeX)",
-                              manual_url="https://www.ecva.net/papers.php", waiting=True)
+        hint = " (the site there has no BibTeX)" if spec.manual_url else ""
+        return OfficialLookup(reason=f"not on SpringerLink yet{hint}", manual_url=spec.manual_url, waiting=True)
 
-    if family in ("NeurIPS", "ICLR"):
+    if provider == PROCEEDINGS_SITE:
         steps = []
-        if family == "NeurIPS" or (year.isdigit() and int(year) >= ICLR_PROCEEDINGS_SINCE):
-            steps.append(lambda: _proceedings_site(title, family, year, download))
-        if interim or (family == "ICLR" and year.isdigit() and int(year) < ICLR_PROCEEDINGS_SINCE):
-            steps.append(lambda: _openreview(record, title, family, year))
+        if spec.site and not openreview_official:
+            steps.append(lambda: _proceedings_site(title, family, year, download, spec.site))
+        if openreview_interim and (interim or openreview_official):
+            steps.append(lambda: _openreview(record, title, year, spec))
         return _first(*steps) if steps else OfficialLookup(reason=f"not in the {family} {year} proceedings yet",
                                                            waiting=True)
 
-    if family in PMLR_FAMILIES:
+    if provider == PMLR:
         steps = [lambda: _pmlr(title, family, year, download)]
-        if family in OPENREVIEW_FAMILIES and interim:
-            steps.append(lambda: _openreview(record, title, family, year))
+        if openreview_interim and interim:
+            steps.append(lambda: _openreview(record, title, year, spec))
         return _first(*steps)
 
-    if family == "AAAI":
-        return OfficialLookup(reason="AAAI blocks automated BibTeX downloads",
-                              manual_url=f"https://doi.org/{doi}" if doi else "https://ojs.aaai.org/")
-    if family in ("IJCAI", *ACL_FAMILIES) and not doi:
-        prefix = "10.24963" if family == "IJCAI" else "10.18653"
-        found, error = crossref_search(title, prefix=prefix)
+    if provider == OPENREVIEW:
+        return _openreview(record, title, year, spec)
+
+    if provider == BLOCKED:
+        return OfficialLookup(reason=f"{spec.blocked_by or family} blocks automated BibTeX downloads",
+                              manual_url=f"https://doi.org/{doi}" if doi else spec.manual_url)
+    if provider in (IJCAI, ACL) and not doi:
+        found, error = crossref_search(title, prefix=reg.search_prefix(provider))
         if found:
-            routed = _by_doi(found.doi, found, download)
+            routed = _by_doi(found.doi, found, download, reg)
             if routed is not None:
                 return routed
         if error:
             return OfficialLookup(error=f"CrossRef: {error}")
 
     if record.extra.get("bibtex"):
-        return _openreview(record, title, family, year)
+        return _openreview(record, title, year, spec)
 
     if record.arxiv_id and record.entry_type == "misc" and not doi:
         return _arxiv(record.arxiv_id, download)
@@ -587,7 +625,7 @@ def official_from_url(url: str, download: bool = True) -> OfficialLookup:
     if m:
         return _xplore(m.group(1), download)
     if "openaccess.thecvf.com" in u and re.search(r"/html/[^/]+\.html", u):
-        content, error = _get(u)
+        content, error = _get(u, keep=lambda text: "bibref" in text)
         if error:
             return OfficialLookup(error=f"CVF Open Access: {error}", manual_url=u)
         m = re.search(r'<div class="bibref[^"]*">(.*?)</div>', content or "", re.S)
@@ -602,7 +640,9 @@ def official_from_url(url: str, download: bool = True) -> OfficialLookup:
     if m:
         # Older NeurIPS links use the papers.nips.cc host or omit /paper_files; both redirect here.
         family = "ICLR" if "iclr" in m.group(1) else "NeurIPS"
-        page = f"{_PROCEEDINGS_SITES[family]}/paper_files/paper/{m.group(2)}"
+        spec = registry().get(family)
+        site = (spec.site if spec is not None and spec.site else f"https://{m.group(1)}").rstrip("/")
+        page = f"{site}/paper_files/paper/{m.group(2)}"
         return _proceedings_paper(f"{family} Proceedings", page, download)
     m = re.search(r"aclanthology\.org/([^/?#]+?)(?:\.pdf|\.bib)?/?$", u)
     if m:

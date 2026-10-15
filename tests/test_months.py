@@ -174,17 +174,15 @@ def test_check_missing_skips_no_month_venues(tmp_path: Path):
     assert [r[0] for r in check_missing_fields(str(bib), ["month"], ["article"], log=lambda _: None)] == ["T", "P"]
 
 
-def test_check_editions_skips_month_of_a_no_month_edition(tmp_path: Path):
-    entries = "".join(
-        f"@inproceedings{{N{y}{i}, title = {{T}}, booktitle = {{Advances in Neural Information Processing "
-        f"Systems}}, year = {{{y}}}{', month = dec' if y != 2022 else ''}}}\n"
-        for y in (2021, 2022, 2023, 2024) for i in range(3)
-    )
+def test_check_editions_skips_month_of_a_no_month_venue(tmp_path: Path):
     bib = tmp_path / "refs.bib"
-    bib.write_text(entries)
-    rows = check_edition_fields(str(bib), library=_no_month_library(), log=lambda _: None)
-    assert not [r for r in rows if r[3] == "month"]
-    assert [r for r in check_edition_fields(str(bib), log=lambda _: None) if r[3] == "month"]
+    bib.write_text("@article{T, title = {T}, journal = {Transactions on Machine Learning Research}, "
+                   "year = {2024}, volume = {1}}\n")
+    library = _no_month_library()
+    library.journals[0].entry_fields = ["month", "volume"]
+    assert not check_edition_fields(str(bib), library, log=lambda _: None).fields
+    library.journals[0].fields = {}
+    assert [r[3] for r in check_edition_fields(str(bib), library, log=lambda _: None).fields] == ["month"]
 
 
 def test_check_fields_reports_conference_articles(tmp_path: Path):

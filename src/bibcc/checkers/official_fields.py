@@ -16,7 +16,11 @@ fetched yourself, and compares the two:
 The venue summary says, for each venue and year, how many checked entries
 the official BibTeX gives a field and how many of them lack it
 (``entries_lack``), and compares the venue library records with the
-official values (``library_lacks`` and ``library_differs``).
+official values (``library_lacks`` and ``library_differs``) and the
+venues' schemas, the fields the official BibTeX of each paper has, with the
+fields the downloaded BibTeX has (``schema_lacks`` and ``schema_differs``;
+see :mod:`bibcc.schemas`).  ``bibcc check official --learn`` writes those
+schemas into the venue library.
 
 ``apply`` adds the official values of the listed fields that the entries
 lack.
@@ -43,6 +47,16 @@ import bibtexparser
 from bibcc.bibedit import BibEditError, read_bib, set_fields, write_bib
 from bibcc.logging_utils import SEPARATOR_LIGHT, SEPARATOR_WIDTH
 from bibcc.missing_venues import JOURNAL_FIELDS, PROCEEDINGS_FIELDS
+from bibcc.schemas import (
+    IGNORED_FIELDS,
+    OFFICIAL,
+    SCHEMA_LACKS,
+    SCHEMA_STATUSES,
+    Observation,
+    Proposal,
+    observe,
+    propose,
+)
 from bibcc.venues import Venue, VenueLibrary, venue_kind
 
 UPSTREAM_ONLY = "upstream_only"
@@ -94,6 +108,8 @@ class OfficialCheck:
     skipped: int = 0
     unmatched: int = 0  # entries that --offline couldn't compare: no --local match
     applied: int = 0
+    # Schemas the official BibTeX supports and the library lacks (see bibcc.schemas).
+    proposals: List[Proposal] = field(default_factory=list)
 
     @property
     def strict_findings(self) -> int:
@@ -199,7 +215,7 @@ def _same_title(ours: str, theirs: str) -> bool:
     return letters(ours) == letters(theirs)
 
 
-def _lookup(entry: Dict[str, str], offline: bool, index: Sequence[_Local]):
+def _lookup(entry: Dict[str, str], offline: bool, index: Sequence[_Local], library: VenueLibrary):
     """``(official or None, record DOI, OfficialLookup or None)`` for one entry."""
     from bibcc.official import find_official
     from bibcc.sources import is_arxiv_doi, normalize_doi
@@ -210,7 +226,7 @@ def _lookup(entry: Dict[str, str], offline: bool, index: Sequence[_Local]):
     doi = "" if is_arxiv_doi(doi) else doi
     if local is not None or offline:
         return local, doi, None
-    lookup = find_official(record_from_entry(entry), download=True, interim=False)
+    lookup = find_official(record_from_entry(entry), download=True, interim=False, library=library)
     return lookup.official, doi, lookup
 
 
@@ -245,6 +261,14 @@ def _venue_rows(checked: List[_Checked]) -> List[VenueRow]:
             detail = f"library '{ours}', official '{values[0]}'" if ours else f"official '{values[0]}'"
             rows.append((record.name, str(record.year or ""), name, issue, str(len(values)), "", detail))
     return rows
+
+
+def schema_rows(proposals: Iterable[Proposal]) -> List[VenueRow]:
+    """``schema_lacks`` and ``schema_differs`` rows of the venue summary."""
+    return [
+        (p.venue, p.year, "entry_fields", p.status, str(len(p.entries)), "", p.detail())
+        for p in proposals
+    ]
 
 
 def check_official_fields(
@@ -295,6 +319,7 @@ def check_official_fields(
         log(f"   {len(index)} entries of official BibTeX in {', '.join(map(str, local))}.")
 
     checked: List[_Checked] = []
+    observations: List[Observation] = []
     downloads = 0
     for entry in entries:
         key = entry["ID"]
@@ -305,7 +330,7 @@ def check_official_fields(
             continue
         if downloads and delay and not offline:
             time.sleep(delay)
-        official, doi, lookup = _lookup(entry, offline, index)
+        official, doi, lookup = _lookup(entry, offline, index, library)
         downloads += lookup is not None
         if official is None:
             if lookup is None:
@@ -336,6 +361,10 @@ def check_official_fields(
                         upstream, local_fields, missing)
         checked.append(item)
         result.fields.extend(rows)
+        seen = observe(entry, library, [n for n, v in upstream.items() if str(v).strip()],
+                       set(IGNORED_FIELDS) | ignored)
+        if seen is not None:
+            observations.append(seen)
     result.checked = len(checked)
 
     if apply:
@@ -362,6 +391,8 @@ def check_official_fields(
                 log(f"✍️  Added {len(applied)} official field values to {input_path}.")
 
     result.venues = _venue_rows(checked)
+    result.proposals = propose(observations, library, OFFICIAL)
+    result.venues += schema_rows(result.proposals)
     _log_result(result, log)
     return result
 
@@ -386,6 +417,10 @@ def _log_result(result: OfficialCheck, log: Callable[[str], None]) -> None:
             if issue == ENTRIES_LACK:
                 log(f"   {venue} ({year}): '{name}' is in the official BibTeX of {have} checked entries; "
                     f"{lacking} lack it")
+            elif issue in SCHEMA_STATUSES:
+                when = f" ({year})" if year else ""
+                verb = "has no schema" if issue == SCHEMA_LACKS else "has a different schema"
+                log(f"   {venue}{when}: the venue library {verb}; {detail}")
             else:
                 verb = "lacks" if issue == LIBRARY_LACKS else "differs on"
                 log(f"   {venue} ({year}): the venue library {verb} '{name}', {detail}")

@@ -23,7 +23,7 @@ bibcc venues import miaa --scope project     # or into the project's .bibcc-venu
 
 When BibCC runs from a checkout, `import` reads the library from the checkout. Otherwise, it reads the library from GitHub.
 
-`import` only adds. It adds the records you don't have yet, and it adds the fields, aliases, and interim booktitles that your existing records lack. Where a field differs, `import` keeps your value and lists the difference, unless you pass `--overwrite`. This includes corrected months: if your library has an older month for a record that the shared library now marks `month: none`, `import` keeps your month until you pass `--overwrite` or fix the record by hand. You can import a library file or a URL the same way, for example `bibcc venues import ~/lab.yaml` or `bibcc venues import URL`.
+`import` only adds. It adds the records you don't have yet, including family records, and it adds the fields, aliases, interim booktitles, and venue schemas (`entry_fields`) that your existing records lack. Where a field differs, `import` keeps your value and lists the difference, unless you pass `--overwrite`. This includes corrected months: if your library has an older month for a record that the shared library now marks `month: none`, `import` keeps your month until you pass `--overwrite` or fix the record by hand. You can import a library file or a URL the same way, for example `bibcc venues import ~/lab.yaml` or `bibcc venues import URL`.
 
 ## Contributing a library
 
@@ -45,7 +45,7 @@ To share your library so that others in your field can start from it, follow the
 4. Add a row for it to the [table of libraries](#example-venue-libraries): its name, who maintains it, and what it covers.
 5. Open a pull request. CI checks that every library in this directory loads and is in canonical form (`tests/test_scopes.py`).
 
-Take values from official sources, such as the publisher's or the proceedings' own pages, not from other bibliographies. For `month`, give the month the event took place only when the whole event falls within one month. For an event that spans two months, or a journal that doesn't publish by month, write `month: none`. For details, see [Months](../../README.md#months). To improve someone else's library, open a pull request that edits it. The library's maintainer reviews it.
+Take values from official sources, such as the publisher's or the proceedings' own pages, not from other bibliographies. Put a value that every edition of a conference shares, such as its `publisher` or `series`, in a family record (see [Venue families](../../README.md#venue-families)); `bibcc check venues` suggests the values to move. To add venue schemas, run `bibcc check official FILE.bib --learn --venues examples/venues/NAME.yaml` on a bibliography of the venues' papers, so that the schemas come from official BibTeX. For `month`, give the month the event took place only when the whole event falls within one month. For an event that spans two months, or a journal that doesn't publish by month, write `month: none`. For details, see [Months](../../README.md#months). To improve someone else's library, open a pull request that edits it. The library's maintainer reviews it.
 
 ### Keeping a library up to date
 

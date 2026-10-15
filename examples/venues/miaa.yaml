@@ -5,6 +5,8 @@
 #              name is the published proceedings' booktitle; interim maps a
 #              source (cvf, openreview) to the booktitle it uses before or
 #              instead of the proceedings.
+# families:    a conference across its editions: fields every edition shares,
+#              and entry_fields, the fields the official BibTeX of each paper has.
 #
 # This file is rewritten by `bibcc complete --update-venues` and
 # `bibcc venues import`; comments other than this header are not preserved.

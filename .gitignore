@@ -5,6 +5,7 @@
 *.yaml
 !missing_venues.example.yaml
 !examples/**/*.yaml
+!src/bibcc/data/*.yaml
 logs/
 *.local.*
 __pycache__/

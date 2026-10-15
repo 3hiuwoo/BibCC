@@ -4,7 +4,9 @@ Missing field checker for BibTeX entries.
 Scans a .bib file and reports entries that lack specified required fields
 (e.g., month, publisher).  With a venue library, an entry whose venue record
 says ``month: none`` (a conference held across two months, or a journal
-without monthly issues) isn't expected to have a month.
+without monthly issues) isn't expected to have a month, and an entry whose
+venue has a schema (see :mod:`bibcc.schemas`) isn't expected to have a
+per-paper field that the venue's official BibTeX never has.
 
 Usage:
     from bibcc.checkers.missing_fields import check_missing_fields
@@ -19,7 +21,9 @@ from typing import Callable, List, Optional, Sequence, Tuple
 import bibtexparser
 
 from bibcc.logging_utils import SEPARATOR_LIGHT, SEPARATOR_WIDTH
-from bibcc.venues import VenueLibrary, has_no_month, venue_kind
+from bibcc.missing_venues import JOURNAL_FIELDS, PROCEEDINGS_FIELDS
+from bibcc.schemas import IGNORED_FIELDS, expected_fields
+from bibcc.venues import JOURNAL, VenueLibrary, has_no_month, venue_kind
 
 DEFAULT_ENTRY_TYPES = ["inproceedings", "article", "proceedings", "conference"]
 
@@ -32,7 +36,19 @@ def _venue_has_no_month(entry: dict, library: Optional[VenueLibrary]) -> bool:
     if not venue:
         return False
     found = library.lookup(venue, year, venue_kind(entry.get("ENTRYTYPE", ""), entry), issn=entry.get("issn"))
-    return found.venue is not None and has_no_month(found.venue.fields)
+    return found.venue is not None and has_no_month(library.fields_of(found.venue))
+
+
+def _outside_schema(entry: dict, fields: Sequence[str], library: Optional[VenueLibrary]) -> List[str]:
+    """The *fields* that the schema of the entry's venue leaves out, as per-paper fields it never has."""
+    if library is None or not fields:
+        return []
+    schema = expected_fields(entry, library)[0]
+    if not schema:
+        return []
+    kind = venue_kind(entry.get("ENTRYTYPE", ""), entry)
+    described = set(JOURNAL_FIELDS if kind == JOURNAL else PROCEEDINGS_FIELDS) | set(IGNORED_FIELDS)
+    return [f for f in fields if f.lower() not in schema and f.lower() not in described]
 
 
 def check_missing_fields(
@@ -50,7 +66,8 @@ def check_missing_fields(
         target_types: Entry types to inspect (e.g. ``["article"]``).
         log: Optional logging callback; falls back to ``print``.
         library: Venue library; an entry whose record says ``month: none``
-            isn't reported for a missing month.
+            isn't reported for a missing month, nor for a field outside its
+            venue's schema.
 
     Returns:
         List of ``(entry_id, entry_type, year, missing_fields)`` tuples.
@@ -73,6 +90,7 @@ def check_missing_fields(
 
     missing_rows: List[Tuple[str, str, str, List[str]]] = []
     no_month: List[str] = []
+    outside: List[str] = []
 
     log(f"{'ID':<40} | {'Type':<15} | {'Year':<6} | Missing")
     log(SEPARATOR_LIGHT * SEPARATOR_WIDTH)
@@ -88,6 +106,10 @@ def check_missing_fields(
         if "month" in missing and _venue_has_no_month(entry, library):
             missing.remove("month")
             no_month.append(entry.get("ID", ""))
+        unexported = _outside_schema(entry, missing, library)
+        if unexported:
+            missing = [f for f in missing if f not in unexported]
+            outside.append(f"{entry.get('ID', '')} ({', '.join(unexported)})")
         if missing:
             missing_rows.append(
                 (entry.get("ID", ""), entry_type, entry.get("year", "N/A"), missing)
@@ -101,6 +123,9 @@ def check_missing_fields(
     if no_month:
         log(f"ℹ️  {len(no_month)} entries have no month because the venue library says that their venue "
             f"has none: {', '.join(no_month)}")
+    if outside:
+        log(f"ℹ️  {len(outside)} entries lack fields that the official BibTeX of their venue doesn't have "
+            f"(see its entry_fields in the venue library): {'; '.join(outside)}")
     if not missing_rows:
         log("✅ All target entries contain the required fields.")
     else:

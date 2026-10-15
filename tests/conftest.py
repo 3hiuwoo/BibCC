@@ -14,6 +14,11 @@ def isolated_user_library(tmp_path_factory, monkeypatch) -> Path:
     config = tmp_path_factory.mktemp("config")
     monkeypatch.delenv("BIBCC_VENUES", raising=False)
     monkeypatch.setenv("XDG_CONFIG_HOME", str(config))
+    # Each test gets its own download cache, so no test reads another's downloads.
+    monkeypatch.setenv("BIBCC_CACHE", str(tmp_path_factory.mktemp("cache")))
+    from bibcc import cache
+
+    cache.refresh(False)
     return config / "bibcc" / "venues.yaml"
 
 

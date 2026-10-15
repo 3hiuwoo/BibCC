@@ -10,11 +10,14 @@
 #   journals:    year-agnostic, matched by name, alias, or ISSN
 #   proceedings: matched by name or alias together with the entry's publication
 #                year, or by an interim booktitle (CVF Open Access, OpenReview)
+# A family record of the library (families:) gives its fields to every edition;
+# the file shows them commented out, and the record leaves them out.
 #
 # The comment after a value says where the value comes from:
 # '# from bib'             value found in your entries; the keys in parentheses say which
 # '# from official BibTeX' value from the official BibTeX that `bibcc add` or `bibcc upgrade` downloaded
-# '# from YEAR edition'    value copied from the previous edition in the library
+# '# from YEAR edition'    value copied from the previous edition in the library (when the venue has no family record)
+# '# from family NAME'     value that the family record gives every edition; leave it commented out
 # '# from CrossRef'        value that CrossRef reports (`bibcc complete --online`, `bibcc add`)
 # '# auto-guessed'         value inferred from the venue name; verify it
 # A record's '# entries:' comment names the entries that cite the venue.
@@ -46,6 +49,19 @@ proceedings:
       # issn: ""
       # editor: ""
       # series: ""
+      # address: ""
+
+  - name: "Proceedings of the 43rd International Conference on Machine Learning"
+    # entries: Doe_ICML2026
+    year: "2026"
+    fields:
+      venue: ""  # for example, City, Country
+      # publisher: "PMLR"  # from family International Conference on Machine Learning (ICML); every edition gets it
+      month: ""  # the event month, such as June, if the whole event falls in it; none if it runs across two months
+      # isbn: ""
+      # issn: ""
+      # editor: ""
+      # series: "Proceedings of Machine Learning Research"  # from family International Conference on Machine Learning (ICML); every edition gets it
       # address: ""
 
   # Proposed by `bibcc add` for a paper whose proceedings are now in IEEE Xplore.

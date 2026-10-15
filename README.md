@@ -53,6 +53,7 @@ BibCC provides nine commands through a single entry point, `bibcc`:
 | [`scholar`](#scholar) | Fill in citation counts and verify titles against online sources |
 | [`compose`](#compose) | Merge the `.bib` files of a directory tree into a single bibliography |
 | `venues` | Manage your user and project venue libraries: `where`, `init`, `import`, and `examples` |
+| `surface` | Print the machine-readable command surface as JSON, for tools and skills that track BibCC |
 
 For command-specific help, run `bibcc COMMAND -h`. To see the installed version, run `bibcc --version`.
 
@@ -69,8 +70,8 @@ bibcc check title bib/topic.bib
 bibcc check quote bib/topic.bib
 bibcc check keys bib/topic.bib
 bibcc check fields bib/topic.bib --against bib/
-bibcc check editions bib/topic.bib --against bib/
-bibcc check official bib/topic.bib
+bibcc check official bib/topic.bib --learn
+bibcc check editions bib/topic.bib
 # 4. Now and then, see which preprints have been published, and then replace them.
 bibcc upgrade --report-only bib/
 bibcc upgrade bib/topic.bib --in-place
@@ -97,7 +98,7 @@ Don't expect `add` to get official BibTeX for every paper. AAAI, ACM, and Elsevi
 | `quote` | Words that need `{braces}`, and compounds braced as a whole |
 | `keys` | Keys that don't follow `METHOD_AUTHOR_VENUEYEAR` |
 | `fields` | Unknown field names, malformed values, and duplicates |
-| `editions` | Fields that other entries of the same venue have and the entry lacks |
+| `editions` | Fields of the venue's schema that the entry lacks |
 | `official` | Differences from the official BibTeX, downloaded again |
 | `venues` | Venue library records with missing or inconsistent fields |
 
@@ -115,6 +116,8 @@ bibcc check missing input.bib --fields month,publisher --entry-types inproceedin
 ```
 
 Some entries have no month on purpose: a conference held across two months, or a journal without monthly issues. When an entry's venue library record has `month: none`, `missing` doesn't report the entry's missing month, and lists it instead. For details, see [Months](#months).
+
+Some venues never export a field: NeurIPS BibTeX has no `doi`, for example. When the venue library has a [schema](#venue-schemas) for an entry's venue, `missing` doesn't report a per-paper field that the schema leaves out, and lists the entry instead.
 
 #### Title case
 
@@ -185,24 +188,20 @@ bibcc check fields input.bib --apply                 # remove interim and empty 
 
 `bibcc format` fixes page ranges and months automatically. To remove the interim fields and the fields with empty values, pass `--apply`: the check removes them and then reports what's left. `check` only reports the other issues.
 
-#### Fields that other editions of a venue have
+#### Fields of the venue's schema <a id="check-editions"></a>
 
-The official BibTeX of a venue usually has the same fields every year: PMLR gives every ICML paper `day`, `series`, `volume`, and `pages`, for example. `editions` compares each entry with the other entries of its venue, in every edition, and reports the fields that the entry lacks and the others have:
+The official BibTeX of a venue has the same per-paper fields for every paper: PMLR gives every ICML paper `pages`, `pdf`, and `url`, for example. The venue library keeps these fields as the venue's [schema](#venue-schemas) (`entry_fields`). `editions` checks each entry against its venue's schema, and reports the fields that the entry lacks:
 
 ```bash
 bibcc check editions input.bib
-bibcc check editions input.bib --against bib/                  # also compare with the entries in bib/
+bibcc check editions input.bib --against bib/                  # propose schemas from the entries in bib/ too
+bibcc check editions input.bib --against bib/ --learn          # write the proposals, and check against them
 bibcc check editions input.bib --include-fields urldate         # also compare a field ignored by default
 ```
 
-The report, `.bibcc/INPUT/edition_fields.txt`, gives each finding one of these issue types:
+The report, `.bibcc/INPUT/edition_fields.txt`, gives each finding the issue type `missing`, and the evidence column names the schema (a journal, a family of conference editions, or one edition) and where it was learned from. A journal article not yet in an issue (no `volume`) isn't expected to have a `volume`, `number`, or `pages`.
 
-| Issue type | Meaning |
-| --- | --- |
-| `same_year` | Most other entries of the same venue and year have the field, so the entry is probably incomplete. |
-| `other_years` | Few or none of this year's entries have the field, but most other years do. The venue might have changed its BibTeX, so check before you add the field. |
-
-The check groups editions by the venue name without its year and ordinal, so "Proceedings of the 41st International Conference on Machine Learning" and "Proceedings of the 42nd International Conference on Machine Learning" are one venue. An entry that matches a venue library record is grouped by that record, and the evidence column says whether the library supplies the missing field (then `bibcc complete` adds it) or lacks it too.
+The best schemas come from official BibTeX: run `bibcc check official input.bib --learn` (see [Differences from the official BibTeX](#differences-from-the-official-bibtex)). For a venue without a schema, such as an AAAI or ACM venue whose BibTeX BibCC can't download, `editions` compares the entries of the venue, in the input file and in the `--against` files, and proposes the fields that most of them share. The proposals go to `.bibcc/INPUT/edition_schemas.txt` (issue type `schema_lacks`), with the entries that lack a proposed field. The check never reports an entry from that comparison alone, because the entries can share a lost field. To write the proposals into the venue library and check the entries against them in the same run, pass `--learn` (with `--scope project` for the project library). A proposal needs at least three entries of a journal, or of one conference year.
 
 The check ignores the following fields:
 
@@ -210,7 +209,7 @@ The check ignores the following fields:
 - BibCC's own `citation` field, which `bibcc scholar cite` writes.
 - Exporter and reference-manager bookkeeping: `annote`, `bibsource`, `biburl`, `copyright`, `mendeley-groups`, `timestamp`, and `urldate`.
 
-To ignore more fields, pass `--ignore-fields`. To compare one of the ignored fields anyway, pass `--include-fields`. The check also leaves out entries with an interim (CVF or OpenReview) booktitle, entries built from metadata, and empty entries, because they lack fields by design. With `--strict`, only `same_year` findings count.
+A schema also leaves out the fields that the venue library supplies, such as `publisher` and a conference's `month`: `bibcc complete` adds those, and `bibcc check venues` checks them. To ignore more fields, pass `--ignore-fields`. To compare one of the ignored fields anyway, pass `--include-fields`. The check also leaves out entries with an interim (CVF or OpenReview) booktitle, entries built from metadata, and empty entries, because they lack fields by design. With `--strict`, `missing` findings count, and proposals don't.
 
 #### Differences from the official BibTeX
 
@@ -233,7 +232,14 @@ The check needs network access. The report, `.bibcc/INPUT/official_fields.txt`, 
 | `local_only` | The entry has a field that the official BibTeX lacks, other than `citation` and the fields that the venue library supplies. |
 | `type` | The entry types differ. |
 
-`.bibcc/INPUT/official_venues.txt` lists, for each venue and year, the fields that most entries of the venue lack (`entries_lack`), and the venue library records that lack an official value or differ from it (`library_lacks` and `library_differs`).
+`.bibcc/INPUT/official_venues.txt` lists, for each venue and year, the fields that most entries of the venue lack (`entries_lack`), and the venue library records that lack an official value or differ from it (`library_lacks` and `library_differs`). It also compares each venue's [schema](#venue-schemas) with the fields that the downloaded BibTeX has: `schema_lacks` when the library has no schema for the venue, and `schema_differs` when the schema differs. To write those schemas into the venue library, pass `--learn` (with `--scope project` for the project library); `check editions` then checks every entry of the venue against them.
+
+```bash
+bibcc check official input.bib --learn                   # learn the venue schemas from the official BibTeX
+bibcc check official input.bib --refresh                 # download everything again instead of reading the cache
+```
+
+BibCC keeps each paper's downloaded BibTeX for 30 days in a cache, so a second run of `add`, `upgrade`, or `check official` on the same paper reads it from there. To download everything again, pass `--refresh`. The cache directory is `$BIBCC_CACHE`, or else `$XDG_CACHE_HOME/bibcc` (`~/.cache/bibcc`); to turn the cache off, set `BIBCC_CACHE=off`.
 
 To add official values, pass `--apply` with the fields to add, or `all` for every `upstream_only` field. `--apply` only adds fields that an entry lacks; it never changes an existing value.
 
@@ -250,7 +256,7 @@ bibcc check venues
 bibcc check venues --journal-fields publisher,issn --proceedings-fields venue,month,isbn
 ```
 
-Besides the required-field check, `venues` compares the editions of each conference with one another, and reports fields that one edition defines and another lacks. When every edition that has a field agrees on its value, the report suggests that value for the editions that lack it. Editions are grouped by their name without the year and ordinal, as in the `editions` check. A record still named by its interim (CVF or OpenReview) booktitle describes proceedings that aren't out yet, so only its event fields (`venue` and `month`) count as missing.
+Besides the required-field check, `venues` compares the editions of each conference with one another, and reports fields that one edition defines and another lacks. When every edition that has a field agrees on its value, the report suggests that value for the editions that lack it, or suggests moving it into a [family record](#venue-families) when every edition has the same value. Editions are grouped by their family record, or else by their name without the year and ordinal. The check also lists the family records, with their editions and whether they have a schema. A record still named by its interim (CVF or OpenReview) booktitle describes proceedings that aren't out yet, so only its event fields (`venue` and `month`) count as missing.
 
 To check only the records you're about to merge, point `--venues` at the fill-in file instead of a whole library:
 
@@ -288,10 +294,22 @@ bibcc check keys input.bib --strict && bibcc check fields input.bib --strict
 | `fields` | `--apply` | Remove the interim fields and the empty fields from the input file, then report the rest |
 | `fields` | `--known-fields FIELDS` | Extra field names to accept |
 | `fields` | `--against PATH` | Also look for duplicates in this `.bib` file or directory; repeatable |
-| `editions` | `--against PATH` | Also compare with the entries in this `.bib` file or directory; repeatable |
+| `editions` | `--against PATH` | Also compare with the entries in this `.bib` file or directory when proposing schemas; repeatable |
 | `editions` | `--ignore-fields FIELDS` | Fields to ignore, in addition to the default ones |
 | `editions` | `--include-fields FIELDS` | Fields to compare even though the check ignores them by default (for example, `urldate`) |
+| `editions` | `--learn` | Write the proposed schemas into the venue library, and check the entries against them |
+| `editions` | `--scope SCOPE` | With `--learn`, the library to write to: `user` (default) or `project` |
 | `editions` | `--venues FILE` | Use this venue library file instead of the user and project libraries |
+| `official` | `--apply FIELDS` | Add the official values of these fields to the entries that lack them (`all`: every `upstream_only` field) |
+| `official` | `--ids KEYS` | Check only these citation keys |
+| `official` | `--local PATH` | A `.bib` file or directory of official BibTeX that you got yourself; repeatable |
+| `official` | `--offline` | Download nothing; compare only the entries that match the `--local` files |
+| `official` | `--ignore-fields FIELDS` | Fields not to compare |
+| `official` | `--delay SECONDS` | Seconds to wait between downloads (default: `1`) |
+| `official` | `--refresh` | Download every official BibTeX again instead of reading the cache |
+| `official` | `--learn` | Write the venue schemas of the official BibTeX into the venue library |
+| `official` | `--scope SCOPE` | With `--learn`, the library to write to: `user` (default) or `project` |
+| `official` | `--venues FILE` | Use this venue library file instead of the user and project libraries |
 | `venues` | `PATH` | Look for the project library from this file or directory (default: the current directory) |
 | `venues` | `--venues FILE` | Check only this venue library file (a `missing_venues.yaml` fill-in file works too) |
 | `venues` | `--journal-fields FIELDS` | Fields to check in journal records (default: `publisher,issn`) |
@@ -563,7 +581,7 @@ The list is grouped by what to do next. The same word is in the `next` column of
 
 #### Rate limits
 
-`add` doesn't query DBLP directly, because its API is behind a bot challenge. Semantic Scholar allows few requests without a key; for higher limits, set `S2_API_KEY`. Requests that hit a rate limit are retried with backoff. The large listing pages (CVF, PMLR, NeurIPS, and ICLR) are fetched once per run.
+`add` doesn't query DBLP directly, because its API is behind a bot challenge. Semantic Scholar allows few requests without a key; for higher limits, set `S2_API_KEY`. Requests that hit a rate limit are retried with backoff. The large listing pages (CVF, PMLR, NeurIPS, and ICLR) are fetched once per run, and each paper's official BibTeX is kept for 30 days in a disk cache (`$BIBCC_CACHE`, or else `~/.cache/bibcc`; `BIBCC_CACHE=off` turns it off), so a later run doesn't download it again.
 
 <details>
 <summary>All <code>add</code> options</summary>
@@ -829,7 +847,7 @@ The following table lists the files that each command writes to `.bibcc/NAME/`:
 
 | Command | Report files | Log file |
 | --- | --- | --- |
-| `check` | `missing_fields.txt`, `title_case.txt`, `smart_protection.txt`, `citation_keys.txt`, `field_issues.txt`, `edition_fields.txt`, `official_fields.txt`, `official_venues.txt`, `official_unchecked.txt` | `logs/checker.log` |
+| `check` | `missing_fields.txt`, `title_case.txt`, `smart_protection.txt`, `citation_keys.txt`, `field_issues.txt`, `edition_fields.txt`, `edition_schemas.txt`, `official_fields.txt`, `official_venues.txt`, `official_unchecked.txt` | `logs/checker.log` |
 | `complete` | `complete.diff` (dry-run preview), `missing_venues.yaml`, `missing_venues.txt`, `conflicts.txt`, `incomplete_entries.txt`, `venue_check.txt` (`--online`) | `logs/completer.log` |
 | `add` | The staging `.bib` file itself (entries appended or filled in), `add.txt`, `missing_venues.yaml` | `logs/adder.log` |
 | `upgrade` | `upgrade.txt`, `upgrade.diff` (dry-run preview), `missing_venues.yaml`, `published.txt` (`--report-only`, next to the first `PATH`) | `logs/upgrader.log` |
@@ -881,7 +899,7 @@ bibcc venues import ~/lab.yaml         # a file or an https:// URL works too
 
 ### Library format
 
-A library is a YAML file with two lists:
+A library is a YAML file with two lists of records, `journals` and `proceedings`, and an optional third, `families` (see [Venue families](#venue-families)):
 
 ```yaml
 journals:                       # year-agnostic
@@ -913,6 +931,45 @@ Matching ignores braces, case, the difference between `\&` and `&`, and extra sp
 - **Proceedings** match by name or alias and by the entry's `year`, or else by an interim booktitle: the name that CVF Open Access (`cvf`) or OpenReview (`openreview`) gives the same proceedings. An entry matched through an interim name only gets `venue` and `month`, and is reported so that `bibcc upgrade` can replace it. Until a conference's proceedings are out, its record is named by the interim booktitle. Merging a proposal from `add` or `upgrade` renames the record to the published name and keeps the old one under `interim`.
 - **Several matches**: if several records match one entry, nothing is added, and the entry is reported as ambiguous.
 
+### Venue families <a id="venue-families"></a>
+
+A conference has one proceedings record for each year. A `families` record describes the conference across its editions, so that the fields every edition shares live in one place:
+
+```yaml
+families:
+  - name: International Conference on Machine Learning
+    acronym: ICML
+    fields:                     # every edition gets these; an edition's own value wins
+      publisher: PMLR
+      series: Proceedings of Machine Learning Research
+    entry_fields: [pages, pdf, url]
+    learned_from: official BibTeX of 6 entries (2025), 2025-07-01
+```
+
+An edition belongs to the family whose name or alias it shares once years, ordinals, and a leading "Proceedings of the" are removed, or whose acronym it carries. `complete`, `add`, and `upgrade` give each edition the family's fields under its own, the fill-in YAML shows them commented out as `# from family NAME`, and `check venues` doesn't report them as missing. Every command that relates editions groups them by family record, or else by their name without the year and ordinal.
+
+A family record can also say where the official BibTeX of the conference comes from. BibCC ships a table of these facts for the conferences it knows (which ones PMLR publishes, which ones use CVF Open Access before IEEE Xplore, and so on); a family record with the same acronym overrides the keys it sets, and one with a new acronym adds a conference. For example, a new PMLR conference needs only this record:
+
+```yaml
+families:
+  - name: Conference on Parsimony and Learning
+    acronym: CPAL
+    provider: pmlr
+```
+
+The keys are `provider` (`xplore`, `springer`, `proceedings`, `pmlr`, `acl`, `ijcai`, `openreview`, or `blocked`), `site` (the proceedings site, for `proceedings`), `interim` (`cvf` or `openreview`), `interim_since` (the first year that the interim BibTeX isn't the official one), `pattern` (a regular expression that names the conference in a booktitle), `workshop_of`, `acronym_aliases`, `blocked_by`, and `manual_url`. For the built-in table, see [`src/bibcc/data/families.yaml`](src/bibcc/data/families.yaml).
+
+### Venue schemas <a id="venue-schemas"></a>
+
+A venue's *schema* is the list of per-paper fields that the official BibTeX of every paper of the venue has, such as `pages`, `doi`, and `url`. It's the `entry_fields` key of a journal record, a family record, or a proceedings record (for the one year that a venue's export differs from its family's). A schema leaves out the fields that every entry has, the fields that the venue library supplies, and exporter bookkeeping. `learned_from` says where the schema comes from.
+
+You don't write schemas by hand. Two checks learn them:
+
+- `bibcc check official FILE --learn` learns them from the official BibTeX that it downloads, the reliable source.
+- `bibcc check editions FILE --learn` learns them from the entries of each venue, for the venues whose BibTeX BibCC can't download.
+
+With a schema, `check editions` reports the fields an entry lacks, and `check missing` doesn't ask for a field that the venue never exports. For proceedings, the latest year's fields become the family's schema, and a year whose fields differ gets its own schema on its proceedings record.
+
 ### Months <a id="months"></a>
 
 The month of an entry comes from the official BibTeX first, as exported, even when it isn't the event month (AAAI's BibTeX gives the month of its issue). When the official BibTeX has no month, the following rules apply:
@@ -920,7 +977,7 @@ The month of an entry comes from the official BibTeX first, as exported, even wh
 - **Proceedings**: the month of the event, from the library record, but only when the whole event falls in that month. For an event held across two months, such as NeurIPS 2022 (November 28 to December 9), set `month: none`. For an event held in several places, use the dates of the main venue.
 - **Journals**: the month of the issue that the paper appears in, not the date it went online. A journal record has no month, because each issue has its own. For a journal without monthly issues, such as TMLR, set `month: none`.
 
-A record with `month: none` never adds a month, `check missing` doesn't ask for one, and `check editions` doesn't compare it. An official month that gives a period across two months, such as `29 Jul--01 Aug`, is dropped and reported by `add` and `upgrade`.
+A record with `month: none` never adds a month, `check missing` doesn't ask for one, and `check editions` doesn't expect one. An official month that gives a period across two months, such as `29 Jul--01 Aug`, is dropped and reported by `add` and `upgrade`.
 
 Whenever `bibcc` saves a library, it rewrites the library in this sorted form. Comments other than the header aren't kept. For the format of the generated fill-in file, see [`missing_venues.example.yaml`](missing_venues.example.yaml).
 
@@ -962,6 +1019,9 @@ The code lives in `src/bibcc/`. Each command is one module, registered in `cli.p
 - `bibedit.py`: minimal, verified edits.
 - `sources.py`: CrossRef, arXiv, OpenReview, and Semantic Scholar lookups.
 - `official.py`: finding and downloading official BibTeX.
+- `families.py` and `data/families.yaml`: the provider table, which says where each conference's official BibTeX comes from.
+- `cache.py`: the disk cache of downloaded official BibTeX.
+- `schemas.py`: learning venue schemas.
 - `venues.py`: the venue libraries and their scopes.
 - `missing_venues.py`: the fill-in YAML file.
 - `crosscheck.py`: the CrossRef check of `complete --online`.
@@ -999,13 +1059,15 @@ This section lists planned and shipped work, grouped by command. [`CHANGELOG.md`
   - A fill-in YAML file that's merged across runs and shared by `complete`, `add`, and `upgrade`.
   - Conflict resolution: `--resolve library` overwrites fields with the library's values, scoped by `--fields` and `--ids`.
   - Merging the fill-in file into the library without completing the `.bib` file (`--update-venues-only`).
+  - Family records with the fields that every edition of a conference shares, and the facts about where its official BibTeX comes from (`families:` in the library).
+  - Venue schemas, the per-paper fields that a venue's official BibTeX has, learned by `check official --learn` and `check editions --learn` (`entry_fields`).
 - **`check`**
   - Citation key legibility, including the first author's surname (`check keys`).
   - Exit status 1 on findings, for scripts (`--strict`), and your own terms braced in titles (`check quote --apply`).
   - Field name typos, malformed values, and duplicate papers (`check fields`).
   - Venue library records with missing fields (`check venues`).
   - Cross-edition consistency: fields that one edition of a conference defines and another lacks (`check venues`).
-  - Entry fields that other entries of the same venue have, in the same year or in other years (`check editions`).
+  - Entry fields of the venue's schema, learned from official BibTeX or proposed by the other entries of the venue (`check editions`).
   - Entries compared with their official BibTeX, downloaded again or saved by hand, and the official fields that they lack added back (`check official`).
   - Robust term protection that skips numbers and filters author names (`check quote`).
   - Robust title case with hyphenated words and a configurable style (`check title`).

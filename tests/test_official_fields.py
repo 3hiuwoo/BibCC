@@ -249,3 +249,31 @@ def test_check_official_reports_and_strict(tmp_path: Path, web, capsys):
     main(args + ["--apply", "all,pages", "--ids", "B_Li_ICML2024"])
     main(args + ["--strict", "--ids", "B_Li_ICML2024"])
     assert "B_Li_ICML2024\tnote\tlocal_only\toral" in (reports / "official_fields.txt").read_text()
+
+
+def test_check_official_learns_venue_schemas(tmp_path: Path, web):
+    bib = _write(tmp_path)
+    venues = tmp_path / "venues.yaml"
+    venues.write_text(LIBRARY, encoding="utf-8")
+    args = ["check", "official", str(bib), "--local", str(tmp_path / "exports"), "--offline",
+            "--venues", str(venues)]
+
+    result = check_official_fields(
+        str(bib), VenueLibrary.loads(LIBRARY), local=[tmp_path / "exports"], offline=True, log=lambda _: None,
+    )
+    (proposal,) = result.proposals
+    assert (proposal.level, proposal.fields) == ("family", ["abstract", "volume"])
+    family = "Proceedings of the International Conference on Machine Learning"
+    assert (family, "", "entry_fields", "schema_lacks", "2", "",
+            "no family record yet; official BibTeX (2024): abstract, volume") in result.venues
+
+    main(args + ["--learn"])
+    library = VenueLibrary.load(venues)
+    (learned,) = library.families
+    assert (learned.name, learned.acronym, learned.entry_fields) == (family, "ICML", ["abstract", "volume"])
+    assert learned.learned_from.startswith("official BibTeX of 2 entries (2024), ")
+
+    result = check_official_fields(str(bib), library, local=[tmp_path / "exports"], offline=True,
+                                   log=lambda _: None)
+    assert result.proposals == []
+    assert not [r for r in result.venues if r[2] == "entry_fields"]

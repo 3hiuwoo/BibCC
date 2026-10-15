@@ -64,7 +64,7 @@ from bibcc.checkers.smart_protection import (
 )
 from bibcc.completer import EntryCompletion, complete_entry
 from bibcc.crosscheck import venue_fields_from_crossref
-from bibcc.helptext import ENV_S2, ENV_VENUES, VENUES_HELP, HelpFormatter, epilog
+from bibcc.helptext import ENV_CACHE, ENV_S2, ENV_VENUES, VENUES_HELP, HelpFormatter, epilog
 from bibcc.logging_utils import SEPARATOR_THIN, SEPARATOR_WIDTH, Logger, write_report
 from bibcc.logging_utils import report_dir as reports_for
 from bibcc.missing_venues import JOURNAL_FIELDS, PROCEEDINGS_FIELDS, MissingVenue, update_command, write_missing_venues
@@ -540,15 +540,15 @@ def build_metadata_entry(record: Record, library: VenueLibrary, keep_title: bool
 
 def _interim_placeholders(library: VenueLibrary, name: str, year: str) -> Dict[str, List[str]]:
     """Library records of the same conference and year still named by an interim booktitle."""
-    family = family_of(name, year)
+    family = family_of(name, year, library)
     found: Dict[str, List[str]] = {}
     if not family:
         return found
     for venue in library.proceedings:
         if str(venue.year).strip() != year or normalize_venue(venue.name) == normalize_venue(name):
             continue
-        source = interim_source_of(venue.name, year=year)
-        if source and family_of(venue.name, year) == family:
+        source = interim_source_of(venue.name, year=year, library=library)
+        if source and family_of(venue.name, year, library) == family:
             found.setdefault(source, []).append(venue.name)
     return found
 
@@ -889,7 +889,7 @@ def _locate(
         return None, None, result.error or "not found"
     _hint_venue(result.record, hints)
     log(f"   📍 {result.record.source}; looking for the official BibTeX...")
-    return result.record, find_official(result.record), None
+    return result.record, find_official(result.record, library=library), None
 
 
 @dataclass
@@ -914,6 +914,8 @@ class AddOutcome:
 
 REPORT_HEADER = "add: identifier\tstatus\tkey\ttitle\tdetail\turl\tnext"
 LEFT_TO_DO = ("empty", "failed")
+STATUSES = ("official", "interim", "metadata", "empty", "failed", "duplicate")
+"""Every value of the ``status`` column of ``add.txt``."""
 # The groups of the list at the end of the log, in order: (next, heading).
 _LEFT_TO_DO_GROUPS = (
     (NEXT_BY_HAND, "By hand now: get the official BibTeX from the URL"),
@@ -1357,7 +1359,7 @@ entries in the staging file, with and without fields.""",
             "metadata) or skips it as a duplicate, 1 if a lookup or download fails and\n"
             "--fallback doesn't cover it (try again later) or if BibCC can't write the\n"
             "staging file safely, 2 on usage errors.",
-            env=[ENV_S2, ENV_VENUES],
+            env=[ENV_S2, ENV_VENUES, ENV_CACHE],
         ),
         formatter_class=HelpFormatter,
     )

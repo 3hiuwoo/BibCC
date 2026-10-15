@@ -53,6 +53,25 @@ event itself (:data:`EVENT_FIELDS`), and ``bibcc upgrade`` can replace it.
 A venue whose proceedings are not out yet keeps the interim booktitle as its
 ``name`` until they are.
 
+A third list, ``families``, describes a conference across its editions::
+
+    families:
+      - name: International Conference on Machine Learning
+        acronym: ICML
+        fields:                 # the same in every edition; an edition's own value wins
+          publisher: PMLR
+        entry_fields: [pages, pdf, url]   # fields the official BibTeX of every paper has
+        learned_from: official BibTeX of 6 entries (2024, 2025)
+
+An edition belongs to the family whose name or alias it shares, once years
+and ordinals are removed (see :func:`family_key`), or whose acronym it
+carries.  ``entry_fields`` is the venue's *schema*: the per-paper fields
+(pages, DOI, URL) that the official BibTeX of the venue has.  Journal and
+proceedings records may carry their own ``entry_fields`` too; an edition's
+schema replaces its family's, for the year a venue changed its export.  A
+family may also set the keys of the built-in provider table
+(:mod:`bibcc.families`), such as ``provider`` and ``interim``.
+
 Usage:
     from bibcc.venues import load_library, open_library
 
@@ -95,6 +114,8 @@ _LIBRARY_HEADER = """\
 #              name is the published proceedings' booktitle; interim maps a
 #              source (cvf, openreview) to the booktitle it uses before or
 #              instead of the proceedings.
+# families:    a conference across its editions: fields every edition shares,
+#              and entry_fields, the fields the official BibTeX of each paper has.
 #
 # This file is rewritten by `bibcc complete --update-venues` and
 # `bibcc venues import`; comments other than this header are not preserved.
@@ -159,6 +180,9 @@ class Venue:
     aliases: List[str] = field(default_factory=list)
     # source ("cvf", "openreview") -> booktitles that source uses for these proceedings
     interim: Dict[str, List[str]] = field(default_factory=dict)
+    # The venue's schema: per-paper fields its official BibTeX has.
+    entry_fields: List[str] = field(default_factory=list)
+    learned_from: str = ""
     # Scope of the library file the record came from ("user", "project", or
     # "user+project" when a merged view combines both); not serialized.
     origin: str = ""
@@ -205,6 +229,70 @@ class Venue:
         if self.interim:
             data["interim"] = {s: n[0] if len(n) == 1 else list(n) for s, n in self.interim.items() if n}
         data["fields"] = dict(self.fields)
+        if self.entry_fields:
+            data["entry_fields"] = list(self.entry_fields)
+        if self.learned_from:
+            data["learned_from"] = self.learned_from
+        return data
+
+
+# Keys of a family record that say where its official BibTeX comes from (see bibcc.families).
+ROUTING_KEYS = (
+    "acronym_aliases", "pattern", "workshop_of", "provider", "site", "interim", "interim_since",
+    "blocked_by", "manual_url",
+)
+
+
+@dataclass
+class Family:
+    """A conference across its editions: shared fields, schema, and provider facts."""
+
+    name: str = ""
+    acronym: str = ""
+    aliases: List[str] = field(default_factory=list)
+    fields: Dict[str, str] = field(default_factory=dict)
+    entry_fields: List[str] = field(default_factory=list)
+    learned_from: str = ""
+    # Provider facts, the keys of ROUTING_KEYS ("acronym_aliases" is a list, the rest strings).
+    routing: Dict[str, object] = field(default_factory=dict)
+    origin: str = ""
+
+    @property
+    def label(self) -> str:
+        if self.name and self.acronym:
+            return f"{self.name} ({self.acronym})"
+        return self.name or self.acronym
+
+    def keys(self) -> set[str]:
+        """Match keys of the family's name and aliases (see :func:`family_match_keys`)."""
+        found: set[str] = set()
+        for name in [self.name, *self.aliases]:
+            if name:
+                found |= family_match_keys(name)
+        return found
+
+    def same_family(self, other: "Family") -> bool:
+        if self.acronym and other.acronym:
+            return self.acronym.casefold() == other.acronym.casefold()
+        return bool(self.keys() & other.keys())
+
+    def to_dict(self) -> Dict:
+        data: Dict = {}
+        if self.name:
+            data["name"] = self.name
+        if self.acronym:
+            data["acronym"] = self.acronym
+        if self.aliases:
+            data["aliases"] = list(self.aliases)
+        for key in ROUTING_KEYS:
+            if self.routing.get(key):
+                data[key] = self.routing[key]
+        if self.fields:
+            data["fields"] = dict(self.fields)
+        if self.entry_fields:
+            data["entry_fields"] = list(self.entry_fields)
+        if self.learned_from:
+            data["learned_from"] = self.learned_from
         return data
 
 
@@ -261,9 +349,10 @@ class LibrarySource:
     exists: bool
     journals: int = 0
     proceedings: int = 0
+    families: int = 0
 
     def describe(self, with_scope: bool = True) -> str:
-        size = _counts(self.journals, self.proceedings) if self.exists else "not created yet"
+        size = _counts(self.journals, self.proceedings, self.families) if self.exists else "not created yet"
         text = f"{self.path} ({size})"
         return f"{self.scope} {text}" if with_scope else text
 
@@ -278,8 +367,9 @@ class FieldConflict:
     other: str
 
 
-def _counts(journals: int, proceedings: int) -> str:
-    return f"{journals} journal{'s' * (journals != 1)}, {proceedings} proceedings"
+def _counts(journals: int, proceedings: int, families: int = 0) -> str:
+    text = f"{journals} journal{'s' * (journals != 1)}, {proceedings} proceedings"
+    return text + (f", {families} famil{'ies' if families != 1 else 'y'}" if families else "")
 
 
 def _year_sort_key(venue: Venue) -> tuple:
@@ -310,6 +400,7 @@ class VenueLibrary:
     ):
         self.journals: List[Venue] = journals or []
         self.proceedings: List[Venue] = proceedings or []
+        self.families: List[Family] = []
         # The file save() writes; None for a merged view, which is read-only.
         self.path = path
         self.scope = FILE_SCOPE
@@ -327,9 +418,12 @@ class VenueLibrary:
         lib = cls.loads(text, where=str(lib_path))
         lib.path = lib_path
         lib.scope = scope
-        lib.sources = [LibrarySource(scope, lib_path, lib_path.exists(), len(lib.journals), len(lib.proceedings))]
+        lib.sources = [LibrarySource(scope, lib_path, lib_path.exists(), len(lib.journals), len(lib.proceedings),
+                                     len(lib.families))]
         for venue in lib.journals + lib.proceedings:
             venue.origin = scope
+        for family in lib.families:
+            family.origin = scope
         return lib
 
     @classmethod
@@ -337,11 +431,13 @@ class VenueLibrary:
         """Parse a library from YAML text (with no path, so it cannot be saved as is)."""
         data = yaml.safe_load(text) or {}
         if not isinstance(data, dict):
-            raise ValueError(f"{where}: expected 'journals' and 'proceedings' lists")
+            raise ValueError(f"{where}: expected 'journals', 'proceedings', and 'families' lists")
         lib = cls()
         for kind, key in ((JOURNAL, "journals"), (PROCEEDINGS, "proceedings")):
             for i, raw in enumerate(data.get(key) or []):
                 lib._add(_venue_from_dict(raw, kind, f"{where}: {key}[{i}]"))
+        for i, raw in enumerate(data.get("families") or []):
+            lib.families.append(family_from_dict(raw, f"{where}: families[{i}]"))
         return lib
 
     def save(self, path: Optional[str | Path] = None) -> Path:
@@ -353,16 +449,21 @@ class VenueLibrary:
             )
         out = Path(path) if path else self.path
         out.parent.mkdir(parents=True, exist_ok=True)
-        data = {
+        data: Dict[str, List[Dict]] = {
             "journals": [v.to_dict() for v in sorted(self.journals, key=lambda v: v.name.casefold())],
-            "proceedings": [v.to_dict() for v in sorted(self.proceedings, key=_year_sort_key)],
         }
+        if self.families:
+            data["families"] = [
+                f.to_dict() for f in sorted(self.families, key=lambda f: (f.name or f.acronym).casefold())
+            ]
+        data["proceedings"] = [v.to_dict() for v in sorted(self.proceedings, key=_year_sort_key)]
         body = yaml.safe_dump(
             data, sort_keys=False, allow_unicode=True, width=1000, default_flow_style=False
         )
         out.write_text(_LIBRARY_HEADER + "\n" + body, encoding="utf-8")
         if out == self.path:
-            self.sources = [LibrarySource(self.scope, out, True, len(self.journals), len(self.proceedings))]
+            self.sources = [LibrarySource(self.scope, out, True, len(self.journals), len(self.proceedings),
+                                          len(self.families))]
         return out
 
     def describe(self) -> str:
@@ -370,7 +471,8 @@ class VenueLibrary:
         if self.sources:
             text = " + ".join(source.describe() for source in self.sources)
         else:
-            text = f"{self.path or '(in memory)'} ({_counts(len(self.journals), len(self.proceedings))})"
+            text = (f"{self.path or '(in memory)'} "
+                    f"({_counts(len(self.journals), len(self.proceedings), len(self.families))})")
         if self.overrides:
             text += f"; the project overrides {len(self.overrides)} user field{'s' * (len(self.overrides) != 1)}"
         if not len(self):
@@ -389,7 +491,91 @@ class VenueLibrary:
         self._bucket(venue.kind).append(venue)
 
     def __len__(self) -> int:
-        return len(self.journals) + len(self.proceedings)
+        return len(self.journals) + len(self.proceedings) + len(self.families)
+
+    # ------------------------------------------------------------- families
+
+    def find_family(self, family: Family) -> Optional[Family]:
+        """The record of the same family as *family* (same acronym, or else a shared name)."""
+        for other in self.families:
+            if other.same_family(family):
+                return other
+        return None
+
+    def family_of(self, venue_name: str) -> Optional[Family]:
+        """The family record that a booktitle or proceedings record name belongs to, if any.
+
+        A shared name or alias (without years and ordinals) wins over a shared acronym.
+        """
+        if not self.families or not venue_name:
+            return None
+        keys = family_match_keys(venue_name)
+        for family in self.families:
+            if keys & family.keys():
+                return family
+        if not any(f.acronym for f in self.families):
+            return None
+        # Imported here: bibcc.families imports this module.
+        from bibcc.families import acronym_of
+
+        acronym = acronym_of(venue_name, self).casefold()
+        if not acronym:
+            return None
+        for family in self.families:
+            if family.acronym and family.acronym.casefold() == acronym:
+                return family
+        return None
+
+    def family_of_record(self, venue: Venue) -> Optional[Family]:
+        """The family of a proceedings record (journals have none)."""
+        return self.family_of(venue.name) if venue.kind == PROCEEDINGS else None
+
+    def fields_of(self, venue: Venue) -> Dict[str, str]:
+        """A record's fields, with the fields of its family under them (the record's value wins)."""
+        family = self.family_of_record(venue)
+        if family is None or not family.fields:
+            return dict(venue.fields)
+        return {**family.fields, **venue.fields}
+
+    def schema_of(self, venue: Optional[Venue], venue_name: str = "") -> Tuple[List[str], str]:
+        """``(entry_fields, where they come from)`` for a record, or for a booktitle without one.
+
+        A record's own schema wins over its family's.  ``([], "")`` when
+        neither has one.
+        """
+        if venue is not None and venue.entry_fields:
+            return list(venue.entry_fields), _schema_origin(venue.label, venue.learned_from)
+        if venue is not None and venue.kind == JOURNAL:
+            return [], ""
+        family = self.family_of(venue.name if venue is not None else venue_name)
+        if family is not None and family.entry_fields:
+            return list(family.entry_fields), _schema_origin(f"family {family.label}", family.learned_from)
+        return [], ""
+
+    def upsert_family(self, family: Family, overwrite: bool = True) -> str:
+        """Add *family* or merge it into its record; ``"added"``, ``"updated"``, or ``"unchanged"``."""
+        existing = self.find_family(family)
+        if existing is None:
+            self.families.append(family)
+            return "added"
+        before = existing.to_dict()
+        if not existing.name and family.name:
+            existing.name = family.name
+        if not existing.acronym and family.acronym:
+            existing.acronym = family.acronym
+        for alias in [family.name, *family.aliases]:
+            if alias and not (family_match_keys(alias) & existing.keys()):
+                existing.aliases.append(alias)
+        if overwrite:
+            existing.fields = {**existing.fields, **family.fields}
+            existing.routing = {**existing.routing, **family.routing}
+        else:
+            existing.fields = {**family.fields, **existing.fields}
+            existing.routing = {**family.routing, **existing.routing}
+        if family.entry_fields and (overwrite or not existing.entry_fields):
+            existing.entry_fields = list(family.entry_fields)
+            existing.learned_from = family.learned_from
+        return "unchanged" if existing.to_dict() == before else "updated"
 
     def find_exact(self, kind: str, name: str, year: Optional[str] = None) -> Optional[Venue]:
         """Find a record by its canonical name (and year for proceedings)."""
@@ -484,6 +670,9 @@ class VenueLibrary:
         for source, names in venue.interim.items():
             for name in names:
                 existing.add_interim(source, name)
+        if venue.entry_fields and (overwrite or not existing.entry_fields):
+            existing.entry_fields = list(venue.entry_fields)
+            existing.learned_from = venue.learned_from
         existing.aliases = [a for a in existing.aliases if normalize_venue(a) != normalize_venue(existing.name)]
         return "unchanged" if existing.to_dict() == before else "updated"
 
@@ -506,7 +695,9 @@ _ORDINAL_WORDS = (
     r"eighteenth|nineteenth|twentieth|thirtieth|fortieth)\b"
 )
 
-# Fields that usually stay the same from one conference edition to the next.
+# Fields that usually stay the same from one conference edition to the next,
+# which the fill-in YAML pre-fills from the previous edition when the venue
+# has no family record (a family record's fields apply to every edition).
 # Not month: an edition can move to another month or run across two.
 EDITION_STABLE_FIELDS = ["publisher", "issn", "series", "address"]
 
@@ -546,12 +737,46 @@ def family_label(name: str) -> str:
     return " ".join(text.split()).strip(" -–—:,")
 
 
+_TRAILING_ACRONYM = re.compile(r"\s*\([A-Za-z][A-Za-z0-9-]{1,11}\)\s*$")
+
+
+def family_match_keys(name: str) -> set[str]:
+    """Keys under which a name matches a family record: :func:`family_key`, also without a trailing "(ACRONYM)".
+
+    "2025 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)"
+    thus matches a family named "IEEE/CVF Conference on Computer Vision and
+    Pattern Recognition".
+    """
+    keys = {family_key(name)}
+    bare = _TRAILING_ACRONYM.sub("", name)
+    if bare != name:
+        keys.add(family_key(bare))
+    return {k for k in keys if k}
+
+
+def edition_group(library: Optional[VenueLibrary], name: str) -> str:
+    """The key that groups the editions of a venue: its family record if any, else :func:`family_key`.
+
+    Every command that relates editions (the previous-edition pre-fill,
+    ``check venues``, ``check editions``, and schema learning) groups them by
+    this key, so they agree on what one venue is.
+    """
+    family = library.family_of(name) if library is not None else None
+    if family is not None:
+        return "family:" + (family.acronym.casefold() if family.acronym else min(family.keys(), default=""))
+    return family_key(name)
+
+
+def _schema_origin(where: str, learned_from: str) -> str:
+    return f"{where}, learned from {learned_from}" if learned_from else where
+
+
 def previous_edition(library: VenueLibrary, name: str, year: str) -> Optional[Venue]:
-    """Most recent earlier proceedings record of the same conference series."""
-    key = edition_key(name)
+    """Most recent earlier proceedings record of the same conference (see :func:`edition_group`)."""
+    key = edition_group(library, name)
     best: Optional[Venue] = None
     for venue in library.proceedings:
-        if edition_key(venue.name) != key or not str(venue.year).isdigit():
+        if edition_group(library, venue.name) != key or not str(venue.year).isdigit():
             continue
         if year.isdigit() and int(venue.year) >= int(year):
             continue
@@ -586,6 +811,51 @@ def _venue_from_dict(raw: Dict, kind: str, where: str) -> Venue:
         year=str(year).strip() if kind == PROCEEDINGS else None,
         aliases=[str(a).strip() for a in aliases if str(a).strip()],
         interim=interim,
+        entry_fields=_field_list(raw.get("entry_fields"), where),
+        learned_from=" ".join(str(raw.get("learned_from") or "").split()),
+    )
+
+
+def _field_list(raw, where: str) -> List[str]:
+    """A list of lowercase field names, from a YAML list or a comma-separated string."""
+    if raw is None:
+        return []
+    if isinstance(raw, str):
+        raw = raw.split(",")
+    if not isinstance(raw, list):
+        raise ValueError(f"{where}: 'entry_fields' must be a list of field names")
+    names: List[str] = []
+    for item in raw:
+        name = str(item or "").strip().lower()
+        if name and name not in names:
+            names.append(name)
+    return names
+
+
+def family_from_dict(raw: Dict, where: str) -> Family:
+    """Build a Family from a YAML mapping (a library record or a row of the built-in table)."""
+    if not isinstance(raw, dict) or not (str(raw.get("name") or "").strip() or str(raw.get("acronym") or "").strip()):
+        raise ValueError(f"{where}: every family needs a 'name' or an 'acronym'")
+    aliases = raw.get("aliases") or []
+    if isinstance(aliases, str):
+        aliases = [aliases]
+    routing: Dict[str, object] = {}
+    for key in ROUTING_KEYS:
+        value = raw.get(key)
+        if value is None or value == "":
+            continue
+        if key == "acronym_aliases":
+            routing[key] = [str(v).strip() for v in ([value] if isinstance(value, str) else value) if str(v).strip()]
+        else:
+            routing[key] = str(value).strip()
+    return Family(
+        name=" ".join(str(raw.get("name") or "").split()),
+        acronym=str(raw.get("acronym") or "").strip(),
+        aliases=[" ".join(str(a).split()) for a in aliases if str(a).strip()],
+        fields=_clean_fields(raw.get("fields")),
+        entry_fields=_field_list(raw.get("entry_fields"), where),
+        learned_from=" ".join(str(raw.get("learned_from") or "").split()),
+        routing=routing,
     )
 
 
@@ -646,7 +916,34 @@ def merge_records(
                 if old is not None and old != value:
                     kept, other = (value, old) if overwrite else (old, value)
                     conflicts.append(FieldConflict(existing.label, name, kept, other))
+            if venue.entry_fields and existing.entry_fields and venue.entry_fields != existing.entry_fields:
+                ours, theirs = ", ".join(existing.entry_fields), ", ".join(venue.entry_fields)
+                kept, other = (theirs, ours) if overwrite else (ours, theirs)
+                conflicts.append(FieldConflict(existing.label, "entry_fields", kept, other))
         counts[target.upsert(venue, overwrite=overwrite)] += 1
+    return counts, conflicts
+
+
+def merge_families(
+    target: VenueLibrary, families: Iterable[Family], overwrite: bool
+) -> Tuple[Dict[str, int], List[FieldConflict]]:
+    """Like :func:`merge_records`, for family records."""
+    counts = {"added": 0, "updated": 0, "unchanged": 0}
+    conflicts: List[FieldConflict] = []
+    for family in families:
+        family = copy.deepcopy(family)
+        existing = target.find_family(family)
+        if existing is not None:
+            for name, value in family.fields.items():
+                old = existing.fields.get(name)
+                if old is not None and old != value:
+                    kept, other = (value, old) if overwrite else (old, value)
+                    conflicts.append(FieldConflict(existing.label, name, kept, other))
+            if family.entry_fields and existing.entry_fields and family.entry_fields != existing.entry_fields:
+                ours, theirs = ", ".join(existing.entry_fields), ", ".join(family.entry_fields)
+                kept, other = (theirs, ours) if overwrite else (ours, theirs)
+                conflicts.append(FieldConflict(existing.label, "entry_fields", kept, other))
+        counts[target.upsert_family(family, overwrite=overwrite)] += 1
     return counts, conflicts
 
 
@@ -667,13 +964,20 @@ def load_library(venues: Optional[str | Path] = None, start: Optional[str | Path
         return library
     project = VenueLibrary.load(project_path, scope=PROJECT_SCOPE)
     user_records = {id(v) for v in library.journals + library.proceedings}
+    user_families = {id(f) for f in library.families}
     _, library.overrides = merge_records(library, project.journals + project.proceedings, overwrite=True)
+    _, family_overrides = merge_families(library, project.families, overwrite=True)
+    library.overrides += family_overrides
     # Records the project merely added keep its scope; one both files define
     # draws fields from the two.
     for incoming in project.journals + project.proceedings:
         record = library.find_any(incoming)
         if record is not None and id(record) in user_records:
             record.origin = "user+project"
+    for incoming_family in project.families:
+        family = library.find_family(incoming_family)
+        if family is not None and id(family) in user_families:
+            family.origin = "user+project"
     library.sources += project.sources
     library.path = None
     library.scope = "merged"

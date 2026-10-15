@@ -52,13 +52,14 @@ NESTED_REPORTS_DIR: str = "reports"
 """For an input already inside a ``.bibcc/`` tree: the sibling folder for its reports."""
 
 REPORT_KINDS: Tuple[str, ...] = (
-    "add.txt", "citation_keys.txt", "complete.diff", "conflicts.txt", "extra_pdfs.txt",
-    "field_issues.txt", "format.diff", "incomplete_entries.txt", "missing_fields.txt",
-    "missing_pdfs.txt", "missing_venues.txt", "missing_venues.yaml", "published.txt",
-    "rename_report.txt", "scholar_urls.txt", "smart_protection.txt", "title_case.txt",
-    "title_report.txt", "upgrade.diff", "upgrade.txt", "venue_check.txt",
+    "add.txt", "citation_keys.txt", "complete.diff", "conflicts.txt", "edition_fields.txt",
+    "edition_schemas.txt", "extra_pdfs.txt", "field_issues.txt", "format.diff",
+    "incomplete_entries.txt", "missing_fields.txt", "missing_pdfs.txt", "missing_venues.txt",
+    "missing_venues.yaml", "official_fields.txt", "official_unchecked.txt", "official_venues.txt",
+    "published.txt", "rename_report.txt", "scholar_urls.txt", "smart_protection.txt",
+    "title_case.txt", "title_report.txt", "upgrade.diff", "upgrade.txt", "venue_check.txt",
 )
-"""Every report file name; the flat ``.bibcc/NAME.KIND`` files of 0.3 are moved by these."""
+"""Every report file name; the flat ``.bibcc/NAME.KIND`` files of 0.3 are moved by these too."""
 
 TOOL_NAMES: Tuple[str, ...] = (
     "adder", "checker", "completer", "composer", "formatter", "librarian",

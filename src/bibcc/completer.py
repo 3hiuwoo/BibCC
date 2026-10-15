@@ -145,6 +145,7 @@ def complete_entry(entry: Mapping[str, str], library: VenueLibrary) -> EntryComp
 
     Missing fields are added, differing ones become conflicts, and an entry
     matched through an interim booktitle only gets :data:`EVENT_FIELDS`.
+    A proceedings record also supplies the fields of its family record.
     """
     year = entry.get("year", "")
     venue_raw = entry.get("booktitle") or entry.get("journal") or ""
@@ -158,7 +159,8 @@ def complete_entry(entry: Mapping[str, str], library: VenueLibrary) -> EntryComp
         return EntryCompletion("missing", kind)
 
     done = EntryCompletion("matched", kind, venue=result.venue, interim_source=result.interim_source)
-    for name, value in result.venue.fields.items():
+    # A family record's fields apply to each of its editions, under the edition's own.
+    for name, value in library.fields_of(result.venue).items():
         if result.interim_source and name not in EVENT_FIELDS:
             continue
         if is_no_month(name, value):

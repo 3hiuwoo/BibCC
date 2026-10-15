@@ -1,0 +1,72 @@
+# Where BibCC finds the official BibTeX of each conference family.
+#
+# This table isn't a venue library: it holds no venue fields, only the facts
+# that `bibcc add`, `bibcc upgrade`, and `bibcc check official` use to locate
+# a paper's official BibTeX. A family record in your venue library with the
+# same acronym overrides these keys, and one with a new acronym adds a family.
+#
+# acronym          The family's short name, as in citation keys and reports.
+# acronym_aliases  Other spellings of the acronym.
+# pattern          A regular expression (case-insensitive) that names the family in a booktitle.
+# workshop_of      The family whose booktitle, with the word "workshop", names this family.
+# provider         Where the published BibTeX comes from: xplore (IEEE Xplore), springer,
+#                  proceedings (a site with the NeurIPS layout, at site), pmlr, acl, ijcai,
+#                  openreview (OpenReview is the published version), or blocked.
+# site             The proceedings site, for provider proceedings.
+# interim          Where BibTeX comes from before the proceedings are out: cvf or openreview.
+# interim_since    The first year that interim BibTeX is interim; before it, it's the official BibTeX.
+# blocked_by       Who blocks automated downloads, for provider blocked.
+# manual_url       Where to get the BibTeX by hand when BibCC can't.
+
+families:
+  - {acronym: CVPR, provider: xplore, interim: cvf}
+  - {acronym: CVPRW, workshop_of: CVPR, provider: xplore, interim: cvf}
+  - {acronym: ICCV, provider: xplore, interim: cvf}
+  - {acronym: ICCVW, workshop_of: ICCV, provider: xplore, interim: cvf}
+  - {acronym: WACV, provider: xplore, interim: cvf}
+  - {acronym: WACVW, workshop_of: WACV, provider: xplore, interim: cvf}
+  - {acronym: ECCV, provider: springer, manual_url: "https://www.ecva.net/papers.php"}
+  - acronym: NeurIPS
+    acronym_aliases: [NIPS]
+    provider: proceedings
+    site: https://proceedings.neurips.cc
+    interim: openreview
+  - acronym: ICLR
+    provider: proceedings
+    site: https://proceedings.iclr.cc
+    interim: openreview
+    interim_since: "2024"
+  - {acronym: ICML, provider: pmlr, interim: openreview}
+  - {acronym: CoLLAs, provider: pmlr, pattern: '\blifelong learning agents\b'}
+  - {acronym: AISTATS, provider: pmlr}
+  - {acronym: CoRL, provider: pmlr}
+  - {acronym: UAI, provider: pmlr}
+  - {acronym: COLT, provider: pmlr}
+  - {acronym: ACML, provider: pmlr}
+  - {acronym: CLeaR, provider: pmlr}
+  - {acronym: L4DC, provider: pmlr}
+  - {acronym: MIDL, provider: pmlr}
+  - {acronym: ACL, provider: acl}
+  - {acronym: EMNLP, provider: acl}
+  - {acronym: NAACL, provider: acl}
+  - {acronym: EACL, provider: acl}
+  - {acronym: COLING, provider: acl}
+  - {acronym: AACL, provider: acl}
+  - {acronym: Findings, provider: acl, pattern: '^findings of\b'}
+  - {acronym: AAAI, provider: blocked, blocked_by: AAAI, manual_url: "https://ojs.aaai.org/"}
+  - {acronym: IJCAI, provider: ijcai}
+
+# The provider of each DOI prefix. The first prefix of a provider is the one
+# that a title search on CrossRef uses.
+doi_prefixes:
+  "10.1109": xplore
+  "10.1007": springer
+  "10.1038": springer
+  "10.18653": acl
+  "10.24963": ijcai
+
+# Publishers whose sites refuse automated BibTeX downloads, by DOI prefix.
+blocked_doi_prefixes:
+  "10.1609": AAAI
+  "10.1145": the ACM Digital Library
+  "10.1016": Elsevier

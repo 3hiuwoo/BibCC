@@ -63,7 +63,7 @@ from bibcc.adder import (
     venue_proposals,
 )
 from bibcc.bibedit import BibEditError, read_bib, replace_entry, unified_diff, write_bib
-from bibcc.helptext import ENV_S2, ENV_VENUES, VENUES_HELP, HelpFormatter, epilog
+from bibcc.helptext import ENV_CACHE, ENV_S2, ENV_VENUES, VENUES_HELP, HelpFormatter, epilog
 from bibcc.logging_utils import SEPARATOR_THIN, SEPARATOR_WIDTH, Logger, remove_report, report_dir, write_report
 from bibcc.missing_venues import MissingVenue, update_command, write_missing_venues
 from bibcc.official import (
@@ -107,6 +107,8 @@ _INTERIM_URL = re.compile(r"openreview\.net|thecvf\.com", re.IGNORECASE)
 
 UPGRADE_HEADER = "upgrade: entry_id\tstatus\tdetail\tnext"
 PUBLISHED_HEADER = "published versions: file\tentry_id\tstatus\tvenue\tofficial BibTeX source\turl\tnext"
+PUBLISHED_STATUSES = ("published", "interim", "official BibTeX available")
+"""Every value of the ``status`` column of ``published.txt``."""
 
 PREPRINT = "preprint"
 METADATA = "metadata"
@@ -138,7 +140,7 @@ def candidate_kind(entry: Dict[str, str], library: VenueLibrary, from_metadata: 
     result = library.lookup(booktitle, year, PROCEEDINGS)
     if result.interim_source:
         return result.interim_source
-    return interim_source_of(booktitle, url=entry.get("url", ""), year=year)
+    return interim_source_of(booktitle, url=entry.get("url", ""), year=year, library=library)
 
 
 def find_upgrade(
@@ -252,11 +254,11 @@ def _lookup_for(
         record, error, notes = find_upgrade(entry, library)
         if record is None:
             return None, None, error, notes
-        return record, find_official(record, download=download), None, notes
+        return record, find_official(record, download=download, library=library), None, notes
     record = record_from_entry(entry)
     # Interim BibTeX is still better than metadata; an interim entry is upgraded later.
     interim = kind == METADATA
-    return record, find_official(record, download=download, interim=interim), None, []
+    return record, find_official(record, download=download, interim=interim, library=library), None, []
 
 
 def _venue_label(record: Record) -> str:
@@ -547,7 +549,7 @@ downloads no BibTeX and changes nothing.""",
             ],
             exit_status="0 on success, 1 if a lookup or download fails (for example, because of rate\n"
             "limits; run again later or set S2_API_KEY), 2 on usage errors.",
-            env=[ENV_S2, ENV_VENUES],
+            env=[ENV_S2, ENV_VENUES, ENV_CACHE],
         ),
         formatter_class=HelpFormatter,
     )

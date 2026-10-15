@@ -8,7 +8,9 @@ Re-exports the checker entry points used by ``bibcc check``:
 from __future__ import annotations
 
 from bibcc.checkers.citation_keys import check_citation_keys
-from bibcc.checkers.edition_fields import DEFAULT_IGNORED_FIELDS, SAME_YEAR, check_edition_fields
+from bibcc.checkers.edition_fields import DEFAULT_IGNORED_FIELDS, check_edition_fields
+from bibcc.checkers.edition_fields import FIELDS_HEADER as EDITION_FIELDS_HEADER
+from bibcc.checkers.edition_fields import SCHEMAS_HEADER as EDITION_SCHEMAS_HEADER
 from bibcc.checkers.field_issues import check_field_issues, trim_fields
 from bibcc.checkers.missing_fields import DEFAULT_ENTRY_TYPES, check_missing_fields
 from bibcc.checkers.official_fields import (
@@ -44,8 +46,9 @@ __all__ = [
     "DEFAULT_JOURNAL_FIELDS",
     "DEFAULT_PROCEEDINGS_FIELDS",
     "DEFAULT_VOCAB",
+    "EDITION_FIELDS_HEADER",
+    "EDITION_SCHEMAS_HEADER",
     "MIN_TERM_LENGTH",
-    "SAME_YEAR",
     "apply_protection",
     "auto_vocab_path",
     "check_citation_keys",

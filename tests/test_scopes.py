@@ -73,8 +73,14 @@ def test_project_library_is_found_from_the_bib_file_upward(project: Path):
 
 
 def test_no_library_is_shipped_with_the_package():
+    import yaml
+
     package = Path(__import__("bibcc").__file__).parent
-    assert not list(package.rglob("*.yaml"))
+    # The provider table is the one YAML file, and it holds no venue data.
+    assert [p.relative_to(package).as_posix() for p in package.rglob("*.yaml")] == ["data/families.yaml"]
+    table = yaml.safe_load((package / "data" / "families.yaml").read_text(encoding="utf-8"))
+    assert set(table) == {"families", "doi_prefixes", "blocked_doi_prefixes"}
+    assert not any({"name", "aliases", "fields", "entry_fields"} & set(row) for row in table["families"])
 
 
 def test_example_libraries_load_and_are_in_canonical_form(tmp_path: Path):
@@ -251,6 +257,27 @@ def test_venues_import_keeps_your_values_unless_overwrite(isolated_user_library:
     assert "kept 'Mine' (incoming 'Theirs')" in capsys.readouterr().out
     assert _venues("import", str(source), "--overwrite") == 0
     assert _journal(isolated_user_library) == {"publisher": "Theirs", "issn": "2222-2222"}
+
+
+def test_venues_import_merges_families(isolated_user_library: Path, tmp_path: Path, capsys):
+    isolated_user_library.parent.mkdir(parents=True, exist_ok=True)
+    isolated_user_library.write_text(
+        "families:\n- name: International Conference on Machine Learning\n  acronym: ICML\n"
+        "  entry_fields: [pages]\n", encoding="utf-8")
+    source = tmp_path / "shared.yaml"
+    source.write_text(
+        "families:\n- name: International Conference on Machine Learning\n  acronym: ICML\n"
+        "  fields: {publisher: PMLR}\n  entry_fields: [pages, pdf]\n"
+        "- name: Conference on Neural Information Processing Systems\n  acronym: NeurIPS\n",
+        encoding="utf-8")
+
+    assert _venues("import", str(source)) == 0
+
+    families = {f.acronym: f for f in VenueLibrary.load(isolated_user_library).families}
+    assert set(families) == {"ICML", "NeurIPS"}
+    assert families["ICML"].fields == {"publisher": "PMLR"}
+    assert families["ICML"].entry_fields == ["pages"]
+    assert "entry_fields: kept 'pages' (incoming 'pages, pdf')" in capsys.readouterr().out
 
 
 def test_venues_import_dry_run_and_explicit_file(isolated_user_library: Path, tmp_path: Path):

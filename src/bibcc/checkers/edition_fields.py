@@ -1,36 +1,37 @@
 """
-Cross-edition field check for BibTeX entries.
+Schema check for BibTeX entries: the per-paper fields their venue exports.
 
-Groups the entries of a .bib file, and of the ``--against`` files, by venue
-across its editions (see :func:`bibcc.venues.family_key`), and reports the
-fields an entry lacks that the other entries of its venue have.  The
-official BibTeX of a venue usually has the same fields every year (PMLR
-gives every ICML paper ``day``, ``pdf``, ``series``, and so on), so a gap
-is either a field lost on the way or a change of the venue's export.  Two
-kinds of finding tell these apart:
+The venue library can hold each venue's *schema*, the fields (such as
+``pages``, ``doi``, and ``url``) that the official BibTeX of every paper of
+the venue has (see :mod:`bibcc.schemas`).  This check reports, for each
+entry of a .bib file, the fields of its venue's schema that the entry
+lacks (``missing``).  A journal article not yet in an issue isn't expected
+to have a volume, number, or pages.
 
-* ``same_year``: most other entries of the same venue and year have the
-  field.  The entry is probably incomplete.
-* ``other_years``: few or none of this year's entries have it, but most
-  other years do.  Either the field is missing from all of them, or the
-  venue changed what it exports.
+For a venue without a schema, the check compares the entries of the
+venue, in the file and in the ``--against`` files, with one another, and
+proposes the schema that most of them share (``schema_lacks``).  It never
+reports an entry from that comparison alone: ``learn`` writes the proposals
+into the venue library first, and the entries are then checked against
+them.  A schema learned from official BibTeX (``bibcc check official
+--learn``) is the more reliable one; the comparison is for venues whose
+BibTeX BibCC can't download.
 
 Fields in :data:`DEFAULT_IGNORED_FIELDS` (the fields every compared entry
-has, BibCC's own ``citation``, and exporter bookkeeping) are never compared.  Entries that cite an interim (CVF or
-OpenReview) booktitle, entries built from metadata, and empty entries are
-left out: they lack fields by design.  So are ``month`` and ``day`` for an
-entry whose venue library record says ``month: none``.
+has, BibCC's own ``citation``, and exporter bookkeeping) are never compared.
+Entries that cite an interim (CVF or OpenReview) booktitle, entries built
+from metadata, and empty entries are left out: they lack fields by design.
 
 Usage:
     from bibcc.checkers.edition_fields import check_edition_fields
 
-    rows = check_edition_fields("refs.bib", against=["bib/"], library=library)
+    result = check_edition_fields("refs.bib", library, against=["bib/"])
 """
 
 from __future__ import annotations
 
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
@@ -38,50 +39,49 @@ import bibtexparser
 
 from bibcc.bibedit import read_bib
 from bibcc.logging_utils import SEPARATOR_LIGHT, SEPARATOR_WIDTH
-from bibcc.missing_venues import JOURNAL_FIELDS, PROCEEDINGS_FIELDS
-from bibcc.venues import (
-    JOURNAL,
-    VenueLibrary,
-    family_key,
-    family_label,
-    has_no_month,
-    normalize_venue,
-    venue_kind,
+from bibcc.schemas import (
+    IGNORED_FIELDS,
+    ISSUE_FIELDS,
+    MIN_PEERS,
+    PEERS,
+    Observation,
+    Proposal,
+    apply_proposals,
+    awaiting_issue,
+    expected_fields,
+    observe,
+    propose,
 )
+from bibcc.venues import PROCEEDINGS, VenueLibrary, family_label, has_no_month, venue_kind
 
-DEFAULT_IGNORED_FIELDS: Tuple[str, ...] = (
-    # Every compared entry has these, and `check missing` reports them.
-    "title", "author", "year", "booktitle", "journal",
-    # Written by BibCC itself (`bibcc scholar cite`).
-    "citation",
-    # Exporter and reference-manager bookkeeping.
-    "annote", "bibsource", "biburl", "copyright", "mendeley-groups", "timestamp", "urldate",
-)
+DEFAULT_IGNORED_FIELDS: Tuple[str, ...] = IGNORED_FIELDS
 
-SAME_YEAR = "same_year"
-OTHER_YEARS = "other_years"
-
-# A field counts as the venue's style when at least this share of the
-# entries (same year) or of the years (other years) has it.
-SHARE = 0.75
-MIN_PEERS = 2  # same-year entries that must have the field
-MIN_YEARS = 2  # other years that must have the field
-
-# Fields a venue library record usually supplies.
-_LIBRARY_FIELDS = set(JOURNAL_FIELDS) | set(PROCEEDINGS_FIELDS)
+MISSING = "missing"
 
 Row = Tuple[str, str, str, str, str, str]  # (entry_id, venue, year, field, issue_type, evidence)
+SchemaRow = Tuple[str, str, str, str, str, str, str]  # (venue, year, level, issue_type, entries, fields, detail)
+
+FIELDS_HEADER = "edition fields: entry_id\tvenue\tyear\tfield\tissue_type\tevidence"
+SCHEMAS_HEADER = "edition schemas: venue\tyear\tlevel\tissue_type\tentries\tfields\tdetail"
 
 
 @dataclass
-class _Item:
-    key: str
-    year: str
-    venue: str
+class EditionCheck:
+    """What :func:`check_edition_fields` found."""
+
+    fields: List[Row] = field(default_factory=list)
+    schemas: List[SchemaRow] = field(default_factory=list)
+    proposals: List[Proposal] = field(default_factory=list)
+    checked: int = 0  # input entries whose venue has a schema
+    unschematized: Dict[str, List[str]] = field(default_factory=dict)  # venue label -> input keys
+    learned: int = 0
+
+
+@dataclass
+class _Entry:
+    entry: Dict[str, str]
     fields: Set[str]
     in_input: bool
-    library_fields: Optional[Set[str]] = None  # fields of the matched library record
-    no_month: bool = False  # the record says the venue has no month
 
 
 def _bib_files(paths: Iterable[str | Path], exclude: Path, log: Callable[[str], None]) -> List[Path]:
@@ -103,11 +103,11 @@ def _bib_files(paths: Iterable[str | Path], exclude: Path, log: Callable[[str], 
     return files
 
 
-def _items(
+def _entries(
     path: Path,
     in_input: bool,
-    library: Optional[VenueLibrary],
-    families: Dict[Tuple[str, str], List[_Item]],
+    library: VenueLibrary,
+    out: List[_Entry],
     skipped: Dict[str, int],
     seen: Set[str],
 ) -> int:
@@ -132,120 +132,91 @@ def _items(
             skipped["metadata"] += in_input
             continue
         kind = venue_kind(entry.get("ENTRYTYPE", ""), entry)
-        record = None
-        if library is not None:
-            result = library.lookup(venue, year, kind, issn=entry.get("issn"))
-            if result.interim_source:
-                skipped["interim"] += in_input
-                continue
-            record = result.venue
-        if kind != JOURNAL and interim_source_of(venue, url=entry.get("url", ""), year=year):
+        if library.lookup(venue, year, kind, issn=entry.get("issn")).interim_source or (
+            kind == PROCEEDINGS and interim_source_of(venue, url=entry.get("url", ""), year=year, library=library)
+        ):
             skipped["interim"] += in_input
             continue
-        name = record.name if record is not None else venue
-        group = normalize_venue(name) if kind == JOURNAL else family_key(name)
-        fields = {k for k, v in entry.items() if k not in ("ID", "ENTRYTYPE") and str(v).strip()}
-        no_month = record is not None and has_no_month(record.fields)
-        families[(kind, group)].append(_Item(
-            key=entry["ID"],
-            year=year,
-            venue=name,
-            fields=fields,
-            in_input=in_input,
-            library_fields=None if record is None else set(record.fields) - ({"month"} if no_month else set()),
-            no_month=no_month,
-        ))
+        fields = {k.lower() for k, v in entry.items() if k not in ("ID", "ENTRYTYPE") and str(v).strip()}
+        out.append(_Entry(entry, fields, in_input))
     return len(entries)
 
 
-def _share(items: Sequence[_Item], name: str) -> float:
-    return sum(name in i.fields for i in items) / len(items) if items else 0.0
+def _missing_rows(item: _Entry, library: VenueLibrary, ignored: Set[str]) -> Tuple[Optional[List[Row]], str]:
+    """``(rows, venue label)``; rows is None when the entry's venue has no schema."""
+    entry = item.entry
+    schema, origin, record = expected_fields(entry, library)
+    venue = record.name if record is not None else (entry.get("booktitle") or entry.get("journal") or "").strip()
+    label = venue if venue_kind(entry.get("ENTRYTYPE", ""), entry) != PROCEEDINGS else family_label(venue)
+    if not schema:
+        return None, label
+    skip = set(ignored)
+    if awaiting_issue(entry):
+        skip |= set(ISSUE_FIELDS)
+    if record is not None and has_no_month(library.fields_of(record)):
+        skip |= {"month", "day"}
+    year = entry.get("year", "").strip()
+    rows = [
+        (entry["ID"], venue, year, name, MISSING, f"in the schema of {origin}")
+        for name in schema if name not in item.fields and name not in skip
+    ]
+    return rows, label
 
 
-def _library_hint(item: _Item, name: str) -> str:
-    if item.library_fields is None:
-        return ""
-    if name in item.library_fields:
-        return "; the library has it, so 'bibcc complete' adds it"
-    if name in _LIBRARY_FIELDS:
-        return "; the library record lacks it too"
-    return ""
-
-
-def _family_rows(items: List[_Item], ignored: Set[str]) -> List[Row]:
-    by_year: Dict[str, List[_Item]] = defaultdict(list)
-    for item in items:
-        by_year[item.year].append(item)
-    label = family_label(max(items, key=lambda i: i.year).venue)
-    compared = sorted({f for i in items for f in i.fields} - ignored)
-    styled_years = {
-        name: {year for year, group in by_year.items() if _share(group, name) >= SHARE} for name in compared
-    }
-    rows: List[Row] = []
-    for item in sorted((i for i in items if i.in_input), key=lambda i: (i.year, i.key)):
-        same_year = [i for i in by_year[item.year] if i is not item]
-        for name in compared:
-            if name in item.fields or (item.no_month and name in ("month", "day")):
+def _schema_rows(proposals: Sequence[Proposal], seen: Dict[str, Observation], inputs: Set[str]) -> List[SchemaRow]:
+    rows: List[SchemaRow] = []
+    for p in proposals:
+        lacking = []
+        for key in p.entries:
+            if key not in inputs or key not in seen:
                 continue
-            have = sum(name in i.fields for i in same_year)
-            if have >= MIN_PEERS and have / len(same_year) >= SHARE:
-                evidence = f"{have} of {len(same_year)} other {item.year} entries have it"
-                rows.append((item.key, label, item.year, name, SAME_YEAR, evidence + _library_hint(item, name)))
-                continue
-            if item.year in styled_years[name]:
-                continue
-            others = sorted(y for y in by_year if y != item.year)
-            with_field = sorted(styled_years[name] - {item.year})
-            if len(with_field) < MIN_YEARS or len(with_field) / len(others) < SHARE:
-                continue
-            evidence = f"{len(with_field)} of {len(others)} other years have it ({', '.join(with_field)})"
-            if have:
-                evidence += f", and {have} of {len(same_year)} other {item.year} entries"
-            rows.append((item.key, label, item.year, name, OTHER_YEARS, evidence + _library_hint(item, name)))
+            gap = sorted(set(p.fields) - seen[key].fields)
+            if gap:
+                lacking.append(f"{key} ({', '.join(gap)})")
+        detail = p.detail() + (f"; lacking: {'; '.join(lacking)}" if lacking else "")
+        rows.append((p.venue, p.year, p.level, p.status, str(len(p.entries)), ", ".join(p.fields), detail))
     return rows
 
 
 def check_edition_fields(
     input_path: str,
+    library: VenueLibrary,
     against: Sequence[str | Path] = (),
-    library: Optional[VenueLibrary] = None,
     ignore_fields: Iterable[str] = (),
     include_fields: Iterable[str] = (),
+    learn: Optional[VenueLibrary] = None,
     log: Optional[Callable[[str], None]] = None,
-) -> List[Row]:
-    """Report fields that other entries of the same venue have and an entry of *input_path* lacks.
+) -> EditionCheck:
+    """Check the entries of *input_path* against their venues' schemas, and propose missing schemas.
 
     Args:
         input_path: Path to the BibTeX file whose entries are reported.
+        library: Venue library that holds the schemas (a merged view is fine).
         against: Other ``.bib`` files or directories whose entries join the
-            comparison (their own gaps aren't reported).
-        library: Venue library, to group entries by the record they match,
-            to leave out interim entries, and to say whether the library
-            supplies a missing field.  Optional.
+            comparison that proposes schemas (their own gaps aren't reported).
         ignore_fields: Fields to ignore in addition to :data:`DEFAULT_IGNORED_FIELDS`.
         include_fields: Fields of :data:`DEFAULT_IGNORED_FIELDS` to compare anyway.
+        learn: The library file to write the proposed schemas into; the
+            caller saves it.  The check then uses them too.
         log: Optional logging callback; falls back to ``print``.
-
-    Returns:
-        ``(entry_id, venue, year, field, issue_type, evidence)`` tuples,
-        where *issue_type* is ``same_year`` or ``other_years``.
     """
     log = log or print
     ignored = (set(DEFAULT_IGNORED_FIELDS) - {f.lower() for f in include_fields}) | {
         f.lower() for f in ignore_fields
     }
-    log(f"🧬 Comparing the entries of {input_path} with other editions of their venues...")
+    result = EditionCheck()
+    log(f"🧬 Checking the entries of {input_path} against the schemas of their venues...")
     log(f"   Ignored fields: {', '.join(sorted(ignored))}\n")
 
-    families: Dict[Tuple[str, str], List[_Item]] = defaultdict(list)
+    items: List[_Entry] = []
     skipped = {"interim": 0, "metadata": 0}
-    seen: Set[str] = set()
-    _items(Path(input_path), True, library, families, skipped, seen)
+    seen_keys: Set[str] = set()
+    _entries(Path(input_path), True, library, items, skipped, seen_keys)
     files = _bib_files(against, Path(input_path), log)
     others = 0
     for file in files:
         try:
-            others += _items(file, False, library, families, skipped, seen)
+            others += _entries(file, False, library, items, skipped, seen_keys)
         except Exception as e:  # noqa: BLE001 - a broken file should not stop the run
             log(f"⚠️  Could not read {file}: {e}")
     if files:
@@ -254,27 +225,68 @@ def check_edition_fields(
         log(f"   Left out {skipped['interim']} entries with an interim booktitle and "
             f"{skipped['metadata']} entries built from metadata.")
 
-    rows: List[Row] = []
-    for _, items in sorted(families.items()):
-        if any(i.in_input for i in items) and len(items) > 1:
-            rows.extend(_family_rows(items, ignored))
+    # Peers propose a schema only where none applies: they can't tell a
+    # lost field from a change of the venue's export, official BibTeX can.
+    observations: Dict[str, Observation] = {}
+    for item in items:
+        if expected_fields(item.entry, library)[0]:
+            continue
+        seen = observe(item.entry, library, item.fields, ignored)
+        if seen is not None:
+            observations[seen.key] = seen
+    result.proposals = [
+        p for p in propose(observations.values(), library, PEERS, min_entries=MIN_PEERS)
+        if not p.current
+    ]
+    inputs = {i.entry["ID"] for i in items if i.in_input}
+    result.schemas = _schema_rows(result.proposals, observations, inputs)
+    if learn is not None and result.proposals:
+        log(f"🧠 Writing the proposed schemas into {learn.path}...")
+        result.learned = apply_proposals(learn, result.proposals, log)
+        # The check uses them in this run too.
+        apply_proposals(library, result.proposals, lambda _: None)
 
-    log(f"\n{'ID':<40} | {'Year':<4} | {'Field':<10} | {'Issue':<11} | Evidence")
-    log(SEPARATOR_LIGHT * SEPARATOR_WIDTH)
-    venue = None
-    for entry_id, label, year, name, kind, evidence in rows:
-        if label != venue:
-            venue = label
-            log(f"📚 {label}")
-        log(f"{entry_id:<40} | {year:<4} | {name:<10} | {kind:<11} | {evidence}")
-    log(SEPARATOR_LIGHT * SEPARATOR_WIDTH)
-    if not rows:
-        log("✅ Every entry has the fields that the other entries of its venue have.")
-        return rows
-    same = sum(r[4] == SAME_YEAR for r in rows)
-    log(f"⚠️  Found {len(rows)} missing fields in {len({r[0] for r in rows})} entries. "
-        f"Breakdown -> {SAME_YEAR}: {same}; {OTHER_YEARS}: {len(rows) - same}")
-    if same < len(rows):
-        log(f"   An {OTHER_YEARS} finding can mean that the venue changed its BibTeX, "
-            "not that the entry lacks the field.")
-    return rows
+    unschematized: Dict[str, List[str]] = defaultdict(list)
+    for item in items:
+        if not item.in_input:
+            continue
+        rows, label = _missing_rows(item, library, ignored)
+        if rows is None:
+            unschematized[label].append(item.entry["ID"])
+            continue
+        result.checked += 1
+        result.fields.extend(rows)
+    result.unschematized = dict(sorted(unschematized.items()))
+    _log_result(result, learn is not None, log)
+    return result
+
+
+def _log_result(result: EditionCheck, learning: bool, log: Callable[[str], None]) -> None:
+    if result.fields:
+        log(f"{'ID':<40} | {'Year':<4} | {'Field':<10} | Schema")
+        log(SEPARATOR_LIGHT * SEPARATOR_WIDTH)
+        venue = None
+        for entry_id, name, year, field_name, _, evidence in sorted(result.fields, key=lambda r: (r[1], r[2], r[0])):
+            if name != venue:
+                venue = name
+                log(f"📚 {name}")
+            log(f"{entry_id:<40} | {year:<4} | {field_name:<10} | {evidence}")
+        log(SEPARATOR_LIGHT * SEPARATOR_WIDTH)
+    if result.schemas:
+        log("\n📐 Proposed schemas, from the entries of each venue:")
+        for venue, year, level, _, entries, fields, _ in result.schemas:
+            when = f" ({year})" if year else ""
+            log(f"   {venue}{when} [{level}, {entries} entries]: {fields or '(none)'}")
+        if not learning:
+            log("   To write them into the venue library and check the entries against them, "
+                "run with --learn. A schema from 'bibcc check official --learn' is more reliable.")
+    if result.unschematized:
+        count = sum(len(keys) for keys in result.unschematized.values())
+        log(f"\nℹ️  {count} entries of {len(result.unschematized)} venues have no schema to check against: "
+            + "; ".join(f"{venue} ({len(keys)})" for venue, keys in result.unschematized.items()))
+        log("   To learn one, run 'bibcc check official FILE --learn', or compare more entries of "
+            "the venue with --against.")
+    if result.fields:
+        log(f"⚠️  Found {len(result.fields)} missing fields in {len({r[0] for r in result.fields})} entries.")
+    elif result.checked:
+        log(f"✅ The {result.checked} entries with a schema have every field of it.")

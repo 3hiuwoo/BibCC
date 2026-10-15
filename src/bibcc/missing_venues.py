@@ -9,9 +9,11 @@ Each field is pre-filled from, highest priority first:
 
 1. the entries themselves: the bib file, or the official BibTeX that
    ``add`` and ``upgrade`` downloaded (``# from bib`` / ``# from official BibTeX``);
-2. the previous edition of the same conference in the library
-   (``# from <year> edition``), except the month, which can change from one
-   edition to the next;
+2. the family record of the conference (``# from family <name>``), whose
+   fields every edition gets, so the line stays commented out; without a
+   family record, the previous edition of the same conference in the
+   library (``# from <year> edition``), except the month, which can change
+   from one edition to the next;
 3. CrossRef, when the command looked the paper up there (``# from CrossRef``),
    which gives the month only when the event starts and ends in it;
 4. a guess of the publisher from the venue name (``# auto-guessed``).
@@ -50,6 +52,7 @@ from bibcc.venues import (
     JOURNAL,
     NO_MONTH,
     PROCEEDINGS,
+    Family,
     Venue,
     VenueLibrary,
     _venue_from_dict,
@@ -133,8 +136,16 @@ class Suggestion:
     evidence: str
 
 
-def _field_line(name: str, mv: MissingVenue, prior: Optional[Venue], guessed: str, hint: str) -> str:
+def _field_line(name: str, mv: MissingVenue, prior: Optional[Venue], guessed: str, hint: str,
+                family: Optional[Family] = None) -> str:
     value, comment = "", f"  {hint}" if hint else ""
+    if family is not None and family.fields.get(name):
+        # The family supplies the field to every edition, so the record leaves it out.
+        comment = f"  # from family {family.label}; every edition gets it"
+        seen = mv.collected.get(name, "")
+        if seen and normalize_venue(seen) != normalize_venue(family.fields[name]):
+            comment += f"; your entries have {yaml_str(seen)}"
+        return f"      # {name}: {yaml_str(family.fields[name])}{comment}"
     if mv.collected.get(name):
         keys = mv.collected_from.get(name) or []
         if len(keys) > 3:
@@ -144,7 +155,7 @@ def _field_line(name: str, mv: MissingVenue, prior: Optional[Venue], guessed: st
         else:
             suffix = ""
         value, comment = mv.collected[name], f"  # {mv.collected_label}{suffix}"
-    elif prior and name in EDITION_STABLE_FIELDS and prior.fields.get(name):
+    elif prior and family is None and name in EDITION_STABLE_FIELDS and prior.fields.get(name):
         value, comment = prior.fields[name], f"  # from {prior.year} edition"
     elif mv.crossref.get(name):
         value, comment = mv.crossref[name], "  # from CrossRef"
@@ -158,6 +169,7 @@ def _field_line(name: str, mv: MissingVenue, prior: Optional[Venue], guessed: st
 def render(mv: MissingVenue, library: VenueLibrary) -> List[str]:
     """YAML lines of one record, indented for its section."""
     prior = previous_edition(library, mv.name, mv.year) if mv.kind == PROCEEDINGS else None
+    family = library.family_of(mv.name) if mv.kind == PROCEEDINGS else None
     lines = [f"  - name: {yaml_str(mv.name)}"]
     if mv.entries:
         lines.append(f"    # entries: {', '.join(mv.entries)}")
@@ -187,11 +199,14 @@ def render(mv: MissingVenue, library: VenueLibrary) -> List[str]:
         lines.append(_field_line("address", mv, prior, "", "# optional; for example, New York, NY, USA"))
         lines.append(_field_line("month", mv, prior, "", JOURNAL_MONTH_HINT))
     else:
-        lines.append(_field_line("venue", mv, prior, "", "# for example, City, Country"))
-        lines.append(_field_line("publisher", mv, prior, guess_publisher(mv.name), ""))
-        lines.append(_field_line("month", mv, prior, "", MONTH_HINT))
+        lines.append(_field_line("venue", mv, prior, "", "# for example, City, Country", family))
+        lines.append(_field_line("publisher", mv, prior, guess_publisher(mv.name), "", family))
+        lines.append(_field_line("month", mv, prior, "", MONTH_HINT, family))
         for name in ("isbn", "issn", "editor", "series", "address"):
-            lines.append(_field_line(name, mv, prior, "", ""))
+            lines.append(_field_line(name, mv, prior, "", "", family))
+        extra = [n for n in (family.fields if family is not None else {}) if n not in PROCEEDINGS_FIELDS]
+        for name in extra:
+            lines.append(_field_line(name, mv, prior, "", "", family))
     lines.append("")
     return lines
 
@@ -283,6 +298,7 @@ HEADER = """\
 # '# from bib'             value found in your entries; the keys in parentheses say which
 # '# from official BibTeX' value from the official BibTeX that bibcc add or bibcc upgrade downloaded
 # '# from YEAR edition'    value copied from the previous edition in the library
+# '# from family NAME'     value that every edition gets from the family record; leave it commented out
 # '# from CrossRef'        value that CrossRef reports for a paper of this venue
 # '# auto-guessed'         value inferred from the venue name; verify it
 # A record's '# entries:' comment names the entries that cite the venue.
