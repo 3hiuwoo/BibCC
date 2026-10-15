@@ -18,6 +18,7 @@ Usage:
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple
@@ -39,8 +40,8 @@ HEADER = """\
 # 'bibcc format'). A project's .bibcc.yaml wins over the user config, and
 # command-line options win over both. For the keys, see 'bibcc config -h'.
 #
-# 'bibcc config import' rewrites this file; comments other than this header
-# are not preserved.
+# 'bibcc config import' changes only the settings that it adds or updates,
+# and keeps your comments.
 """
 
 
@@ -105,10 +106,128 @@ def parse_yaml(text: str, where: str) -> Dict[str, Any]:
     return {str(name): dict(section or {}) for name, section in data.items()}
 
 
-def dump_yaml(data: Mapping[str, Any]) -> str:
-    """The text of a config file holding *data*, with the header."""
-    body = yaml.safe_dump(dict(data), sort_keys=False, allow_unicode=True, default_flow_style=None, width=100)
-    return HEADER + "\n" + (body if data else "")
+def _dump(data: Mapping[str, Any]) -> str:
+    return yaml.safe_dump(dict(data), sort_keys=False, allow_unicode=True, default_flow_style=None, width=100)
+
+
+def dump_yaml(data: Mapping[str, Any], header: str = HEADER) -> str:
+    """The text of a config file holding *data*, with *header*."""
+    return header + "\n" + (_dump(data) if data else "")
+
+
+_TRAILING_COMMENT = re.compile(r"^([^#'\"]*?\S)(\s+#.*)$")
+
+
+def _indent_of(line: str) -> int:
+    return len(line) - len(line.lstrip(" "))
+
+
+def _is_content(line: str) -> bool:
+    stripped = line.strip()
+    return bool(stripped) and not stripped.startswith("#")
+
+
+def _render_key(key: str, value: Any, indent: int) -> List[str]:
+    pad = " " * indent
+    if isinstance(value, (dict, list)):
+        text = _dump({key: value})
+    else:  # default_flow_style=None would write a lone scalar key as {key: value}
+        text = yaml.safe_dump({key: value}, sort_keys=False, allow_unicode=True, default_flow_style=False)
+    return [pad + line for line in text.splitlines()]
+
+
+def _value_end(lines: List[str], start: int, indent: int) -> int:
+    """The index after the last line of the value that starts on line *start*."""
+    end = start + 1
+    for i in range(start + 1, len(lines)):
+        if not lines[i].strip():
+            continue
+        if _indent_of(lines[i]) <= indent:
+            break
+        end = i + 1
+    return end
+
+
+def _set_key(lines: List[str], section: str, key: str, value: Any) -> None:
+    """Set *section*.*key* to *value* in the config text *lines*, leaving every other line as is.
+
+    Raises :class:`ValueError` for a layout this editor doesn't handle (for
+    example, a flow-style section); the caller then rewrites the file.
+    """
+    header = next((i for i, line in enumerate(lines)
+                   if re.fullmatch(rf"{re.escape(section)}:\s*(#.*)?", line)), None)
+    if header is None:
+        if any(re.match(rf"{re.escape(section)}\s*:", line) for line in lines):
+            raise ValueError(f"section {section} isn't a block mapping")
+        while lines and not lines[-1].strip():
+            lines.pop()
+        if lines:
+            lines.append("")
+        lines += [f"{section}:", *_render_key(key, value, 2)]
+        return
+    end = next((i for i in range(header + 1, len(lines))
+                if lines[i] and not lines[i][0].isspace() and not lines[i].startswith("#")), len(lines))
+    keys = [i for i in range(header + 1, end) if _is_content(lines[i])]
+    indent = _indent_of(lines[keys[0]]) if keys else 2
+    pad = " " * indent
+    found = next((i for i in keys
+                  if _indent_of(lines[i]) == indent and re.match(rf"{re.escape(key)}\s*:", lines[i][indent:])), None)
+    if found is not None:
+        stop = _value_end(lines, found, indent)
+        new = _render_key(key, value, indent)
+        comment = _TRAILING_COMMENT.match(lines[found])
+        if comment and stop == found + 1 and len(new) == 1:
+            new[0] += comment.group(2)
+        lines[found:stop] = new
+        return
+    # A key that `bibcc config init` wrote commented out: put the setting in its place.
+    stub = next((i for i in range(header + 1, end) if lines[i].startswith(f"{pad}# {key}:")), None)
+    if stub is not None:
+        stop = stub + 1
+        while stop < end and re.match(rf"{pad}#\s{{3,}}\S", lines[stop]):
+            stop += 1
+        lines[stub:stop] = _render_key(key, value, indent)
+        return
+    at = keys[-1] + 1 if keys else header + 1
+    lines[at:at] = _render_key(key, value, indent)
+
+
+def _leading_comments(text: str) -> str:
+    """The comment lines at the top of *text*, before its first setting."""
+    lines = []
+    for line in text.splitlines():
+        if _is_content(line):
+            break
+        lines.append(line)
+    while lines and not lines[-1].strip():
+        lines.pop()
+    return "\n".join(lines) + "\n" if lines else ""
+
+
+def _nonempty(data: Mapping[str, Mapping[str, Any]]) -> Dict[str, Dict[str, Any]]:
+    return {name: dict(section) for name, section in data.items() if section}
+
+
+def update_yaml(text: str, data: Mapping[str, Mapping[str, Any]], where: str = "<config>") -> str:
+    """*text* with the keys of *data* that it lacks or sets differently, keeping its comments.
+
+    Every other line stays as it is.  When the edited text doesn't read back
+    as *data*, the file is rewritten from *data* under its own leading
+    comments (or else :data:`HEADER`).
+    """
+    old = parse_yaml(text, where)
+    lines = text.splitlines()
+    try:
+        for name, section in data.items():
+            for key, value in section.items():
+                if key not in old.get(name, {}) or old[name][key] != value:
+                    _set_key(lines, name, key, value)
+        edited = "\n".join(lines) + "\n"
+        if _nonempty(parse_yaml(edited, where)) == _nonempty(data):
+            return edited
+    except (ValueError, yaml.YAMLError):
+        pass
+    return dump_yaml(data, _leading_comments(text) or HEADER)
 
 
 # ------------------------------------------------------- format settings
@@ -262,6 +381,7 @@ class ConfigFile:
     scope: str
     path: Path
     data: Dict[str, Dict[str, Any]] = field(default_factory=dict)  # the YAML, as written
+    text: str = ""  # the file's text when it was loaded, comments included
 
     @property
     def exists(self) -> bool:
@@ -275,11 +395,14 @@ class ConfigFile:
             text = path.read_text(encoding="utf-8")
         except OSError as e:
             raise ConfigError(f"{path}: {e}") from e
-        return cls(scope, path, parse_yaml(text, str(path)))
+        return cls(scope, path, parse_yaml(text, str(path)), text)
 
     def save(self) -> None:
+        """Write :attr:`data`, changing only the lines of the settings that differ from :attr:`text`."""
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(dump_yaml(self.data), encoding="utf-8")
+        text = update_yaml(self.text, self.data, str(self.path)) if self.text.strip() else dump_yaml(self.data)
+        self.path.write_text(text, encoding="utf-8")
+        self.text = text
 
 
 @dataclass

@@ -17,15 +17,13 @@ from typing import Any, Dict, List
 from bibcc import __version__
 from bibcc.adder import STATUSES as ADD_STATUSES
 from bibcc.checker import CHECK_NAMES
-from bibcc.checkers.edition_fields import MISSING
+from bibcc.checkers.edition_fields import FIELD_STATUSES
 from bibcc.checkers.official_fields import (
     DIFFERS,
-    ENTRIES_LACK,
-    LIBRARY_DIFFERS,
-    LIBRARY_LACKS,
     LOCAL_ONLY,
     TYPE,
     UPSTREAM_ONLY,
+    VENUE_STATUSES,
 )
 from bibcc.cli import _MAIN_TOOLS, _RUN_TOOLS, TOOLS
 from bibcc.helptext import DOCS_URL, REPO, HelpFormatter, epilog
@@ -108,10 +106,10 @@ def surface() -> Dict[str, Any]:
         },
         # The issue_type words of the check reports, by report file.
         "issues": {
-            "edition_fields.txt": [MISSING],
+            "edition_fields.txt": list(FIELD_STATUSES),
             "edition_schemas.txt": list(SCHEMA_STATUSES),
             "official_fields.txt": [UPSTREAM_ONLY, DIFFERS, LOCAL_ONLY, TYPE],
-            "official_venues.txt": [ENTRIES_LACK, LIBRARY_LACKS, LIBRARY_DIFFERS, *SCHEMA_STATUSES],
+            "official_venues.txt": list(VENUE_STATUSES),
         },
     }
 

@@ -159,8 +159,9 @@ def complete_entry(entry: Mapping[str, str], library: VenueLibrary) -> EntryComp
         return EntryCompletion("missing", kind)
 
     done = EntryCompletion("matched", kind, venue=result.venue, interim_source=result.interim_source)
-    # A family record's fields apply to each of its editions, under the edition's own.
-    for name, value in library.fields_of(result.venue).items():
+    # A family record's fields apply to each of its editions, under the edition's own,
+    # and the fields of the entry's book (an LNCS volume) over both.
+    for name, value in library.entry_fields_of(result.venue, entry).items():
         if result.interim_source and name not in EVENT_FIELDS:
             continue
         if is_no_month(name, value):

@@ -90,7 +90,7 @@ def test_terms_import_example_by_name_and_dry_run(isolated_user_library: Path, t
     assert _terms("import", "miaa") == 0
     assert "Nothing new to import" in capsys.readouterr().out
     target = tmp_path / "other.txt"
-    assert _terms("import", str(EXAMPLE_TERMS / "miaa.txt"), "--file", str(target)) == 0
+    assert _terms("import", str(EXAMPLE_TERMS / "miaa.txt"), "--terms", str(target)) == 0
     assert read_terms(target) == example
 
 

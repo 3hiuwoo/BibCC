@@ -45,6 +45,7 @@ from bibcc.config import (
     load_config,
     merge,
     merge_into,
+    parse_field_order,
     parse_yaml,
     user_config_path,
 )
@@ -85,6 +86,11 @@ def show_value(key: str, value: Any) -> str:
     if key == "field_order":
         if value is None:
             return f"the order that add uses: {', '.join(FIELD_ORDER)}, {OTHER_FIELDS}"
+        if not isinstance(value, tuple):  # as the YAML writes it, such as {first: [...], last: [...]}
+            try:
+                value = parse_field_order(value)
+            except ConfigError:
+                return str(value)
         order = list(value)
         return ", ".join(order + ([] if OTHER_FIELDS in order else [OTHER_FIELDS]))
     if isinstance(value, bool):
@@ -142,7 +148,8 @@ def where(start: Optional[str], log: Callable[[str], None]) -> int:
     log(f"\n✏️  init and import write to the user config. To write to "
         f"{project or PROJECT_CONFIG_NAME} instead, pass --scope project.")
     if not config.present:
-        log("💡 No config files yet. Start from a shared config: bibcc config examples")
+        log("💡 No config files yet. To start from a shared profile (config, venues, and terms), run: "
+            "bibcc config profile NAME. To list the shared configs, run: bibcc config examples")
     return 0
 
 
@@ -433,7 +440,8 @@ def build_parser() -> argparse.ArgumentParser:
         "names. The command adds the settings that the file lacks. For a setting that\n"
         "differs, it keeps and reports your value, unless you pass --overwrite. It\n"
         "checks SOURCE first and imports nothing from a file with an invalid value.\n"
-        "The file is rewritten, so comments other than the header aren't kept.\n\n"
+        "It changes only the lines of the settings that it adds or updates, so your\n"
+        "comments stay.\n\n"
         "SOURCE is a config file, an http(s) URL, or the name of a config in\n"
         "examples/config/ of the BibCC repository (see 'bibcc config examples'). The\n"
         "command reads an example config from your checkout when BibCC runs from one,\n"

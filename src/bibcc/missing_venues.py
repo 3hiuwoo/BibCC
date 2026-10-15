@@ -72,6 +72,7 @@ _SUGGESTIONS_MARKER = "# ---- Suggested corrections to library records"
 _PUBLISHER_PATTERNS: List[Tuple[str, str]] = [
     ("ieee", "IEEE"),
     ("acm", "Association for Computing Machinery"),
+    ("association for computing machinery", "Association for Computing Machinery"),
     ("springer", "Springer"),
     ("lecture notes", "Springer"),
     ("elsevier", "Elsevier"),
@@ -120,6 +121,9 @@ class MissingVenue:
     notes: List[str] = field(default_factory=list)
     # Only adds interim booktitles to an existing library record; its fields stay as they are.
     link_only: bool = False
+    # The venue's schema, learned by `check official --learn` or `check editions --learn`.
+    entry_fields: List[str] = field(default_factory=list)
+    learned_from: str = ""
 
     @property
     def key(self) -> Tuple[str, str, str]:
@@ -207,7 +211,17 @@ def render(mv: MissingVenue, library: VenueLibrary) -> List[str]:
         extra = [n for n in (family.fields if family is not None else {}) if n not in PROCEEDINGS_FIELDS]
         for name in extra:
             lines.append(_field_line(name, mv, prior, "", "", family))
+    lines.extend(_schema_lines(mv))
     lines.append("")
+    return lines
+
+
+def _schema_lines(mv: MissingVenue) -> List[str]:
+    if not mv.entry_fields:
+        return []
+    lines = [f"    entry_fields: [{', '.join(mv.entry_fields)}]  # the venue's schema; merging adds it too"]
+    if mv.learned_from:
+        lines.append(f"    learned_from: {yaml_str(mv.learned_from)}")
     return lines
 
 
@@ -297,12 +311,14 @@ HEADER = """\
 #   {rerun}
 #
 # '# from bib'             value found in your entries; the keys in parentheses say which
-# '# from official BibTeX' value from the official BibTeX that bibcc add or bibcc upgrade downloaded
+# '# from official BibTeX' value from the official BibTeX that bibcc add, upgrade, or check official downloaded
 # '# from YEAR edition'    value copied from the previous edition in the library
 # '# from family NAME'     value that every edition gets from the family record; leave it commented out
 # '# from CrossRef'        value that CrossRef reports for a paper of this venue
 # '# auto-guessed'         value inferred from the venue name; verify it
 # A record's '# entries:' comment names the entries that cite the venue.
+# A record's entry_fields, from --learn of bibcc check official or bibcc check editions,
+# is the venue's schema; merging writes it into the library record too.
 # Merging skips records with no field (and no interim booktitle) filled in.
 # Every run merges into this file and keeps what you fill in.
 """
@@ -327,15 +343,18 @@ def write_missing_venues(
 ) -> Dict[str, int]:
     """Merge *venues* into the fill-in file at *path* (created if needed).
 
-    Returns ``{"new": n, "kept": n, "dropped": n}``: records appended, records
-    already in the file, and records dropped because the library covers them.
+    Returns ``{"new": n, "kept": n, "dropped": n, "schemas": n}``: records
+    appended, records already in the file, records dropped because the
+    library covers them, and kept records that got a schema
+    (``entry_fields``) from *venues*.
     Nothing is written when there is nothing to propose and no file yet.
     """
     existing_text = path.read_text(encoding="utf-8") if path.exists() else ""
     sections, old_suggestions = _split(existing_text)
-    counts = {"new": 0, "kept": 0, "dropped": 0}
+    counts = {"new": 0, "kept": 0, "dropped": 0, "schemas": 0}
     kept: Dict[str, List[str]] = {"journals": [], "proceedings": []}
     seen = set()
+    schemas = {mv.key: mv for mv in venues if mv.entry_fields}
     for section, kind in (("journals", JOURNAL), ("proceedings", PROCEEDINGS)):
         for block in sections[section]:
             venue = _block_venue(block, kind)
@@ -346,7 +365,12 @@ def write_missing_venues(
                 counts["dropped"] += 1
                 continue
             if venue is not None:
-                seen.add((kind, normalize_venue(venue.name), venue.year or ""))
+                key = (kind, normalize_venue(venue.name), venue.year or "")
+                seen.add(key)
+                if key in schemas and not venue.entry_fields:
+                    # A record that an earlier run proposed gets the schema learned since.
+                    block = "\n".join([block.rstrip("\n"), *_schema_lines(schemas[key])])
+                    counts["schemas"] += 1
             kept[section].append(block)
             counts["kept"] += 1
     for mv in venues:

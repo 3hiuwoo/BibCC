@@ -313,3 +313,127 @@ def test_check_official_never_proposes_a_journal_month(tmp_path: Path, web):
     result = check_official_fields(str(bib), library, local=[exports], offline=True, log=lambda _: None)
     lacks = {r[2] for r in result.venues if r[3] == "library_lacks"}
     assert lacks == {"publisher"}
+
+
+JOURNAL_EXPORT = """\
+@article{x,
+  title = {Journal Paper},
+  author = {Doe, Jane},
+  journal = {Journal of Tests},
+  year = {2025},
+  volume = {3},
+  pages = {1--9},
+  doi = {10.1016/j.test.2025.1},
+  publisher = {Elsevier},
+  issn = {1234-5678}
+}
+"""
+
+
+def test_check_official_learn_hands_a_missing_journal_record_to_missing_venues(tmp_path: Path, web):
+    bib = tmp_path / "refs.bib"
+    bib.write_text("@article{J_Doe_JT2025,\n  title = {Journal Paper},\n  author = {Doe, Jane},\n"
+                   "  journal = {Journal of Tests},\n  year = {2025},\n  volume = {3}\n}\n")
+    exports = tmp_path / "exports"
+    exports.mkdir()
+    (exports / "J_Doe_JT2025.bib").write_text(JOURNAL_EXPORT)
+    venues = tmp_path / "venues.yaml"
+    venues.write_text("journals: []\n", encoding="utf-8")
+
+    main(["check", "official", str(bib), "--local", str(exports), "--offline", "--venues", str(venues), "--learn"])
+    assert VenueLibrary.load(venues).journals == []
+    text = (tmp_path / ".bibcc" / "refs.bib" / "missing_venues.yaml").read_text()
+    assert '  - name: "Journal of Tests"' in text
+    assert 'publisher: "Elsevier"  # from official BibTeX (J_Doe_JT2025)' in text
+    assert 'issn: "1234-5678"  # from official BibTeX' in text
+    assert "    entry_fields: [doi, pages, volume]" in text
+    assert "learned_from: \"official BibTeX of 1 entry (2025)" in text
+
+    main(["complete", str(bib), "--update-venues-only", "--venues", str(venues)])
+    (journal,) = VenueLibrary.load(venues).journals
+    assert journal.fields == {"publisher": "Elsevier", "issn": "1234-5678"}
+    assert journal.entry_fields == ["doi", "pages", "volume"]
+    assert journal.learned_from.startswith("official BibTeX of 1 entry (2025), ")
+
+
+def test_a_later_run_adds_the_schema_to_a_record_already_in_missing_venues(tmp_path: Path, web):
+    bib = tmp_path / "refs.bib"
+    bib.write_text("@article{J_Doe_JT2025,\n  title = {Journal Paper},\n  author = {Doe, Jane},\n"
+                   "  journal = {Journal of Tests},\n  year = {2025},\n  volume = {3}\n}\n")
+    venues = tmp_path / "venues.yaml"
+    venues.write_text("journals: []\n", encoding="utf-8")
+    main(["complete", str(bib), "--venues", str(venues)])
+    yaml_path = tmp_path / ".bibcc" / "refs.bib" / "missing_venues.yaml"
+    assert "    entry_fields:" not in yaml_path.read_text()
+
+    exports = tmp_path / "exports"
+    exports.mkdir()
+    (exports / "J_Doe_JT2025.bib").write_text(JOURNAL_EXPORT)
+    main(["check", "official", str(bib), "--local", str(exports), "--offline", "--venues", str(venues), "--learn"])
+    text = yaml_path.read_text()
+    assert text.count("- name:") == 1
+    assert "    entry_fields: [doi, pages, volume]" in text
+
+
+ECCV = "Computer Vision -- ECCV 2024"
+
+
+def _eccv_entry(key: str, chapter: str, volume: str, part: str) -> str:
+    return (f"@inproceedings{{{key},\n  title = {{Paper {key}}},\n  author = {{Doe, Jane}},\n"
+            f"  booktitle = {{{ECCV}}},\n  year = {{2025}},\n  pages = {{1--17}},\n"
+            f"  doi = {{10.1007/{chapter}}},\n  volume = {{{volume}}},\n  part = {{{part}}}\n}}\n\n")
+
+
+def _eccv_export(key: str) -> str:
+    return (f"@InProceedings{{{key},\n  title = {{Paper {key}}},\n  author = {{Doe, Jane}},\n"
+            f"  booktitle = {{{ECCV}}},\n  year = {{2025}},\n  pages = {{1--17}}\n}}\n")
+
+
+def test_check_official_learns_the_volume_and_part_of_each_book(tmp_path: Path, web):
+    from bibcc.completer import complete_entry
+
+    bib = tmp_path / "refs.bib"
+    bib.write_text(_eccv_entry("A_Doe_ECCV2024", "978-3-031-72649-1_1", "15059", "XXVI")
+                   + _eccv_entry("B_Doe_ECCV2024", "978-3-031-72649-1_7", "15059", "XXVI")
+                   + _eccv_entry("C_Doe_ECCV2024", "978-3-031-73000-0_2", "15060", "XXVII"))
+    exports = tmp_path / "exports"
+    exports.mkdir()
+    for key in ("A_Doe_ECCV2024", "B_Doe_ECCV2024", "C_Doe_ECCV2024"):
+        (exports / f"{key}.bib").write_text(_eccv_export(key))
+    venues = tmp_path / "venues.yaml"
+    venues.write_text(f"proceedings:\n- name: {ECCV}\n  year: '2025'\n  fields: {{venue: 'Milan, Italy'}}\n")
+
+    result = check_official_fields(str(bib), VenueLibrary.load(venues), local=[exports], offline=True,
+                                   log=lambda _: None)
+    rows = {(r[2], r[3]): r for r in result.venues}
+    assert rows[("volume", "books_lack")] == (
+        ECCV, "2025", "volume", "books_lack", "3", "2",
+        "978-3-031-72649-1: 15059 (A_Doe_ECCV2024, B_Doe_ECCV2024); 978-3-031-73000-0: 15060 (C_Doe_ECCV2024)")
+    assert rows[("part", "export_lacks")][4:6] == ("3", "3")
+    assert ("doi", "export_lacks") not in rows  # like bibcc add, the check keeps the entry's DOI
+
+    main(["check", "official", str(bib), "--local", str(exports), "--offline", "--venues", str(venues), "--learn"])
+    (record,) = VenueLibrary.load(venues).proceedings
+    assert record.books == {"978-3-031-72649-1": {"volume": "15059", "part": "XXVI"},
+                            "978-3-031-73000-0": {"volume": "15060", "part": "XXVII"}}
+    assert "books:" in venues.read_text()
+
+    library = VenueLibrary.load(venues)
+    result = check_official_fields(str(bib), library, local=[exports], offline=True, log=lambda _: None)
+    assert not [r for r in result.fields if r[1] in ("volume", "part")]
+    assert not [r for r in result.venues if r[3] == "books_lack" or r[2] in ("volume", "part")]
+
+    new = {"ID": "N", "ENTRYTYPE": "inproceedings", "booktitle": ECCV, "year": "2025",
+           "doi": "https://doi.org/10.1007/978-3-031-73000-0_9"}
+    assert complete_entry(new, library).patch == {"venue": "Milan, Italy", "volume": "15060", "part": "XXVII"}
+    other = dict(new, doi="10.1007/978-3-031-99999-9_1")
+    assert complete_entry(other, library).patch == {"venue": "Milan, Italy"}
+
+
+def test_book_of_reads_the_isbn_of_a_chapter_doi():
+    from bibcc.venues import book_of
+
+    assert book_of("10.1007/978-3-031-72649-1_13") == "978-3-031-72649-1"
+    assert book_of("doi:10.1007/978-3-031-7264-X_2") == "978-3-031-7264-X"
+    assert book_of("10.1007/s11263-024-02000-1") == ""
+    assert book_of("") == ""

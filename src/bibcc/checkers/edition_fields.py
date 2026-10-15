@@ -17,6 +17,13 @@ them.  A schema learned from official BibTeX (``bibcc check official
 --learn``) is the more reliable one; the comparison is for venues whose
 BibTeX BibCC can't download.
 
+An entry whose venue has no schema still gets ``default_missing`` rows when
+its publisher has a *default schema*: the fields that most of the library's
+schemas of the same publisher and kind share (see
+:func:`bibcc.schemas.publisher_defaults`).  A default is a labeled guess:
+it never replaces a venue's own schema, ``--strict`` doesn't count it, and
+``learn`` never writes it.
+
 Fields in :data:`DEFAULT_IGNORED_FIELDS` (the fields every compared entry
 has, BibCC's own ``citation``, and exporter bookkeeping) are never compared.
 Entries that cite an interim (CVF or OpenReview) booktitle, entries built
@@ -44,19 +51,27 @@ from bibcc.schemas import (
     ISSUE_FIELDS,
     MIN_PEERS,
     PEERS,
+    VENUE_TYPES,
     Observation,
     Proposal,
+    PublisherDefault,
     apply_proposals,
     awaiting_issue,
+    default_for,
     expected_fields,
     observe,
     propose,
+    publisher_defaults,
 )
 from bibcc.venues import PROCEEDINGS, VenueLibrary, family_label, has_no_month, venue_kind
 
 DEFAULT_IGNORED_FIELDS: Tuple[str, ...] = IGNORED_FIELDS
 
 MISSING = "missing"
+# A field of the publisher default (see bibcc.schemas.publisher_defaults) that an
+# entry of a venue without a schema lacks: a hint, not counted by --strict.
+DEFAULT_MISSING = "default_missing"
+FIELD_STATUSES = (MISSING, DEFAULT_MISSING)
 
 Row = Tuple[str, str, str, str, str, str]  # (entry_id, venue, year, field, issue_type, evidence)
 SchemaRow = Tuple[str, str, str, str, str, str, str]  # (venue, year, level, issue_type, entries, fields, detail)
@@ -75,6 +90,12 @@ class EditionCheck:
     checked: int = 0  # input entries whose venue has a schema
     unschematized: Dict[str, List[str]] = field(default_factory=dict)  # venue label -> input keys
     learned: int = 0
+    guessed: int = 0  # entries without a schema that lack fields of their publisher's default
+
+    @property
+    def missing(self) -> int:
+        """The ``missing`` rows, the findings that --strict counts."""
+        return sum(row[4] == MISSING for row in self.fields)
 
 
 @dataclass
@@ -163,6 +184,29 @@ def _missing_rows(item: _Entry, library: VenueLibrary, ignored: Set[str]) -> Tup
     return rows, label
 
 
+def _default_rows(item: _Entry, library: VenueLibrary, ignored: Set[str],
+                  defaults: Dict[Tuple[str, str], PublisherDefault]) -> List[Row]:
+    """``default_missing`` rows: the fields of the publisher default that an entry without a schema lacks."""
+    entry = item.entry
+    venue = (entry.get("booktitle") or entry.get("journal") or "").strip()
+    year = entry.get("year", "").strip()
+    record = library.lookup(venue, year, venue_kind(entry.get("ENTRYTYPE", ""), entry),
+                            issn=entry.get("issn")).venue
+    default = default_for(entry, library, record, defaults)
+    if default is None:
+        return []
+    skip = set(ignored) | (set(ISSUE_FIELDS) if awaiting_issue(entry) else set())
+    if record is not None:
+        skip |= set(library.entry_fields_of(record, entry))
+        if has_no_month(library.fields_of(record)):
+            skip |= {"month", "day"}
+    name = record.name if record is not None else venue
+    return [
+        (entry["ID"], name, year, field_name, DEFAULT_MISSING, default.evidence())
+        for field_name in default.fields if field_name not in item.fields and field_name not in skip
+    ]
+
+
 def _schema_rows(proposals: Sequence[Proposal], seen: Dict[str, Observation], inputs: Set[str]) -> List[SchemaRow]:
     rows: List[SchemaRow] = []
     for p in proposals:
@@ -247,12 +291,17 @@ def check_edition_fields(
         apply_proposals(library, result.proposals, lambda _: None)
 
     unschematized: Dict[str, List[str]] = defaultdict(list)
+    defaults = publisher_defaults(library)
     for item in items:
         if not item.in_input:
             continue
         rows, label = _missing_rows(item, library, ignored)
         if rows is None:
-            unschematized[label].append(item.entry["ID"])
+            if str(item.entry.get("ENTRYTYPE", "")).lower() in VENUE_TYPES:
+                unschematized[label].append(item.entry["ID"])
+                guessed = _default_rows(item, library, ignored, defaults)
+                result.fields.extend(guessed)
+                result.guessed += bool(guessed)
             continue
         result.checked += 1
         result.fields.extend(rows)
@@ -286,7 +335,12 @@ def _log_result(result: EditionCheck, learning: bool, log: Callable[[str], None]
             + "; ".join(f"{venue} ({len(keys)})" for venue, keys in result.unschematized.items()))
         log("   To learn one, run 'bibcc check official FILE --learn', or compare more entries of "
             "the venue with --against.")
-    if result.fields:
-        log(f"⚠️  Found {len(result.fields)} missing fields in {len({r[0] for r in result.fields})} entries.")
+    if result.guessed:
+        log(f"\n💡 {result.guessed} entries without a schema lack fields of their publisher's default schema "
+            f"({DEFAULT_MISSING}), which most of the library's schemas of the same publisher share. A default "
+            "is a guess: it never replaces a venue's own schema, and --learn never writes it.")
+    missing = [r for r in result.fields if r[4] == MISSING]
+    if result.missing:
+        log(f"⚠️  Found {len(missing)} missing fields in {len({r[0] for r in missing})} entries.")
     elif result.checked:
         log(f"✅ The {result.checked} entries with a schema have every field of it.")

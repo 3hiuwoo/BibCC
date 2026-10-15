@@ -54,7 +54,7 @@ families:
   - {acronym: AACL, provider: acl}
   - {acronym: Findings, provider: acl, pattern: '^findings of\b'}
   - {acronym: AAAI, provider: blocked, blocked_by: AAAI, manual_url: "https://ojs.aaai.org/"}
-  - {acronym: IJCAI, provider: ijcai}
+  - {acronym: IJCAI, provider: ijcai, pattern: '\binternational joint conference on artificial intelligence\b'}
 
 # The provider of each DOI prefix. The first prefix of a provider is the one
 # that a title search on CrossRef uses.

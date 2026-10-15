@@ -132,9 +132,16 @@ def test_venues_file_replaces_both_scopes(isolated_user_library: Path, project: 
     assert lib.path == other
 
 
-def test_empty_library_explains_how_to_start(isolated_user_library: Path, project: Path):
+def test_missing_library_points_to_a_profile(isolated_user_library: Path, project: Path):
     text = load_library(start=project).describe()
-    assert "not created yet" in text and "bibcc venues examples" in text
+    assert "not created yet" in text
+    assert "bibcc config profile NAME" in text and "bibcc venues examples" in text
+
+
+def test_empty_library_explains_how_to_fill_it(isolated_user_library: Path, project: Path):
+    _write_library(isolated_user_library)
+    text = load_library(start=project).describe()
+    assert "The library is empty" in text and "config profile" not in text
 
 
 def test_open_project_library_requires_one_unless_creating(project: Path, monkeypatch):

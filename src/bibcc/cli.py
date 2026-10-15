@@ -51,7 +51,7 @@ TOOLS = {
     "compose": "Merge the .bib files of a directory tree into one bibliography",
     "venues": "Manage the user and project venue libraries: where, init, import, examples, and providers",
     "terms": "Manage the protected terms that check quote keeps in braces: where, list, add, import, and examples",
-    "config": "Manage the user and project config files (format settings): where, init, import, and examples",
+    "config": "Manage the user and project config files (format settings): where, init, import, profile, and examples",
     "surface": "Print the machine-readable command surface as JSON",
 }
 

@@ -20,8 +20,8 @@ def test_surface_reports_version_reports_and_status():
     assert set(data["status"]) == {"next", "add", "check", "published"}
     assert "by hand" in data["status"]["next"]
     assert "official" in data["status"]["add"]
-    assert data["issues"]["edition_fields.txt"] == ["missing"]
-    assert "schema_lacks" in data["issues"]["official_venues.txt"]
+    assert data["issues"]["edition_fields.txt"] == ["missing", "default_missing"]
+    assert {"schema_lacks", "export_lacks", "books_lack"} <= set(data["issues"]["official_venues.txt"])
 
 
 def test_surface_check_subcommands_and_options():

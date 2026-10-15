@@ -24,15 +24,29 @@ uv tool install git+https://github.com/3hiuwoo/BibCC@dev      # the development 
 
 If you installed without a tag, run `uv tool upgrade bibcc` to get the latest release. To move a pinned install to another release, run `uv tool install --force git+https://github.com/3hiuwoo/BibCC@vX.Y.Z`. To see what each version changed, see [`CHANGELOG.md`](CHANGELOG.md). To work on BibCC itself, see [Development](#development).
 
-### Set up your venue library
+### Set up your files
 
-`complete` fills in venue fields, such as publisher, ISSN, location, and month, from a venue library. BibCC doesn't ship one, so you build your own, either from scratch or from a shared library. For details, see [Venue library](#venue-library).
+BibCC reads three kinds of file that you keep: a config with your settings, a venue library that `complete` takes venue fields from (such as publisher, ISSN, location, and month), and a terms file of the words that `check quote` keeps in braces. Each kind has a user file in `~/.config/bibcc/` (or `$XDG_CONFIG_HOME/bibcc/`) for all your projects, and a project file that you commit with a bibliography. You don't need to configure anything for BibCC to find them, and it creates each file the first time a command writes to it.
+
+Without these files, BibCC uses its built-in defaults:
+
+| Kind | User file | Without it |
+| --- | --- | --- |
+| Config | `~/.config/bibcc/config.yaml` | Every setting has a built-in default. |
+| Venue library | `~/.config/bibcc/venues.yaml` | No venues: BibCC doesn't ship a library, so `complete` has nothing to fill in. |
+| Terms file | `~/.config/bibcc/terms.txt` | `check quote` uses only its built-in vocabulary of names. |
+
+To start all three from a shared profile, such as the MIAA lab's `miaa`, run the following command. It copies the profile's files into your user files, and you edit your copies from then on:
 
 ```bash
-bibcc venues examples        # list the shared libraries
-bibcc venues import miaa     # start your user library (~/.config/bibcc/venues.yaml) from one
-bibcc venues where           # show which libraries apply here, and which one is written
+bibcc config examples        # list the shared configs (a profile shares its name with one)
+bibcc config profile miaa    # copy the config, venue library, and terms file into ~/.config/bibcc/
+bibcc config where           # show every file that applies here, and the settings they give
 ```
+
+To set up only one project instead, pass `--scope project`. For details, see [Config files](#config), [Venue library](#venue-library), and [Protected terms](#protected-terms).
+
+To keep a user file somewhere else, for example in a synced directory, set `BIBCC_CONFIG`, `BIBCC_VENUES`, or `BIBCC_TERMS` to its path. Set the variable for every shell that runs BibCC, because a command run without it reads and writes the file in `~/.config/bibcc/` instead.
 
 ### Network access
 
@@ -54,7 +68,7 @@ BibCC provides the following commands through a single entry point, `bibcc`:
 | [`compose`](#compose) | Merge the `.bib` files of a directory tree into a single bibliography |
 | `venues` | Manage your user and project venue libraries: `where`, `init`, `import`, `examples`, and `providers` |
 | [`terms`](#protected-terms) | Manage your user and project protected-terms files, which `check quote` reads: `where`, `list`, `add`, `import`, and `examples` |
-| [`config`](#config) | Manage your user and project config files, which hold the `format` settings: `where`, `init`, `import`, and `examples` |
+| [`config`](#config) | Manage your user and project config files, which hold the `format` settings: `where`, `init`, `import`, `profile`, and `examples` |
 | `surface` | Print the machine-readable command surface as JSON, for tools and skills that track BibCC |
 
 For command-specific help, run `bibcc COMMAND -h`. To see the installed version, run `bibcc --version`.
@@ -204,9 +218,18 @@ bibcc check editions input.bib --against bib/ --learn          # write the propo
 bibcc check editions input.bib --include-fields urldate         # also compare a field ignored by default
 ```
 
-The report, `.bibcc/INPUT/edition_fields.txt`, gives each finding the issue type `missing`, and the evidence column names the schema (a journal, a family of conference editions, or one edition) and where it was learned from. A journal article not yet in an issue (no `volume`) isn't expected to have a `volume`, `number`, or `pages`.
+The report, `.bibcc/INPUT/edition_fields.txt`, gives each finding one of these issue types:
 
-The best schemas come from official BibTeX: run `bibcc check official input.bib --learn` (see [Differences from the official BibTeX](#differences-from-the-official-bibtex)). For a venue without a schema, such as an AAAI or ACM venue whose BibTeX BibCC can't download, `editions` compares the entries of the venue, in the input file and in the `--against` files, and proposes the fields that most of them share. The proposals go to `.bibcc/INPUT/edition_schemas.txt` (issue type `schema_lacks`), with the entries that lack a proposed field. The check never reports an entry from that comparison alone, because the entries can share a lost field. To write the proposals into the venue library and check the entries against them in the same run, pass `--learn` (with `--scope project` for the project library). A proposal needs at least three entries of a journal, or of one conference year.
+| Issue type | Meaning |
+| --- | --- |
+| `missing` | The entry lacks a field of its venue's schema. The evidence column names the schema (a journal, a family of conference editions, or one edition) and where it was learned from. |
+| `default_missing` | The entry's venue has no schema, and the entry lacks a field of its publisher's default schema. The evidence column names the default and the venues it comes from. |
+
+A journal article not yet in an issue (no `volume`) isn't expected to have a `volume`, `number`, or `pages`.
+
+A publisher's *default schema* is the list of fields that most of the library's schemas of the same publisher and kind (journal or proceedings) share, such as the `doi`, `pages`, and `volume` of Elsevier journals. It needs the schemas of at least two venues. The check finds an entry's publisher from its venue record, the entry's own `publisher` field, the venue name, or the DOI prefix. A default is a guess for a venue that has no schema yet: it never replaces a venue's own schema, `--learn` never writes it, and `--strict` doesn't count it.
+
+The best schemas come from official BibTeX: run `bibcc check official input.bib --learn` (see [Differences from the official BibTeX](#differences-from-the-official-bibtex)). For a venue without a schema, such as an AAAI or ACM venue whose BibTeX BibCC can't download, `editions` compares the entries of the venue, in the input file and in the `--against` files, and proposes the fields that most of them share. The proposals go to `.bibcc/INPUT/edition_schemas.txt` (issue type `schema_lacks`), with the entries that lack a proposed field. The check never reports an entry from that comparison alone, because the entries can share a lost field. To write the proposals into the venue library and check the entries against them in the same run, pass `--learn` (with `--scope project` for the project library). A proposal needs at least three entries of a journal, or of one conference year. A proposal for a journal or an edition that the library has no record of goes into `.bibcc/INPUT/missing_venues.yaml`, with the record (see [Schemas of venues without a record](#schemas-of-venues-without-a-record)).
 
 The check ignores the following fields:
 
@@ -214,7 +237,7 @@ The check ignores the following fields:
 - BibCC's own `citation` field, which `bibcc scholar cite` writes.
 - Exporter and reference-manager bookkeeping: `annote`, `bibsource`, `biburl`, `copyright`, `mendeley-groups`, `timestamp`, and `urldate`.
 
-A schema also leaves out the fields that the venue library supplies, such as `publisher` and a conference's `month`: `bibcc complete` adds those, and `bibcc check venues` checks them. To ignore more fields, pass `--ignore-fields`. To compare one of the ignored fields anyway, pass `--include-fields`. The check also leaves out entries with an interim (CVF or OpenReview) booktitle, entries built from metadata, and empty entries, because they lack fields by design. With `--strict`, `missing` findings count, and proposals don't.
+A schema also leaves out the fields that the venue library supplies, such as `publisher` and a conference's `month`: `bibcc complete` adds those, and `bibcc check venues` checks them. To ignore more fields, pass `--ignore-fields`. To compare one of the ignored fields anyway, pass `--include-fields`. The check also leaves out entries with an interim (CVF or OpenReview) booktitle, entries built from metadata, and empty entries, because they lack fields by design. With `--strict`, only `missing` findings count; `default_missing` findings and proposals don't.
 
 #### Differences from the official BibTeX
 
@@ -237,7 +260,21 @@ The check needs network access. The report, `.bibcc/INPUT/official_fields.txt`, 
 | `local_only` | The entry has a field that the official BibTeX lacks, other than `citation` and the fields that the venue library supplies. |
 | `type` | The entry types differ. |
 
-`.bibcc/INPUT/official_venues.txt` lists, for each venue and year, the fields that most entries of the venue lack (`entries_lack`), and the venue library records that lack an official value or differ from it (`library_lacks` and `library_differs`). It also compares each venue's [schema](#venue-schemas) with the fields that the downloaded BibTeX has: `schema_lacks` when the library has no schema for the venue, and `schema_differs` when the schema differs. To write those schemas into the venue library, pass `--learn` (with `--scope project` for the project library); `check editions` then checks every entry of the venue against them.
+`.bibcc/INPUT/official_venues.txt` summarizes the findings for each venue and year, with one of these issue types:
+
+| Issue type | Meaning |
+| --- | --- |
+| `entries_lack` | The official BibTeX has a field that some checked entries lack. |
+| `export_lacks` | Every checked entry (at least two) has a field that no official BibTeX has. The field comes from elsewhere, such as the book that the proceedings appeared in. |
+| `library_lacks` | The venue library record lacks a value that the official BibTeX of every checked entry agrees on. |
+| `library_differs` | The venue library record has a different value. |
+| `books_lack` | The entries of one book of a proceedings agree on a `volume` or `part` that the record's `books` table lacks (see [Proceedings in several books](#proceedings-in-several-books)). |
+| `schema_lacks` | The venue library has no [schema](#venue-schemas) for the venue. |
+| `schema_differs` | The venue's schema differs from the fields that the downloaded BibTeX has. |
+
+To write the schemas and the book fields into the venue library, pass `--learn` (with `--scope project` for the project library); `check editions` then checks every entry of the venue against the schemas.
+
+<a id="schemas-of-venues-without-a-record"></a>**Schemas of venues without a record.** A journal schema belongs to the journal's record, and a schema for one edition belongs to the edition's record. When the library has no such record, `--learn` writes the record, with its schema (`entry_fields` and `learned_from`), into `.bibcc/INPUT/missing_venues.yaml`. The record's fields come pre-filled from the official BibTeX (`# from official BibTeX`), or from the entries for `check editions` (`# from bib`). A record that an earlier `complete` run already proposed there gets the schema added. After you fill in the rest, one `bibcc complete INPUT --in-place --update-venues` adds the record and its schema.
 
 ```bash
 bibcc check official input.bib --learn                   # learn the venue schemas from the official BibTeX
@@ -306,7 +343,7 @@ bibcc check keys input.bib --strict && bibcc check fields input.bib --strict
 | `editions` | `--against PATH` | Also compare with the entries in this `.bib` file or directory when proposing schemas; repeatable |
 | `editions` | `--ignore-fields FIELDS` | Fields to ignore, in addition to the default ones |
 | `editions` | `--include-fields FIELDS` | Fields to compare even though the check ignores them by default (for example, `urldate`) |
-| `editions` | `--learn` | Write the proposed schemas into the venue library, and check the entries against them |
+| `editions` | `--learn` | Write the proposed schemas into the venue library, and check the entries against them; a schema without its record goes into `missing_venues.yaml` |
 | `editions` | `--scope SCOPE` | With `--learn`, the library to write to: `user` (default) or `project` |
 | `editions` | `--venues FILE` | Use this venue library file instead of the user and project libraries |
 | `official` | `--apply FIELDS` | Add the official values of these fields to the entries that lack them (`all`: every `upstream_only` field) |
@@ -316,7 +353,7 @@ bibcc check keys input.bib --strict && bibcc check fields input.bib --strict
 | `official` | `--ignore-fields FIELDS` | Fields not to compare |
 | `official` | `--delay SECONDS` | Seconds to wait between downloads (default: `1`) |
 | `official` | `--refresh` | Download every official BibTeX again instead of reading the cache |
-| `official` | `--learn` | Write the venue schemas of the official BibTeX into the venue library |
+| `official` | `--learn` | Write the venue schemas of the official BibTeX and the book fields into the venue library; a schema without its record goes into `missing_venues.yaml` |
 | `official` | `--scope SCOPE` | With `--learn`, the library to write to: `user` (default) or `project` |
 | `official` | `--venues FILE` | Use this venue library file instead of the user and project libraries |
 | `venues` | `PATH` | Look for the project library from this file or directory (default: the current directory) |
@@ -863,7 +900,7 @@ The following table lists the files that each command writes to `.bibcc/NAME/`:
 
 | Command | Report files | Log file |
 | --- | --- | --- |
-| `check` | `missing_fields.txt`, `title_case.txt`, `smart_protection.txt`, `citation_keys.txt`, `field_issues.txt`, `edition_fields.txt`, `edition_schemas.txt`, `official_fields.txt`, `official_venues.txt`, `official_unchecked.txt` | `logs/checker.log` |
+| `check` | `missing_fields.txt`, `title_case.txt`, `smart_protection.txt`, `citation_keys.txt`, `field_issues.txt`, `edition_fields.txt`, `edition_schemas.txt`, `official_fields.txt`, `official_venues.txt`, `official_unchecked.txt`, `missing_venues.yaml` (`editions` and `official` with `--learn`) | `logs/checker.log` |
 | `complete` | `complete.diff` (dry-run preview), `missing_venues.yaml`, `missing_venues.txt`, `conflicts.txt`, `incomplete_entries.txt`, `venue_check.txt` (`--online`) | `logs/completer.log` |
 | `add` | The staging `.bib` file itself (entries appended or filled in), `add.txt`, `missing_venues.yaml` | `logs/adder.log` |
 | `upgrade` | `upgrade.txt`, `upgrade.diff` (dry-run preview), `missing_venues.yaml`, `published.txt` (`--report-only`, next to the first `PATH`) | `logs/upgrader.log` |
@@ -947,6 +984,20 @@ Matching ignores braces, case, the difference between `\&` and `&`, and extra sp
 - **Proceedings** match by name or alias and by the entry's `year`, or else by an interim booktitle: the name that CVF Open Access (`cvf`) or OpenReview (`openreview`) gives the same proceedings. An entry matched through an interim name only gets `venue` and `month`, and is reported so that `bibcc upgrade` can replace it. Until a conference's proceedings are out, its record is named by the interim booktitle. Merging a proposal from `add` or `upgrade` renames the record to the published name and keeps the old one under `interim`.
 - **Several matches**: if several records match one entry, nothing is added, and the entry is reported as ambiguous.
 
+<a id="proceedings-in-several-books"></a>**Proceedings in several books.** Some proceedings appear as several books, such as the LNCS volumes of ECCV and MICCAI, and each book has its own `volume` and `part`. Springer's chapter exports leave both out, so the record lists them under `books`, keyed by the book's ISBN as it appears in its chapters' DOIs (`10.1007/978-3-031-72649-1_13` belongs to book `978-3-031-72649-1`):
+
+```yaml
+proceedings:
+  - name: Computer Vision -- ECCV 2024
+    year: '2025'
+    fields:
+      venue: Milan, Italy
+    books:
+      978-3-031-72649-1: {volume: '15059', part: XXVI}
+```
+
+`complete` gives an entry whose DOI names one of the books that book's fields, over the record's own, and `check official` doesn't report them as `local_only`. You don't write the table by hand: when the entries of a book agree on a `volume` or `part` that the official BibTeX lacks, `bibcc check official FILE --learn` writes it.
+
 ### Venue families <a id="venue-families"></a>
 
 A conference has one proceedings record for each year. A `families` record describes the conference across its editions, so that the fields every edition shares live in one place:
@@ -984,7 +1035,9 @@ You don't write schemas by hand. Two checks learn them:
 - `bibcc check official FILE --learn` learns them from the official BibTeX that it downloads, the reliable source.
 - `bibcc check editions FILE --learn` learns them from the entries of each venue, for the venues whose BibTeX BibCC can't download.
 
-With a schema, `check editions` reports the fields an entry lacks, and `check missing` doesn't ask for a field that the venue never exports. For proceedings, the latest year's fields become the family's schema, and a year whose fields differ gets its own schema on its proceedings record.
+With a schema, `check editions` reports the fields an entry lacks, and `check missing` doesn't ask for a field that the venue never exports. For proceedings, the latest year's fields become the family's schema, and a year whose fields differ gets its own schema on its proceedings record. A schema learned from a later year stays: a run that sees only older years gives those years their own schemas instead, so the order in which you check your files doesn't matter.
+
+A schema for a journal or an edition that has no record in the library goes into the fill-in file `.bibcc/INPUT/missing_venues.yaml`, with the record; merging the record with `complete --update-venues` adds the schema too. For a venue without a schema, `check editions` uses its publisher's default schema as a labeled guess (`default_missing`), which BibCC computes from the library's schemas and never writes.
 
 ### Months <a id="months"></a>
 
@@ -1092,7 +1145,7 @@ bibcc config profile miaa --scope project # import the shared config, venue libr
 
 `where` is the one place to see what BibCC reads for a path. After the settings, it lists the venue libraries, the terms files, and the provider table that apply, each with its scope and size.
 
-[`examples/config/`](examples/config/) holds shared configs, such as the MIAA lab's [`miaa`](examples/config/miaa.yaml), which sets the title-first field order of the lab's surveys with `citation` last. `import` adds the settings that your file lacks. Where a setting differs, it keeps your value and lists the difference, unless you pass `--overwrite`. `import` rewrites the file, so comments other than the header aren't kept. To share a config, see [Contributing a config](examples/config/README.md#contributing-a-config).
+[`examples/config/`](examples/config/) holds shared configs, such as the MIAA lab's [`miaa`](examples/config/miaa.yaml), which sets the title-first field order of the lab's surveys with `citation` last. `import` adds the settings that your file lacks. Where a setting differs, it keeps your value and lists the difference, unless you pass `--overwrite`. `import` changes only the lines of the settings that it adds or updates, so your comments stay. A setting that `config init` wrote commented out takes the place of its commented line. To share a config, see [Contributing a config](examples/config/README.md#contributing-a-config).
 
 ### Set up a project from a lab profile <a id="config-profile"></a>
 
@@ -1103,6 +1156,16 @@ bibcc config profile miaa --scope project
 ```
 
 `profile` runs `config import`, `venues import`, and `terms import` for that name, each into the project file of its kind (or, without `--scope project`, into your user files). It skips a kind that has no shared file of that name. To preview the changes, pass `--dry-run`.
+
+The imports copy the profile: later changes to your files stay in your files. To send your changes back to a profile that you maintain, import your files into its files from a BibCC checkout. Each `import` takes a target file (`--config FILE`, `--venues FILE`, or `--terms FILE`) instead of a scope, and `--overwrite` lets your values win where they differ:
+
+```bash
+bibcc config import ~/.config/bibcc/config.yaml --config examples/config/miaa.yaml --overwrite
+bibcc venues import ~/.config/bibcc/venues.yaml --venues examples/venues/miaa.yaml --overwrite
+bibcc terms import ~/.config/bibcc/terms.txt --terms examples/terms/miaa.txt
+```
+
+An import only adds and changes values, so remove a setting, a record, or a term from the profile by hand.
 
 When a command creates a project file, such as `.bibcc-venues.yaml`, it puts the file next to the project's other BibCC files (`.bibcc.yaml`, `.bibcc-venues.yaml`, or `.bibcc-terms.txt`), so that all three stay in the project's root directory. If the project has none yet, the file goes in the current directory. `init --scope project` always writes to the current directory.
 

@@ -4,6 +4,8 @@ import pytest
 
 from bibcc.checkers.edition_fields import check_edition_fields
 from bibcc.checkers.template_fields import check_template_fields
+from bibcc.families import acronym_of
+from bibcc.schemas import OFFICIAL, observe, propose
 from bibcc.venues import VenueLibrary, family_key, family_label
 
 
@@ -32,6 +34,55 @@ def test_family_key_groups_editions_named_by_year_ordinal_or_article():
         "Proceedings of the International Conference on Machine Learning"
     assert family_label("The Thirty-ninth Annual Conference on Neural Information Processing Systems") == \
         "Annual Conference on Neural Information Processing Systems"
+
+
+def test_family_key_drops_a_trailing_edition_tag():
+    ijcai24 = "Proceedings of the Thirty-Third International Joint Conference on Artificial Intelligence, {IJCAI-24}"
+    ijcai22 = ("Proceedings of the Thirty-First International Joint Conference on Artificial Intelligence, "
+               "{IJCAI-ECAI-22}")
+    assert family_key(ijcai24) == family_key(ijcai22)
+    assert family_label(ijcai24) == "Proceedings of the International Joint Conference on Artificial Intelligence"
+    assert acronym_of(ijcai24) == "IJCAI"
+    assert family_label("Workshop on COVID-19 Imaging") == "Workshop on COVID-19 Imaging"
+
+
+def _observe(key: str, year: str, ordinal: str, fields: str, library: VenueLibrary):
+    entry = {"ID": key, "ENTRYTYPE": "inproceedings", "year": year,
+             "booktitle": f"Proceedings of the {ordinal} International Conference on Machine Learning"}
+    return observe(entry, library, fields.split())
+
+
+ICML_EDITIONS = """\
+proceedings:
+- name: Proceedings of the 35th International Conference on Machine Learning
+  year: '2018'
+  fields: {publisher: PMLR}
+- name: Proceedings of the 42nd International Conference on Machine Learning
+  year: '2025'
+  fields: {publisher: PMLR}
+"""
+
+
+def test_a_book_chapter_does_not_count_toward_a_schema():
+    chapter = {"ID": "A", "ENTRYTYPE": "inbook", "year": "1982", "booktitle": "Studies of Mind and Brain"}
+    assert observe(chapter, VenueLibrary(), ["doi", "pages"]) is None
+
+
+def test_learning_from_an_older_year_keeps_the_family_schema():
+    library = VenueLibrary.loads(ICML_FAMILY + ICML_EDITIONS)
+    proposals = propose([_observe("A", "2018", "35th", "pages url", library)], library, OFFICIAL)
+
+    assert [(p.level, p.year, p.fields) for p in proposals] == [("edition", "2018", ["pages", "url"])]
+
+
+def test_learning_from_a_later_year_moves_the_old_family_schema_to_its_edition():
+    library = VenueLibrary.loads(ICML_FAMILY.replace("(2025)", "(2018)") + ICML_EDITIONS)
+    proposals = propose([_observe("A", "2025", "42nd", "pages url", library)], library, OFFICIAL)
+
+    rows = [(p.level, p.year, p.fields, p.learned_from) for p in proposals]
+    assert ("family", "", ["pages", "url"], proposals[0].learned_from) in rows
+    assert ("edition", "2018", ["day", "pages", "volume"],
+            "official BibTeX of 2 entries (2018), 2025-07-01") in rows
 
 
 def test_check_venues_groups_ordinal_editions_and_skips_interim_records(tmp_path: Path):
@@ -223,3 +274,69 @@ def test_check_editions_reports_learn_and_strict(tmp_path: Path):
     venues.unlink()
     main(["check", "editions", str(bib), "--learn", "--venues", str(venues)])
     assert "entry_fields:\n  - pages\n  - volume\n" in venues.read_text()
+
+
+def test_an_edition_without_a_record_gets_a_fill_in_record_with_its_schema():
+    from bibcc.schemas import missing_records
+
+    library = VenueLibrary.loads(ICML_FAMILY + ICML_EDITIONS)
+    seen = _observe("A", "2023", "40th", "pages url", library)
+    seen.values = {"publisher": "PMLR"}
+    proposals = propose([seen], library, OFFICIAL)
+
+    (proposal,) = proposals
+    assert (proposal.level, proposal.year, proposal.fields, proposal.needs_record) == \
+        ("edition", "2023", ["pages", "url"], True)
+    assert proposal.detail().startswith("no record yet; ")
+    (record,) = missing_records(proposals, "from official BibTeX")
+    assert (record.name, record.year, record.entry_fields, record.collected) == (
+        "Proceedings of the 40th International Conference on Machine Learning", "2023", ["pages", "url"],
+        {"publisher": "PMLR"})
+
+
+ELSEVIER_JOURNALS = """\
+journals:
+- name: Pattern Recognition
+  fields: {publisher: Elsevier}
+  entry_fields: [doi, pages, url, volume]
+- name: Neurocomputing
+  fields: {publisher: Elsevier BV}
+  entry_fields: [doi, pages, volume]
+- name: IEEE Transactions on Things
+  fields: {publisher: IEEE}
+  entry_fields: [doi, number, pages, volume]
+"""
+
+
+def test_publisher_defaults_come_from_the_library_schemas():
+    from bibcc.schemas import publisher_defaults, publisher_key
+
+    assert publisher_key("Elsevier BV") == publisher_key("Elsevier") == "Elsevier"
+    assert publisher_key("Association for Computing Machinery") == publisher_key("ACM")
+    defaults = publisher_defaults(VenueLibrary.loads(ELSEVIER_JOURNALS))
+    (default,) = defaults.values()  # one IEEE journal isn't enough for a default
+    assert (default.publisher, default.kind, default.fields) == ("Elsevier", "journal", ["doi", "pages", "volume"])
+    assert default.venues == ["Neurocomputing", "Pattern Recognition"]
+
+
+def test_check_editions_reports_the_publisher_default_as_a_labeled_guess(tmp_path: Path):
+    from bibcc.cli import main
+
+    bib = tmp_path / "refs.bib"
+    bib.write_text("@article{A_Doe_NT2025,\n  title = {T},\n  author = {Doe, Jane},\n"
+                   "  journal = {Neural Things},\n  year = {2025},\n  volume = {4},\n"
+                   "  doi = {10.1016/j.nt.2025.1}\n}\n")
+    venues = tmp_path / "venues.yaml"
+    venues.write_text(ELSEVIER_JOURNALS)
+    logs = []
+    result = check_edition_fields(str(bib), VenueLibrary.load(venues), log=logs.append)
+
+    (row,) = result.fields
+    assert row[:5] == ("A_Doe_NT2025", "Neural Things", "2025", "pages", "default_missing")
+    assert row[5].startswith("in the default schema of Elsevier journals, from 2 venues")
+    assert (result.missing, result.guessed) == (0, 1)
+    assert "Neural Things (1)" in "\n".join(logs)  # still a venue without a schema
+
+    main(["check", "editions", str(bib), "--venues", str(venues), "--strict", "--learn"])
+    assert venues.read_text() == ELSEVIER_JOURNALS  # never written
+    assert "default_missing" in (tmp_path / ".bibcc" / "refs.bib" / "edition_fields.txt").read_text()

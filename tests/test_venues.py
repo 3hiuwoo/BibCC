@@ -365,7 +365,7 @@ def test_missing_venues_file_is_merged_not_overwritten(tmp_path: Path, library: 
 
     second = MissingVenue(JOURNAL, "Journal Two")
     counts = write_missing_venues(path, [first, second], library, "rerun")
-    assert counts == {"new": 1, "kept": 1, "dropped": 0}
+    assert counts == {"new": 1, "kept": 1, "dropped": 0, "schemas": 0}
     text = path.read_text()
     assert '"1234-5678"' in text and "Journal Two" in text
     assert text.count("Journal One") == 1
@@ -403,3 +403,16 @@ def test_miaa_library_links_interim_names():
     ]:
         result = lib.lookup(name, year, PROCEEDINGS)
         assert result.venue is not None and result.interim_source, name
+
+
+def test_books_round_trip_and_merge():
+    text = ("proceedings:\n- name: Computer Vision -- ECCV 2024\n  year: '2025'\n  fields: {venue: Milan}\n"
+            "  books:\n    978-3-031-72649-1: {volume: '15059', part: XXVI}\n")
+    library = VenueLibrary.loads(text)
+    (record,) = library.proceedings
+    assert record.books == {"978-3-031-72649-1": {"volume": "15059", "part": "XXVI"}}
+    incoming = VenueLibrary.loads(text.replace("15059", "15000").replace("72649-1", "73000-0")).proceedings[0]
+    assert library.upsert(incoming, overwrite=False) == "updated"
+    assert record.books == {"978-3-031-72649-1": {"volume": "15059", "part": "XXVI"},
+                            "978-3-031-73000-0": {"volume": "15000", "part": "XXVI"}}
+    assert VenueLibrary.loads(yaml.safe_dump({"proceedings": [record.to_dict()]})).proceedings[0].books == record.books

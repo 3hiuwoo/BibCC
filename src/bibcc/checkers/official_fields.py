@@ -10,17 +10,24 @@ fetched yourself, and compares the two:
 * ``differs``: both have the field, with different values (braces, case,
   whitespace, accents, and month spellings don't count).
 * ``local_only``: the entry has a field the official BibTeX lacks, other
-  than BibCC's ``citation`` and the fields the venue library supplies.
+  than BibCC's ``citation`` and the fields the venue library supplies
+  (including the fields of the entry's book, see below).
 * ``type``: the entry types differ.
 
 The venue summary says, for each venue and year, how many checked entries
 the official BibTeX gives a field and how many of them lack it
-(``entries_lack``), and compares the venue library records with the
-official values (``library_lacks`` and ``library_differs``) and the
+(``entries_lack``), which fields every checked entry has and no official
+BibTeX has (``export_lacks``), and compares the venue library records with
+the official values (``library_lacks`` and ``library_differs``) and the
 venues' schemas, the fields the official BibTeX of each paper has, with the
 fields the downloaded BibTeX has (``schema_lacks`` and ``schema_differs``;
-see :mod:`bibcc.schemas`).  ``bibcc check official --learn`` writes those
-schemas into the venue library.
+see :mod:`bibcc.schemas`).  For proceedings published as several books
+(LNCS), whose chapter exports lack the volume and part, ``books_lack``
+names the values the entries of each book agree on and the record's
+``books`` table lacks.  ``bibcc check official --learn`` writes those
+schemas and book fields into the venue library; a schema whose journal or
+edition record is missing goes into ``missing_venues.yaml``, with the
+record.
 
 ``apply`` adds the official values of the listed fields that the entries
 lack.
@@ -57,7 +64,7 @@ from bibcc.schemas import (
     observe,
     propose,
 )
-from bibcc.venues import JOURNAL, Venue, VenueLibrary, venue_kind
+from bibcc.venues import BOOK_FIELDS, JOURNAL, PROCEEDINGS, Venue, VenueLibrary, book_of, venue_kind
 
 UPSTREAM_ONLY = "upstream_only"
 DIFFERS = "differs"
@@ -67,8 +74,12 @@ TYPE = "type"
 STRICT_ISSUES = (UPSTREAM_ONLY, DIFFERS, TYPE)
 
 ENTRIES_LACK = "entries_lack"
+EXPORT_LACKS = "export_lacks"
 LIBRARY_LACKS = "library_lacks"
 LIBRARY_DIFFERS = "library_differs"
+BOOKS_LACK = "books_lack"
+VENUE_STATUSES = (ENTRIES_LACK, EXPORT_LACKS, LIBRARY_LACKS, LIBRARY_DIFFERS, BOOKS_LACK, *SCHEMA_STATUSES)
+MIN_EXPORT_LACKS = 2  # checked entries of a venue and year that an export_lacks row needs
 
 APPLY_ALL = "all"
 
@@ -95,6 +106,20 @@ class _Checked:
     upstream: Dict[str, str]  # official fields, polished as `add` writes them
     local: Set[str]
     missing: Dict[str, str] = field(default_factory=dict)  # field -> official value the entry lacks
+    local_only: Set[str] = field(default_factory=set)  # fields of local_only rows
+    book: str = ""  # the book ISBN in the entry's chapter DOI
+    book_values: Dict[str, str] = field(default_factory=dict)  # the entry's BOOK_FIELDS
+
+
+@dataclass
+class BookFact:
+    """A field of one book of a proceedings that the entries agree on and the library lacks."""
+
+    record: Venue
+    book: str
+    name: str
+    value: str
+    keys: List[str]
 
 
 @dataclass
@@ -110,6 +135,8 @@ class OfficialCheck:
     applied: int = 0
     # Schemas the official BibTeX supports and the library lacks (see bibcc.schemas).
     proposals: List[Proposal] = field(default_factory=list)
+    # Fields of the books of a proceedings that the official BibTeX lacks and the entries have.
+    books: List[BookFact] = field(default_factory=list)
 
     @property
     def strict_findings(self) -> int:
@@ -245,6 +272,11 @@ def _venue_rows(checked: List[_Checked], library: VenueLibrary) -> List[VenueRow
             lacking = [i.key for i in have if name in i.missing]
             rows.append((venue, year, name, ENTRIES_LACK, str(len(have)), str(len(lacking)),
                          ", ".join(lacking)))
+        if len(items) >= MIN_EXPORT_LACKS:
+            # The reverse: a field that every entry has and no export has comes from elsewhere.
+            for name in sorted(set.intersection(*(i.local_only for i in items))):
+                rows.append((venue, year, name, EXPORT_LACKS, str(len(items)), str(len(items)),
+                             f"every checked entry has '{name}', and the official BibTeX of none has it"))
 
     by_record: Dict[int, List[_Checked]] = defaultdict(list)
     for item in checked:
@@ -269,6 +301,64 @@ def _venue_rows(checked: List[_Checked], library: VenueLibrary) -> List[VenueRow
                 detail += f" (from family {family.name})"
             rows.append((record.name, str(record.year or ""), name, issue, str(len(values)), "", detail))
     return rows
+
+
+def _book_facts(checked: List[_Checked], log: Callable[[str], None]) -> List[BookFact]:
+    """The per-book fields (:data:`BOOK_FIELDS`) that a proceedings' entries have, agree on, and the library lacks."""
+    from bibcc.completer import same_field_value
+
+    seen: Dict[Tuple[int, str, str], List[_Checked]] = defaultdict(list)
+    for item in checked:
+        if item.record is None or item.record.kind != PROCEEDINGS or not item.book:
+            continue
+        for name in item.book_values:
+            if name not in item.upstream:
+                seen[(id(item.record), item.book, name)].append(item)
+    facts: List[BookFact] = []
+    for (_, book, name), items in seen.items():
+        record = items[0].record
+        value = items[0].book_values[name]
+        keys = [i.key for i in items]
+        if any(not same_field_value(name, i.book_values[name], value) for i in items[1:]):
+            log(f"   ⚠️  {record.label}: the entries of book {book} disagree on '{name}' ({', '.join(keys)})")
+            continue
+        known = record.books.get(book, {}).get(name, "")
+        if known:
+            continue  # the same value is supplied; a different one is a conflict that bibcc complete reports
+        facts.append(BookFact(record, book, name, value, keys))
+    return sorted(facts, key=lambda f: (f.record.label, f.name, f.book))
+
+
+def book_rows(facts: Iterable[BookFact]) -> List[VenueRow]:
+    """``books_lack`` rows of the venue summary: one per proceedings record and field."""
+    groups: Dict[Tuple[int, str], List[BookFact]] = defaultdict(list)
+    for fact in facts:
+        groups[(id(fact.record), fact.name)].append(fact)
+    rows: List[VenueRow] = []
+    for group in groups.values():
+        record, name = group[0].record, group[0].name
+        detail = "; ".join(f"{f.book}: {f.value} ({', '.join(f.keys)})" for f in group)
+        rows.append((record.name, str(record.year or ""), name, BOOKS_LACK,
+                     str(sum(len(f.keys) for f in group)), str(len(group)), detail))
+    return rows
+
+
+def apply_books(target: VenueLibrary, facts: Iterable[BookFact], log: Callable[[str], None]) -> int:
+    """Write the per-book fields of *facts* into the records of *target*; returns how many it wrote."""
+    changed = 0
+    for fact in facts:
+        existing = target.find_any(fact.record)
+        if existing is None:
+            log(f"   ⏭️  {fact.record.label}: its record is in another venue library; book {fact.book} "
+                f"keeps no '{fact.name}'")
+            continue
+        fields = existing.books.setdefault(fact.book, {})
+        if fields.get(fact.name) == fact.value:
+            continue
+        fields[fact.name] = fact.value
+        changed += 1
+        log(f"   📝 {existing.label}: book {fact.book} {fact.name} {fact.value}")
+    return changed
 
 
 def schema_rows(proposals: Iterable[Proposal]) -> List[VenueRow]:
@@ -363,15 +453,19 @@ def check_official_fields(
         record = library.lookup(venue, year, venue_kind(entry.get("ENTRYTYPE", ""), entry),
                                 issn=entry.get("issn")).venue
         source = " ".join(f"{official.provider} {official.url}".split())
-        supplied = set(library.fields_of(record)) if record is not None else set()
+        supplied = set(library.entry_fields_of(record, entry)) if record is not None else set()
         rows, missing = _compare(entry, entry_type, upstream, supplied, ignored, source)
         local_fields = {k for k, v in entry.items() if str(v).strip()}
+        book = book_of(entry.get("doi"))
         item = _Checked(key, record.name if record is not None else venue, year, source, record,
-                        upstream, local_fields, missing)
+                        upstream, local_fields, missing,
+                        local_only={r[1] for r in rows if r[2] == LOCAL_ONLY}, book=book,
+                        book_values={n: " ".join(str(entry[n]).split()) for n in BOOK_FIELDS
+                                     if book and str(entry.get(n, "")).strip()})
         checked.append(item)
         result.fields.extend(rows)
         seen = observe(entry, library, [n for n, v in upstream.items() if str(v).strip()],
-                       set(IGNORED_FIELDS) | ignored)
+                       set(IGNORED_FIELDS) | ignored, values=upstream)
         if seen is not None:
             observations.append(seen)
     result.checked = len(checked)
@@ -400,6 +494,8 @@ def check_official_fields(
                 log(f"✍️  Added {len(applied)} official field values to {input_path}.")
 
     result.venues = _venue_rows(checked, library)
+    result.books = _book_facts(checked, log)
+    result.venues += book_rows(result.books)
     result.proposals = propose(observations, library, OFFICIAL)
     result.venues += schema_rows(result.proposals)
     _log_result(result, log)
@@ -426,6 +522,11 @@ def _log_result(result: OfficialCheck, log: Callable[[str], None]) -> None:
             if issue == ENTRIES_LACK:
                 log(f"   {venue} ({year}): '{name}' is in the official BibTeX of {have} checked entries; "
                     f"{lacking} lack it")
+            elif issue == EXPORT_LACKS:
+                log(f"   {venue} ({year}): all {have} checked entries have '{name}', and their official "
+                    "BibTeX lacks it")
+            elif issue == BOOKS_LACK:
+                log(f"   {venue} ({year}): the venue library lacks '{name}' of {lacking} books; {detail}")
             elif issue in SCHEMA_STATUSES:
                 when = f" ({year})" if year else ""
                 verb = "has no schema" if issue == SCHEMA_LACKS else "has a different schema"

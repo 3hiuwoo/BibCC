@@ -89,7 +89,8 @@ def where(start: Optional[str], log: Callable[[str], None]) -> None:
     log(f"\n✏️  complete --update-venues and venues import write to the user library. To write "
         f"to {project or PROJECT_LIBRARY_NAME} instead, pass --scope project.")
     if not len(merged):
-        log("💡 No venues yet. Start from a shared library: bibcc venues examples")
+        log("💡 No venues yet. To start from a shared profile (config, venues, and terms), run: "
+            "bibcc config profile NAME. To list the shared libraries, run: bibcc venues examples")
 
 
 _PROVIDER_DETAILS = ("acronym_aliases", "workshop_of", "pattern", "site", "interim_since", "blocked_by",

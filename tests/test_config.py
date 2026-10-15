@@ -224,6 +224,50 @@ def test_config_import_rejects_invalid_source(tmp_path: Path, monkeypatch, capsy
     assert not user_config_path().exists()
 
 
+def test_config_import_keeps_the_target_comments(tmp_path: Path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    target = tmp_path / "lab.yaml"
+    original = (EXAMPLE_CONFIGS / "miaa.yaml").read_text()
+    target.write_text(original)
+    mine = _write(tmp_path / "mine.yaml", "format:\n  indent: 4\n  field_order: [title, '*', citation]\n")
+    assert _run(["config", "import", str(mine), "--config", str(target), "--overwrite"]) == 0
+
+    text = target.read_text()
+    assert text.startswith("# MIAA lab config")
+    assert "  # Publisher extras keep their place" in text
+    changed = [line for line in text.splitlines() if line not in original.splitlines()]
+    assert changed == ["  field_order: [title, '*', citation]", "  indent: 4"]
+    assert load_config(target).section("format")["field_order"] == ("title", OTHER_FIELDS, "citation")
+
+
+def test_config_import_fills_the_settings_that_init_commented_out(tmp_path: Path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    assert _run(["config", "init"]) == 0
+    assert _run(["config", "import", "miaa"]) == 0
+    text = user_config_path().read_text()
+    assert "# Field indent: a number of spaces, or tab.\n  indent: 2\n" in text
+    assert "  # indent:" not in text and "  #   first:" not in text
+    assert load_config(user_config_path()).section("format")["sort_fields"] is True
+
+
+def test_update_yaml_keeps_comments_and_adds_what_is_missing():
+    from bibcc.config import update_yaml
+
+    text = "# mine\nformat:\n  indent: 2  # two spaces\n  # keep this\n  align: true\n"
+    data = {"format": {"indent": 4, "align": True, "drop_empty": True}, "other": {"key": 1}}
+    edited = update_yaml(text, data)
+    assert edited == ("# mine\nformat:\n  indent: 4  # two spaces\n  # keep this\n  align: true\n"
+                      "  drop_empty: true\n\nother:\n  key: 1\n")
+
+
+def test_update_yaml_rewrites_a_layout_it_cannot_edit_under_its_own_header():
+    from bibcc.config import parse_yaml, update_yaml
+
+    edited = update_yaml("# mine\nformat: {indent: 2}\n", {"format": {"indent": 4}})
+    assert edited.startswith("# mine\n")
+    assert parse_yaml(edited, "x") == {"format": {"indent": 4}}
+
+
 def test_config_examples_lists_miaa(capsys):
     assert _run(["config", "examples"]) == 0
     assert "miaa  format (12 settings)" in capsys.readouterr().out
@@ -247,7 +291,8 @@ def test_config_profile_imports_config_venues_and_terms(tmp_path: Path, monkeypa
     assert _run(["config", "where", str(tmp_path / "bib")]) == 0
     out = capsys.readouterr().out
     assert "📂 Other files that apply:" in out
-    assert f"project  {(tmp_path / '.bibcc-venues.yaml').resolve()} (30 journals" in out
+    journals = len(VenueLibrary.load(tmp_path / ".bibcc-venues.yaml").journals)
+    assert f"project  {(tmp_path / '.bibcc-venues.yaml').resolve()} ({journals} journals" in out
     assert f"project  {(tmp_path / '.bibcc-terms.txt').resolve()} (" in out
     assert "provider table" in out and "bibcc venues providers" in out
 

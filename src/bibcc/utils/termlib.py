@@ -60,6 +60,9 @@ def where(start: Optional[str], log: Callable[[str], None]) -> int:
         log(f"  project  (none: no {PROJECT_TERMS_NAME} in {folder} or its parents)")
     log("\n✏️  terms add, terms import, and check quote --interactive write to the user file. To write "
         "to the project file instead, pass --scope project.")
+    if not any(source.exists for source in sources):
+        log("💡 No terms files yet. To start from a shared profile (config, venues, and terms), run: "
+            "bibcc config profile NAME. To list the shared lists, run: bibcc terms examples")
     return 0
 
 
@@ -152,7 +155,7 @@ your file lacks."""
 def _scope_arguments(parser: argparse.ArgumentParser) -> None:
     target = parser.add_mutually_exclusive_group()
     target.add_argument("--scope", choices=SCOPES, default=None, help=TERMS_SCOPE_HELP)
-    target.add_argument("--file", default="", metavar="FILE",
+    target.add_argument("--terms", dest="terms_file", default="", metavar="FILE",
                         help="Write to this terms file instead of a scope.")
 
 
@@ -201,14 +204,14 @@ def build_parser() -> argparse.ArgumentParser:
         "add",
         help="Add terms to the user or project terms file.",
         description="Add each TERM that the file lacks (ignoring case) to the user terms file, the\n"
-        "project terms file (--scope project), or --file FILE. To keep a hyphenated\n"
+        "project terms file (--scope project), or --terms FILE. To keep a hyphenated\n"
         "method name such as CIP-Net in one brace group, add the whole compound.",
         epilog=epilog(
             examples=[
                 ("Keep two method names whole", "bibcc terms add CIP-Net Transformer-XL"),
                 ("Add a term for this project only", "bibcc terms add SD-LoRA --scope project"),
             ],
-            outputs=[(f"{USER_TERMS_DISPLAY}, {PROJECT_TERMS_NAME}, or --file FILE", "The terms file")],
+            outputs=[(f"{USER_TERMS_DISPLAY}, {PROJECT_TERMS_NAME}, or --terms FILE", "The terms file")],
             env=[ENV_TERMS],
         ),
         formatter_class=HelpFormatter,
@@ -220,7 +223,7 @@ def build_parser() -> argparse.ArgumentParser:
         "import",
         help="Add the terms of a shared list (file, URL, or example name) to yours.",
         description="Add the terms of SOURCE that the user terms file (default), the project terms\n"
-        "file (--scope project), or --file FILE lacks.\n\n"
+        "file (--scope project), or --terms FILE lacks.\n\n"
         "SOURCE is a terms file, an http(s) URL, or the name of a list in\n"
         "examples/terms/ of the BibCC repository (see 'bibcc terms examples'). The\n"
         "command reads an example list from your checkout when BibCC runs from one, and\n"
@@ -231,7 +234,7 @@ def build_parser() -> argparse.ArgumentParser:
                 ("Preview what the list would add to the project file",
                  "bibcc terms import miaa --scope project --dry-run"),
             ],
-            outputs=[(f"{USER_TERMS_DISPLAY}, {PROJECT_TERMS_NAME}, or --file FILE", "The terms file")],
+            outputs=[(f"{USER_TERMS_DISPLAY}, {PROJECT_TERMS_NAME}, or --terms FILE", "The terms file")],
             exit_status="0 on success (also when nothing is new), 1 if BibCC can't read SOURCE,\n"
             "2 on usage errors.",
             env=[ENV_TERMS],
@@ -265,9 +268,9 @@ def main() -> None:
         elif args.command == "list":
             status = list_terms(args.path, logger.log)
         elif args.command == "add":
-            status = add(args.terms, args.scope or USER_SCOPE, args.file or None, logger.log)
+            status = add(args.terms, args.scope or USER_SCOPE, args.terms_file or None, logger.log)
         elif args.command == "import":
-            status = import_terms(args.source, args.scope or USER_SCOPE, args.file or None, args.dry_run,
+            status = import_terms(args.source, args.scope or USER_SCOPE, args.terms_file or None, args.dry_run,
                                   logger.log)
         else:
             status = examples(logger.log)

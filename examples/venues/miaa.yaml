@@ -4,7 +4,8 @@
 # proceedings: matched by name or alias AND the entry's publication year.
 #              name is the published proceedings' booktitle; interim maps a
 #              source (cvf, openreview) to the booktitle it uses before or
-#              instead of the proceedings.
+#              instead of the proceedings; books maps the ISBN of each book
+#              (an LNCS volume, as in its chapters' DOIs) to its volume and part.
 # families:    a conference across its editions: fields every edition shares,
 #              and entry_fields, the fields the official BibTeX of each paper has.
 #
@@ -28,6 +29,20 @@ journals:
   fields:
     publisher: Elsevier
     issn: 1568-4946
+- name: Artificial Intelligence Review
+  fields:
+    publisher: Springer
+    issn: 1573-7462
+  entry_fields:
+  - abstract
+  - day
+  - doi
+  - month
+  - number
+  - pages
+  - url
+  - volume
+  learned_from: official BibTeX of 1 entry (2024), 2026-10-15
 - name: Computer Vision and Image Understanding
   fields:
     publisher: Elsevier
@@ -36,50 +51,139 @@ journals:
   fields:
     publisher: Elsevier
     issn: 0957-4174
+  entry_fields:
+  - doi
+  - month
+  - pages
+  - url
+  - volume
+  learned_from: peer comparison of 6 entries (2024, 2025, 2026), 2026-10-15
 - name: IEEE Access
   fields:
     issn: 2169-3536
     publisher: IEEE
+  entry_fields:
+  - doi
+  - keywords
+  - pages
+  - volume
+  learned_from: official BibTeX of 1 entry (2025), 2026-10-15
 - name: IEEE Internet of Things Journal
   fields:
     issn: 2327-4662
     publisher: IEEE
+  entry_fields:
+  - doi
+  - keywords
+  - number
+  - pages
+  - volume
+  learned_from: official BibTeX of 1 entry (2025), 2026-10-15
+- name: IEEE Robotics and Automation Letters
+  fields:
+    publisher: IEEE
+    issn: 2377-3766
+  entry_fields:
+  - doi
+  - keywords
+  - number
+  - pages
+  - volume
+  learned_from: official BibTeX of 1 entry (2026), 2026-10-15
 - name: IEEE Transactions on Circuits and Systems for Video Technology
   fields:
     issn: 1558-2205
     publisher: IEEE
+  entry_fields:
+  - doi
+  - keywords
+  - number
+  - pages
+  - volume
+  learned_from: official BibTeX of 4 entries (2025), 2026-10-15
 - name: IEEE Transactions on Cognitive Communications and Networking
   fields:
     issn: 2332-7731
     publisher: IEEE
+  entry_fields:
+  - doi
+  - keywords
+  - pages
+  - volume
+  learned_from: official BibTeX of 1 entry (2026), 2026-10-15
 - name: IEEE Transactions on Cybernetics
   fields:
     issn: 2168-2267
     publisher: IEEE
+  entry_fields:
+  - doi
+  - keywords
+  - number
+  - pages
+  - volume
+  learned_from: official BibTeX of 1 entry (2025), 2026-10-15
 - name: IEEE Transactions on Geoscience and Remote Sensing
   fields:
     issn: 1558-0644
     publisher: IEEE
+  entry_fields:
+  - doi
+  - keywords
+  - pages
+  - volume
+  learned_from: official BibTeX of 1 entry (2026), 2026-10-15
 - name: IEEE Transactions on Image Processing
   fields:
     issn: 1941-0042
     publisher: IEEE
+  entry_fields:
+  - doi
+  - keywords
+  - pages
+  - volume
+  learned_from: official BibTeX of 2 entries (2024), 2026-10-15
 - name: IEEE Transactions on Instrumentation and Measurement
   fields:
     issn: 1557-9662
     publisher: IEEE
+  entry_fields:
+  - doi
+  - keywords
+  - pages
+  - volume
+  learned_from: official BibTeX of 1 entry (2025), 2026-10-15
 - name: IEEE Transactions on Knowledge and Data Engineering
   fields:
     publisher: IEEE
     issn: 1558-2191
+  entry_fields:
+  - doi
+  - keywords
+  - number
+  - pages
+  - volume
+  learned_from: official BibTeX of 1 entry (2025), 2026-10-15
 - name: IEEE Transactions on Multimedia
   fields:
     issn: 1941-0077
     publisher: IEEE
+  entry_fields:
+  - doi
+  - keywords
+  - pages
+  - volume
+  learned_from: official BibTeX of 1 entry (2025), 2026-10-15
 - name: IEEE Transactions on Neural Networks and Learning Systems
   fields:
     issn: 2162-2388
     publisher: IEEE
+  entry_fields:
+  - doi
+  - keywords
+  - number
+  - pages
+  - volume
+  learned_from: official BibTeX of 1 entry (2025), 2026-10-15
 - name: IEEE Transactions on Pattern Analysis and Machine Intelligence
   fields:
     issn: 1939-3539
@@ -95,6 +199,13 @@ journals:
   fields:
     issn: 1939-9359
     publisher: IEEE
+  entry_fields:
+  - doi
+  - keywords
+  - number
+  - pages
+  - volume
+  learned_from: official BibTeX of 2 entries (2025), 2026-10-15
 - name: Image and Vision Computing
   fields:
     publisher: Elsevier
@@ -130,18 +241,63 @@ journals:
 - name: Nature Communications
   fields:
     issn: 2041-1723
+  entry_fields:
+  - abstract
+  - day
+  - doi
+  - month
+  - number
+  - pages
+  - url
+  - volume
+  learned_from: official BibTeX of 1 entry (2020), 2026-10-15
+- name: Nature Machine Intelligence
+  fields:
+    publisher: Springer Nature
+    issn: 2522-5839
+  entry_fields:
+  - abstract
+  - day
+  - doi
+  - month
+  - number
+  - pages
+  - url
+  - volume
+  learned_from: official BibTeX of 1 entry (2022), 2026-10-15
 - name: Neural Networks
   fields:
     publisher: Elsevier
     issn: 0893-6080
+  entry_fields:
+  - doi
+  - month
+  - pages
+  - url
+  - volume
+  learned_from: peer comparison of 4 entries (2024, 2025, 2026), 2026-10-15
 - name: Neurocomputing
   fields:
     publisher: Elsevier
     issn: 0925-2312
+  entry_fields:
+  - doi
+  - month
+  - pages
+  - url
+  - volume
+  learned_from: peer comparison of 7 entries (2021, 2024, 2025, 2026), 2026-10-15
 - name: Pattern Recognition
   fields:
     publisher: Elsevier
     issn: 0031-3203
+  entry_fields:
+  - doi
+  - month
+  - pages
+  - url
+  - volume
+  learned_from: peer comparison of 8 entries (2023, 2024, 2025, 2026), 2026-10-15
 - name: Proceedings of the National Academy of Sciences
   fields:
     issn: 1091-6490
@@ -151,6 +307,12 @@ journals:
     month: none
     issn: 2835-8856
 families:
+- name: Advanced Intelligent Computing Technology and Applications
+  entry_fields:
+  - abstract
+  - doi
+  - pages
+  learned_from: official BibTeX of 1 entry (2024), 2026-10-15
 - name: Advances in Neural Information Processing Systems
   acronym: NeurIPS
   entry_fields:
@@ -159,6 +321,12 @@ families:
   - url
   - volume
   learned_from: official BibTeX of 5 entries (2024), 2026-10-15
+- name: Artificial Neural Networks and Machine Learning -- ICANN
+  entry_fields:
+  - abstract
+  - doi
+  - pages
+  learned_from: official BibTeX of 1 entry (2021), 2026-10-15
 - name: Computer Vision -- ECCV
   acronym: ECCV
   fields:
@@ -170,6 +338,25 @@ families:
   - doi
   - pages
   learned_from: official BibTeX of 20 entries (2026), 2026-10-15
+- name: 'Findings of the Association for Computational Linguistics: ACL'
+  acronym: Findings
+  entry_fields:
+  - doi
+  - pages
+  - url
+  learned_from: official BibTeX of 1 entry (2025), 2026-10-15
+- name: IEEE International Conference on Image Processing (ICIP)
+  entry_fields:
+  - doi
+  - keywords
+  - pages
+  learned_from: official BibTeX of 1 entry (2022), 2026-10-15
+- name: IEEE International Conference on Systems, Man, and Cybernetics (SMC)
+  entry_fields:
+  - doi
+  - keywords
+  - pages
+  learned_from: official BibTeX of 1 entry (2023), 2026-10-15
 - name: IEEE/CVF Conference on Computer Vision and Pattern Recognition
   acronym: CVPR
   fields:
@@ -185,6 +372,11 @@ families:
   fields:
     issn: 2160-7516
     publisher: IEEE
+  entry_fields:
+  - doi
+  - keywords
+  - pages
+  learned_from: official BibTeX of 1 entry (2021), 2026-10-15
 - name: IEEE/CVF International Conference on Computer Vision
   acronym: ICCV
   fields:
@@ -195,10 +387,22 @@ families:
   - keywords
   - pages
   learned_from: official BibTeX of 1 entry (2025), 2026-10-15
+- name: IEEE/CVF International Conference on Computer Vision Workshops (ICCVW)
+  acronym: ICCVW
+  entry_fields:
+  - doi
+  - keywords
+  - pages
+  learned_from: official BibTeX of 1 entry (2023), 2026-10-15
 - name: IEEE/CVF Winter Conference on Applications of Computer Vision
   acronym: WACV
   fields:
     publisher: IEEE
+  entry_fields:
+  - doi
+  - keywords
+  - pages
+  learned_from: official BibTeX of 1 entry (2024), 2026-10-15
 - name: International Conference on Learning Representations
   acronym: ICLR
   entry_fields:
@@ -206,20 +410,65 @@ families:
   - url
   - volume
   learned_from: official BibTeX of 21 entries (2026), 2026-10-15
+- name: International Joint Conference on Neural Networks (IJCNN)
+  entry_fields:
+  - doi
+  - keywords
+  - pages
+  learned_from: official BibTeX of 1 entry (2022), 2026-10-15
+- name: Interspeech
+  entry_fields:
+  - doi
+  - pages
+  learned_from: official BibTeX of 1 entry (2025), 2026-10-15
+- name: Medical Image Computing and Computer Assisted Intervention -- MICCAI
+  entry_fields:
+  - abstract
+  - doi
+  - pages
+  learned_from: official BibTeX of 1 entry (2024), 2026-10-15
 - name: Proceedings of the AAAI Conference on Artificial Intelligence
   acronym: AAAI
   fields:
     issn: 2374-3468
     publisher: AAAI Press
+  entry_fields:
+  - doi
+  - number
+  - pages
+  - url
+  - volume
+  learned_from: peer comparison of 22 entries (2025), 2026-10-15
 - name: Proceedings of the ACM International Conference on Multimedia
   fields:
     address: New York, NY, USA
     publisher: Association for Computing Machinery
+  entry_fields:
+  - doi
+  - numpages
+  - pages
+  - url
+  learned_from: peer comparison of 11 entries (2025), 2026-10-15
+- name: 'Proceedings of the Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers)'
+  acronym: ACL
+  entry_fields:
+  - doi
+  - pages
+  - url
+  learned_from: official BibTeX of 1 entry (2024), 2026-10-15
 - name: Proceedings of The Conference on Lifelong Learning Agents
   acronym: CoLLAs
   fields:
     publisher: PMLR
     series: Proceedings of Machine Learning Research
+  entry_fields:
+  - abstract
+  - day
+  - pages
+  - pdf
+  - url
+  - volume
+  learned_from: official BibTeX of 1 entry (2023), 2026-10-15
 - name: Proceedings of the International Conference on Machine Learning
   acronym: ICML
   fields:
@@ -232,6 +481,14 @@ families:
   - url
   - volume
   learned_from: official BibTeX of 23 entries (2026), 2026-10-15
+- name: Proceedings of the International Joint Conference on Artificial Intelligence
+  acronym: IJCAI
+  entry_fields:
+  - doi
+  - note
+  - pages
+  - url
+  learned_from: official BibTeX of 1 entry (2024), 2026-10-15
 proceedings:
 - name: 2026 IEEE/CVF Winter Conference on Applications of Computer Vision (WACV)
   year: '2026'
@@ -759,6 +1016,14 @@ proceedings:
     venue: Long Beach, CA, USA
     month: June
     editor: Chaudhuri, Kamalika and Salakhutdinov, Ruslan
+  entry_fields:
+  - abstract
+  - day
+  - pages
+  - pdf
+  - url
+  - volume
+  learned_from: official BibTeX of 1 entry (2019), 2026-10-15
 - name: 2018 IEEE/CVF Conference on Computer Vision and Pattern Recognition
   year: '2018'
   fields:
@@ -776,6 +1041,10 @@ proceedings:
     isbn: 978-1-5108-8447-2
     editor: S. Bengio and H. Wallach and H. Larochelle and K. Grauman and N. Cesa-Bianchi and R. Garnett
     address: Red Hook, NY, USA
+  entry_fields:
+  - url
+  - volume
+  learned_from: official BibTeX of 1 entry (2018), 2026-10-15
 - name: British Machine Vision Conference (BMVC)
   year: '2018'
   fields:
@@ -799,6 +1068,14 @@ proceedings:
     venue: Stockholmsmässan, Stockholm Sweden
     month: July
     editor: Dy, Jennifer and Krause, Andreas
+  entry_fields:
+  - abstract
+  - day
+  - pages
+  - pdf
+  - url
+  - volume
+  learned_from: official BibTeX of 1 entry (2018), 2026-10-15
 - name: 2017 IEEE International Conference on Computer Vision (ICCV)
   year: '2017'
   fields:
@@ -814,6 +1091,10 @@ proceedings:
     address: Red Hook, NY, USA
     publisher: Curran Associates, Inc.
     month: December
+  entry_fields:
+  - url
+  - volume
+  learned_from: official BibTeX of 1 entry (2017), 2026-10-15
 - name: Proceedings of the 34th International Conference on Machine Learning
   year: '2017'
   fields:

@@ -58,9 +58,11 @@ from bibcc.checkers import (
     load_vocab_file,
     trim_fields,
 )
+from bibcc.checkers.official_fields import OfficialCheck, apply_books
 from bibcc.helptext import ENV_CACHE, ENV_VENUES, SCOPE_HELP, VENUES_HELP, HelpFormatter, epilog
 from bibcc.logging_utils import Logger, remove_report, report_dir, write_report
-from bibcc.schemas import Proposal, apply_proposals
+from bibcc.missing_venues import write_missing_venues
+from bibcc.schemas import Proposal, apply_proposals, missing_records
 from bibcc.terms import load_terms, terms_path
 from bibcc.titlecases import STYLES
 from bibcc.utils.termlib import TERMS_SCOPE_HELP
@@ -147,8 +149,9 @@ def _learn_arguments(parser: argparse.ArgumentParser, what: str) -> None:
     parser.add_argument(
         "--learn",
         action="store_true",
-        help=f"Write {what} (entry_fields) into the venue library that --scope selects, or into "
-        "--venues FILE.",
+        help=f"Write {what} into the venue library that --scope selects, or into --venues FILE. "
+        "A schema whose journal or edition record is missing goes into "
+        ".bibcc/INPUT/missing_venues.yaml.",
     )
     parser.add_argument("--scope", choices=SCOPES, default=None, help=SCOPE_HELP)
 
@@ -164,14 +167,15 @@ def _learn_target(args: argparse.Namespace, log: Callable[[str], None]) -> Optio
         return None
 
 
-def _save_learned(target: Optional[VenueLibrary], changed: int, log: Callable[[str], None]) -> None:
+def _save_learned(target: Optional[VenueLibrary], changed: int, log: Callable[[str], None],
+                  what: str = "venue schemas") -> None:
     if target is None:
         return
     if changed:
         target.save()
-        log(f"✅ Wrote {changed} venue schemas into {target.path}.")
+        log(f"✅ Wrote {changed} {what} into {target.path}.")
     else:
-        log(f"ℹ️  No new venue schemas to write into {target.path}.")
+        log(f"ℹ️  No new {what} to write into {target.path}.")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -441,10 +445,17 @@ Check each entry of INPUT against its venue's schema: the per-paper fields
 (such as pages, doi, and url) that the official BibTeX of every paper of the
 venue has. The venue library holds the schemas, for a journal, for a family
 of conference editions, or for one edition whose export differs. The check
-reports one kind of finding:
+reports two kinds of findings:
 
-  missing  The entry lacks a field of its venue's schema. The evidence names
-           the schema and where it was learned from.
+  missing          The entry lacks a field of its venue's schema. The
+                   evidence names the schema and where it was learned from.
+  default_missing  The entry's venue has no schema, and the entry lacks a
+                   field of its publisher's default schema: the fields that
+                   most of the library's schemas of the same publisher and
+                   kind (journal or proceedings) share. The publisher comes
+                   from the venue record, the entry, the venue name, or the
+                   DOI prefix. A default is a guess: it never replaces a
+                   venue's own schema, and --learn never writes it.
 
 A journal article not yet in an issue (no volume) isn't expected to have a
 volume, number, or pages.
@@ -453,16 +464,18 @@ For a venue without a schema, the check compares the entries of the venue
 with one another, in INPUT and in the --against files, and proposes the
 fields that most of them share (schema_lacks in edition_schemas.txt). It
 reports no entry from that comparison alone. To write the proposals into the
-venue library and check the entries against them, pass --learn. A schema
-learned from official BibTeX ('bibcc check official INPUT --learn') is more
-reliable, because entries can share a lost field; the comparison is for
-venues whose BibTeX BibCC can't download.
+venue library and check the entries against them, pass --learn. A proposal
+for a journal or an edition that the library has no record of goes into
+.bibcc/INPUT/missing_venues.yaml, with the record. A schema learned from
+official BibTeX ('bibcc check official INPUT --learn') is more reliable,
+because entries can share a lost field; the comparison is for venues whose
+BibTeX BibCC can't download.
 
 """ + textwrap.fill(
             f"The check ignores these fields: {', '.join(DEFAULT_IGNORED_FIELDS)}. To ignore more, "
             "pass --ignore-fields; to compare one of them anyway, pass --include-fields. It also "
             "leaves out entries with an interim (CVF or OpenReview) booktitle, entries built from "
-            "metadata, and empty entries. With --strict, missing findings count.",
+            "metadata, and empty entries. With --strict, only missing findings count.",
             width=78,
         ),
         examples=[
@@ -477,6 +490,8 @@ venues whose BibTeX BibCC can't download.
         report=(".bibcc/INPUT/edition_fields.txt", "Fields of the venue's schema that entries lack"),
         more_reports=[
             (".bibcc/INPUT/edition_schemas.txt", "Schemas that the entries of each venue propose"),
+            (".bibcc/INPUT/missing_venues.yaml",
+             "With --learn, fill-in records for the schemas whose record the library lacks"),
         ],
         env=[ENV_VENUES],
     )
@@ -503,7 +518,7 @@ venues whose BibTeX BibCC can't download.
         help="Comma-separated fields to compare even though the check ignores them by default "
         "(for example, urldate).",
     )
-    _learn_arguments(editions, "the proposed schemas")
+    _learn_arguments(editions, "the proposed schemas (entry_fields)")
     editions.add_argument("--venues", type=str, default="", metavar="FILE", help=VENUES_HELP)
 
     # --- official ---
@@ -527,12 +542,24 @@ The check reports four kinds of findings for each entry:
   type           The entry types differ.
 
 The venue summary says, for each venue and year, how many checked entries
-the official BibTeX gives a field, and how many of them lack it. The summary
-also compares the venue library records with the official values, and each
-venue's schema (the per-paper fields that its official BibTeX has) with the
-downloaded BibTeX: schema_lacks when the library has no schema for the venue,
-schema_differs when the schema differs. To write those schemas into the venue
-library, pass --learn; 'bibcc check editions' then checks entries against them.
+the official BibTeX gives a field, and how many of them lack it
+(entries_lack), and which fields every checked entry has and no official
+BibTeX has (export_lacks). The summary also compares the venue library
+records with the official values, and each venue's schema (the per-paper
+fields that its official BibTeX has) with the downloaded BibTeX: schema_lacks
+when the library has no schema for the venue, schema_differs when the schema
+differs. To write those schemas into the venue library, pass --learn; 'bibcc
+check editions' then checks entries against them. A schema whose journal or
+edition record the library lacks goes into .bibcc/INPUT/missing_venues.yaml,
+with the record's fields from the official BibTeX, so that one 'bibcc
+complete INPUT --update-venues' adds both.
+
+Proceedings published as several books (the LNCS volumes of ECCV or MICCAI)
+export their chapters without the volume and part. When the entries of one
+book, named by the ISBN in their chapter DOIs, agree on a volume or part
+that the record's books table lacks, the summary says so (books_lack), and
+--learn writes it there. 'bibcc complete' then fills it in by DOI, and this
+check no longer reports it as local_only.
 
 BibCC keeps each downloaded BibTeX for 30 days, so a second run reads it from
 the cache. To download everything again, pass --refresh.
@@ -558,6 +585,8 @@ only upstream_only, differs, and type findings count.""",
         more_reports=[
             (".bibcc/INPUT/official_venues.txt", "The same, for each venue and year, and for the venue library"),
             (".bibcc/INPUT/official_unchecked.txt", "Entries that couldn't be compared, with what to do next"),
+            (".bibcc/INPUT/missing_venues.yaml",
+             "With --learn, fill-in records for the schemas whose record the library lacks"),
         ],
         env=[ENV_VENUES, ENV_CACHE],
     )
@@ -608,7 +637,7 @@ only upstream_only, differs, and type findings count.""",
         action="store_true",
         help="Download every official BibTeX again instead of reading the cache, and update the cache.",
     )
-    _learn_arguments(official, "the schemas of the official BibTeX")
+    _learn_arguments(official, "the schemas of the official BibTeX (entry_fields) and the book fields (books)")
     official.add_argument("--venues", type=str, default="", metavar="FILE", help=VENUES_HELP)
 
     # --- venues ---
@@ -727,15 +756,37 @@ def _run_venues(args: argparse.Namespace) -> None:
             )
 
 
-def _learn_official(proposals: List[Proposal], target: Optional[VenueLibrary], library: VenueLibrary,
-                   log: Callable[[str], None]) -> None:
-    if not proposals:
+def _learn_official(result: OfficialCheck, target: Optional[VenueLibrary], log: Callable[[str], None]) -> None:
+    if not result.proposals and not result.books:
         return
     if target is None:
-        log("   To write these venue schemas (entry_fields) into the venue library, run with --learn.")
+        log("   To write these venue schemas (entry_fields) and book fields into the venue library, "
+            "run with --learn.")
         return
-    log(f"\n🧠 Writing the venue schemas into {target.path}...")
-    _save_learned(target, apply_proposals(target, proposals, log), log)
+    log(f"\n🧠 Writing the venue schemas and book fields into {target.path}...")
+    changed = apply_proposals(target, result.proposals, log) + apply_books(target, result.books, log)
+    _save_learned(target, changed, log, "venue schemas and book fields")
+
+
+def _write_schema_records(args: argparse.Namespace, proposals: List[Proposal], label: str,
+                          target: Optional[VenueLibrary], library: VenueLibrary,
+                          log: Callable[[str], None]) -> None:
+    """With --learn, put the schemas whose journal or edition record is missing into missing_venues.yaml."""
+    records = missing_records(proposals, label)
+    if target is None or not records:
+        return
+    if args.venues:
+        where = f" --venues {args.venues}"
+    elif args.scope and args.scope != USER_SCOPE:
+        where = f" --scope {args.scope}"
+    else:
+        where = ""
+    rerun = f"bibcc complete {args.input} --in-place --update-venues{where}"
+    path = report_dir(args.input) / "missing_venues.yaml"
+    counts = write_missing_venues(path, records, library, rerun)
+    log(f"\n📝 {counts['new'] + counts['schemas']} venue records with a schema but no library record "
+        f"are in {path}.")
+    log(f"   To add the records and their schemas, fill in the fields, and then run: {rerun}")
 
 
 # save(report name, header, rows, label, findings to count; default: one per row)
@@ -863,7 +914,10 @@ def _check_editions(args: argparse.Namespace, log: Callable[[str], None], save: 
         log=log,
     )
     _save_learned(target, result.learned, log)
-    save("edition_fields.txt", EDITION_FIELDS_HEADER, ["\t".join(row) for row in result.fields], "Edition fields")
+    _write_schema_records(args, result.proposals, "from bib", target,
+                          load_library(args.venues or None, start=args.input), log)
+    save("edition_fields.txt", EDITION_FIELDS_HEADER, ["\t".join(row) for row in result.fields], "Edition fields",
+         result.missing)
     save("edition_schemas.txt", EDITION_SCHEMAS_HEADER, ["\t".join(row) for row in result.schemas],
          "Edition schemas", 0)
 
@@ -884,7 +938,8 @@ def _check_official(args: argparse.Namespace, log: Callable[[str], None], save: 
         delay=args.delay,
         log=log,
     )
-    _learn_official(result.proposals, target, library, log)
+    _learn_official(result, target, log)
+    _write_schema_records(args, result.proposals, "from official BibTeX", target, library, log)
     save("official_fields.txt", FIELDS_HEADER, ["\t".join(r) for r in result.fields],
          "Official fields", result.strict_findings)
     save("official_venues.txt", VENUES_HEADER, ["\t".join(r) for r in result.venues], "Official venues", 0)

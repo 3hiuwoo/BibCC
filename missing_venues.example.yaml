@@ -1,7 +1,9 @@
 # Example missing_venues.yaml file
 # When entries use venues that aren't in the venue library, `bibcc complete refs.bib`
 # writes this file to .bibcc/refs.bib/missing_venues.yaml. `bibcc add` and
-# `bibcc upgrade` write one for the entries they create.
+# `bibcc upgrade` write one for the entries they create, and `--learn` of
+# `bibcc check official` and `bibcc check editions` writes one for the venue
+# schemas whose journal or edition record the library lacks.
 # To merge it, fill in the fields, and then run the following command (for the
 # project library, add --scope project):
 #   bibcc complete refs.bib --output out.bib --update-venues
@@ -15,12 +17,15 @@
 #
 # The comment after a value says where the value comes from:
 # '# from bib'             value found in your entries; the keys in parentheses say which
-# '# from official BibTeX' value from the official BibTeX that `bibcc add` or `bibcc upgrade` downloaded
+# '# from official BibTeX' value from the official BibTeX that `bibcc add`, `bibcc upgrade`, or
+#                          `bibcc check official` downloaded
 # '# from YEAR edition'    value copied from the previous edition in the library (when the venue has no family record)
 # '# from family NAME'     value that the family record gives every edition; leave it commented out
 # '# from CrossRef'        value that CrossRef reports (`bibcc complete --online`, `bibcc add`)
 # '# auto-guessed'         value inferred from the venue name; verify it
 # A record's '# entries:' comment names the entries that cite the venue.
+# A record's entry_fields, from --learn of `bibcc check official` or `bibcc check editions`,
+# is the venue's schema; merging writes it into the library record too.
 # When merging, BibCC skips records that have no field (and no interim booktitle) filled in.
 # BibCC merges this file on every run, so it keeps what you fill in.
 # To check only these records for missing fields before merging (instead of checking the
@@ -36,6 +41,18 @@ journals:
       issn: "1234-5678"  # from CrossRef
       # address: ""  # optional; for example, New York, NY, USA
       # month: ""  # optional; none for a journal without monthly issues
+
+  # Written by `bibcc check official refs.bib --learn` for a journal without a record.
+  - name: "Journal of Examples"
+    # entries: Doe_JE2026, Li_JE2026
+    # aliases: []  # other spellings of this venue
+    fields:
+      publisher: "Elsevier"  # from official BibTeX (Doe_JE2026, Li_JE2026)
+      issn: "0000-0000"  # from official BibTeX (Doe_JE2026, Li_JE2026)
+      # address: ""  # optional; for example, New York, NY, USA
+      # month: ""  # optional; none for a journal without monthly issues
+    entry_fields: [doi, pages, volume]  # the venue's schema; merging adds it too
+    learned_from: "official BibTeX of 2 entries (2026), 2026-03-01"
 
 proceedings:
   - name: "2026 Example Conference on Something (EXC)"

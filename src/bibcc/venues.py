@@ -32,6 +32,17 @@ A library is a YAML file with two lists::
 ``year`` is the entry's publication year, which may differ from the edition
 in the name (ECCV 2024 proceedings were published in 2025).
 
+Proceedings published as several books, such as the LNCS volumes of ECCV,
+can list the fields that differ by book (:data:`BOOK_FIELDS`) under
+``books``, keyed by the book's ISBN as it appears in its chapters' DOIs
+(``10.1007/978-3-031-72649-1_13``)::
+
+        books:
+          978-3-031-72649-1: {volume: "15059", part: "XXVI"}
+
+An entry whose DOI names one of the books gets its fields too (see
+:func:`book_of` and :meth:`VenueLibrary.entry_fields_of`).
+
 A proceedings record's ``name`` is the booktitle of the published proceedings
 (IEEE Xplore, Springer, PMLR, the NeurIPS and ICLR proceedings sites).  Papers
 are often cited earlier under another booktitle: CVF Open Access for CVPR,
@@ -109,7 +120,8 @@ _LIBRARY_HEADER = """\
 # proceedings: matched by name or alias AND the entry's publication year.
 #              name is the published proceedings' booktitle; interim maps a
 #              source (cvf, openreview) to the booktitle it uses before or
-#              instead of the proceedings.
+#              instead of the proceedings; books maps the ISBN of each book
+#              (an LNCS volume, as in its chapters' DOIs) to its volume and part.
 # families:    a conference across its editions: fields every edition shares,
 #              and entry_fields, the fields the official BibTeX of each paper has.
 #
@@ -170,6 +182,9 @@ class Venue:
     # The venue's schema: per-paper fields its official BibTeX has.
     entry_fields: List[str] = field(default_factory=list)
     learned_from: str = ""
+    # Proceedings published as several books (LNCS volumes): book ISBN, as
+    # in its chapters' DOIs, -> the fields that differ by book (BOOK_FIELDS).
+    books: Dict[str, Dict[str, str]] = field(default_factory=dict)
     # Scope of the library file the record came from ("user", "project", or
     # "user+project" when a merged view combines both); not serialized.
     origin: str = ""
@@ -220,7 +235,24 @@ class Venue:
             data["entry_fields"] = list(self.entry_fields)
         if self.learned_from:
             data["learned_from"] = self.learned_from
+        if self.books:
+            data["books"] = {book: dict(fields) for book, fields in sorted(self.books.items()) if fields}
         return data
+
+
+# Fields that differ from one book of a proceedings to the next: an LNCS
+# volume number and part, which Springer's chapter exports leave out.
+BOOK_FIELDS = ("volume", "part")
+# A book chapter's DOI ends in the book's ISBN and the chapter number:
+# 10.1007/978-3-031-72649-1_13.
+_CHAPTER_DOI = re.compile(r"^10\.\d{4,9}/(97[89][-\d]{9,16}[\dXx])_\d+$")
+
+
+def book_of(doi: Optional[str]) -> str:
+    """The book ISBN in a chapter DOI (``10.1007/978-3-031-72649-1_13`` -> ``978-3-031-72649-1``), or ``""``."""
+    text = re.sub(r"^(https?://(dx\.)?doi\.org/|doi:)", "", str(doi or "").strip(), flags=re.IGNORECASE)
+    match = _CHAPTER_DOI.match(text)
+    return match.group(1).upper() if match else ""
 
 
 # Keys of a family record that say where its official BibTeX comes from (see bibcc.families).
@@ -462,7 +494,14 @@ class VenueLibrary:
                     f"({_counts(len(self.journals), len(self.proceedings), len(self.families))})")
         if self.overrides:
             text += f"; the project overrides {len(self.overrides)} user field{'s' * (len(self.overrides) != 1)}"
-        if not len(self):
+        if self.sources and not any(source.exists for source in self.sources):
+            text += (
+                "\n   You have no venue library yet. To set up your config, venue library, and terms "
+                "from a shared profile, run: bibcc config profile NAME (for example, miaa)."
+                "\n   To import only the venues, run: bibcc venues import NAME. To list the names, "
+                "run: bibcc venues examples"
+            )
+        elif not len(self):
             text += (
                 "\n   The library is empty: --update-venues adds the venues you fill in, or start "
                 "from a shared library (bibcc venues examples)."
@@ -534,6 +573,10 @@ class VenueLibrary:
         if interim_source_of(venue.name, year=str(venue.year or ""), library=self):
             return dict(venue.fields)
         return {**family.fields, **venue.fields}
+
+    def entry_fields_of(self, venue: Venue, entry: Mapping[str, str]) -> Dict[str, str]:
+        """:meth:`fields_of`, with the fields of the entry's book (see :data:`BOOK_FIELDS`) over them."""
+        return {**self.fields_of(venue), **venue.books.get(book_of(entry.get("doi")), {})}
 
     def schema_of(self, venue: Optional[Venue], venue_name: str = "") -> Tuple[List[str], str]:
         """``(entry_fields, where they come from)`` for a record, or for a booktitle without one.
@@ -671,6 +714,9 @@ class VenueLibrary:
         if venue.entry_fields and (overwrite or not existing.entry_fields):
             existing.entry_fields = list(venue.entry_fields)
             existing.learned_from = venue.learned_from
+        for book, fields in venue.books.items():
+            old = existing.books.setdefault(book, {})
+            existing.books[book] = {**old, **fields} if overwrite else {**fields, **old}
         existing.aliases = [a for a in existing.aliases if normalize_venue(a) != normalize_venue(existing.name)]
         return "unchanged" if existing.to_dict() == before else "updated"
 
@@ -700,9 +746,14 @@ _ORDINAL_WORDS = (
 EDITION_STABLE_FIELDS = ["publisher", "issn", "series", "address"]
 
 
+# A trailing edition tag with a two-digit year, as in IJCAI's
+# "..., {IJCAI-24}" or "..., {IJCAI-ECAI-22}".
+_EDITION_TAG = re.compile(r",?\s*\{?\b[a-z][a-z-]*[-'’]\d{2}\}?\s*$", re.IGNORECASE)
+
+
 def edition_key(name: str) -> str:
-    """Venue name with years and ordinals removed, to relate editions."""
-    text = normalize_venue(name)
+    """Venue name with years, ordinals, and a trailing edition tag removed, to relate editions."""
+    text = _EDITION_TAG.sub(" #", normalize_venue(name))
     text = re.sub(r"\b(19|20)\d{2}\b", "#", text)
     text = re.sub(r"\b\d+(st|nd|rd|th)\b", "#", text)
     text = re.sub(_ORDINAL_WORDS, "#", text)
@@ -729,8 +780,8 @@ def family_key(name: str) -> str:
 
 
 def family_label(name: str) -> str:
-    """Display name of a venue's editions: *name* without years, ordinals, or a leading "The"."""
-    text = _NAME_ORDINAL.sub(" ", _NAME_YEAR.sub(" ", name))
+    """Display name of a venue's editions: *name* without years, ordinals, an edition tag, or a leading "The"."""
+    text = _NAME_ORDINAL.sub(" ", _NAME_YEAR.sub(" ", _EDITION_TAG.sub("", name)))
     text = re.sub(r"^\s*the\s+", "", text, flags=re.IGNORECASE)
     return " ".join(text.split()).strip(" -–—:,")
 
@@ -811,7 +862,17 @@ def _venue_from_dict(raw: Dict, kind: str, where: str) -> Venue:
         interim=interim,
         entry_fields=_field_list(raw.get("entry_fields"), where),
         learned_from=" ".join(str(raw.get("learned_from") or "").split()),
+        books=_books(raw.get("books"), where),
     )
+
+
+def _books(raw, where: str) -> Dict[str, Dict[str, str]]:
+    if not raw:
+        return {}
+    if not isinstance(raw, dict) or not all(isinstance(v, dict) for v in raw.values()):
+        raise ValueError(f"{where}: 'books' must map a book ISBN to its fields")
+    books = {str(book).strip().upper(): _clean_fields(fields) for book, fields in raw.items()}
+    return {book: fields for book, fields in books.items() if book and fields}
 
 
 def _field_list(raw, where: str) -> List[str]:
