@@ -227,3 +227,32 @@ def test_config_import_rejects_invalid_source(tmp_path: Path, monkeypatch, capsy
 def test_config_examples_lists_miaa(capsys):
     assert _run(["config", "examples"]) == 0
     assert "miaa  format (12 settings)" in capsys.readouterr().out
+
+
+def test_config_profile_imports_config_venues_and_terms(tmp_path: Path, monkeypatch, capsys):
+    from bibcc.terms import read_terms
+    from bibcc.venues import VenueLibrary
+
+    monkeypatch.chdir(tmp_path)
+    assert _run(["config", "profile", "miaa", "--scope", "project", "--dry-run"]) == 0
+    assert not list(tmp_path.glob(".bibcc*"))
+
+    assert _run(["config", "profile", "miaa", "--scope", "project"]) == 0
+    assert load_config(tmp_path / ".bibcc.yaml").section("format")["sort_fields"] is True
+    assert VenueLibrary.load(tmp_path / ".bibcc-venues.yaml").families
+    assert "CLIP" in read_terms(tmp_path / ".bibcc-terms.txt")
+
+    (tmp_path / "bib").mkdir()
+    capsys.readouterr()
+    assert _run(["config", "where", str(tmp_path / "bib")]) == 0
+    out = capsys.readouterr().out
+    assert "📂 Other files that apply:" in out
+    assert f"project  {(tmp_path / '.bibcc-venues.yaml').resolve()} (30 journals" in out
+    assert f"project  {(tmp_path / '.bibcc-terms.txt').resolve()} (" in out
+    assert "provider table" in out and "bibcc venues providers" in out
+
+
+def test_config_profile_unknown_name(tmp_path: Path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    assert _run(["config", "profile", "no-such-lab"]) == 1
+    assert "No shared config, venue library, or terms file is named no-such-lab" in capsys.readouterr().out

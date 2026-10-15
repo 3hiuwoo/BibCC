@@ -19,16 +19,15 @@ Usage:
 
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable, List, Optional
 
-from bibcc.venues import PROJECT_SCOPE, USER_SCOPE, find_project_library
+from bibcc.scopes import PROJECT_SCOPE, TERMS, USER_SCOPE
 
-TERMS_ENV_VAR = "BIBCC_TERMS"
-PROJECT_TERMS_NAME = ".bibcc-terms.txt"
-USER_TERMS_DISPLAY = "~/.config/bibcc/terms.txt"
+TERMS_ENV_VAR = TERMS.env_var
+PROJECT_TERMS_NAME = TERMS.project_name
+USER_TERMS_DISPLAY = TERMS.user_display
 
 _HEADER = """\
 # Protected terms for 'bibcc check quote': one term per line, with the case
@@ -43,23 +42,12 @@ class TermsNotFound(LookupError):
 
 def user_terms_path() -> Path:
     """``$BIBCC_TERMS`` if set, else ``$XDG_CONFIG_HOME/bibcc/terms.txt`` (``~/.config`` by default)."""
-    env = os.environ.get(TERMS_ENV_VAR)
-    if env:
-        return Path(env).expanduser()
-    config_home = os.environ.get("XDG_CONFIG_HOME") or "~/.config"
-    return Path(config_home).expanduser() / "bibcc" / "terms.txt"
+    return TERMS.user_path()
 
 
 def find_project_terms(start: Optional[str | Path] = None) -> Optional[Path]:
     """The nearest ``.bibcc-terms.txt`` in *start* (a file or folder; default: cwd) or its parents."""
-    here = Path(start or Path.cwd()).expanduser().resolve()
-    if not here.is_dir():
-        here = here.parent
-    for folder in (here, *here.parents):
-        candidate = folder / PROJECT_TERMS_NAME
-        if candidate.is_file():
-            return candidate
-    return None
+    return TERMS.find_project(start)
 
 
 def terms_path(scope: str = USER_SCOPE, start: Optional[str | Path] = None, create: bool = False) -> Path:
@@ -67,9 +55,9 @@ def terms_path(scope: str = USER_SCOPE, start: Optional[str | Path] = None, crea
 
     For the project scope, the nearest ``.bibcc-terms.txt`` above *start*.
     Without one, :class:`TermsNotFound` is raised, unless *create*: then
-    the file goes next to the project venue library, or into the current
-    directory when there's no project library either (written on the
-    first :func:`add_terms`).
+    the file goes next to the project's other BibCC files (its venue
+    library or config), or into the current directory when there are none
+    (written on the first :func:`add_terms`).
     """
     if scope == USER_SCOPE:
         return user_terms_path()
@@ -84,9 +72,7 @@ def terms_path(scope: str = USER_SCOPE, start: Optional[str | Path] = None, crea
             f"no {PROJECT_TERMS_NAME} in {where} or its parent directories; create one with: "
             "bibcc terms add TERM --scope project"
         )
-    library = find_project_library(start)
-    folder = library.parent if library is not None else Path.cwd()
-    return folder / PROJECT_TERMS_NAME
+    return TERMS.new_project_path(start)
 
 
 def parse_terms(text: str) -> List[str]:

@@ -24,6 +24,7 @@ from typing import Callable, List, Optional
 
 from bibcc.helptext import ENV_TERMS, HelpFormatter, epilog
 from bibcc.logging_utils import Logger
+from bibcc.scopes import EXAMPLES_PAGE_URL, SCOPES, TERMS, USER_SCOPE, example_names, read_source
 from bibcc.terms import (
     PROJECT_TERMS_NAME,
     TERMS_ENV_VAR,
@@ -34,17 +35,11 @@ from bibcc.terms import (
     read_terms,
     terms_path,
 )
-from bibcc.utils.venuelib import EXAMPLES_PAGE_URL, example_names, read_source
-from bibcc.venues import SCOPES, USER_SCOPE
-
-KIND = "terms"
-SUFFIX = ".txt"
 
 TERMS_SCOPE_HELP = (
     f"Terms file to write to: 'user' (default; ${TERMS_ENV_VAR} or {USER_TERMS_DISPLAY}) or "
     f"'project' (the nearest {PROJECT_TERMS_NAME} in the directory of the .bib file or a parent "
-    "directory; created next to the project venue library, or in the current directory, if "
-    "there's none)."
+    "directory; a new one goes next to the project's other BibCC files, or in the current directory)."
 )
 
 
@@ -90,7 +85,7 @@ def import_terms(source: str, scope: str, file: Optional[str], dry_run: bool,
                  log: Callable[[str], None]) -> int:
     """Add the terms of *source* that the target file lacks; returns the exit status."""
     try:
-        text, origin = read_source(source, kind=KIND, suffix=SUFFIX)
+        text, origin = read_source(source, TERMS)
     except (OSError, ValueError) as e:
         log(f"❌ {e}")
         return 1
@@ -117,7 +112,7 @@ def import_terms(source: str, scope: str, file: Optional[str], dry_run: bool,
 
 def examples(log: Callable[[str], None]) -> int:
     try:
-        paths, names, origin = example_names(KIND, SUFFIX)
+        paths, names, origin = example_names(TERMS)
     except ValueError as e:
         log(f"❌ {e}")
         return 1
@@ -130,7 +125,7 @@ def examples(log: Callable[[str], None]) -> int:
         log(f"  {name:<{width}}  {details}".rstrip())
     log("\nTo import one into your user terms file, run 'bibcc terms import NAME'.")
     log("To import it into the project terms file instead, add --scope project.")
-    log(f"What each one covers: {EXAMPLES_PAGE_URL.format(kind=KIND)}")
+    log(f"What each one covers: {EXAMPLES_PAGE_URL.format(kind=TERMS.name)}")
     return 0
 
 

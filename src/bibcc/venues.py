@@ -86,7 +86,6 @@ Usage:
 from __future__ import annotations
 
 import copy
-import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -94,17 +93,14 @@ from typing import Dict, Iterable, List, Mapping, Optional, Tuple
 
 import yaml
 
+from bibcc.scopes import FILE_SCOPE, PROJECT_SCOPE, SCOPES, USER_SCOPE, VENUES
+
 JOURNAL = "journal"
 PROCEEDINGS = "proceedings"
 
-USER_SCOPE = "user"
-PROJECT_SCOPE = "project"
-FILE_SCOPE = "file"  # a library named with --venues FILE
-SCOPES = (USER_SCOPE, PROJECT_SCOPE)
-
-LIBRARY_ENV_VAR = "BIBCC_VENUES"
-PROJECT_LIBRARY_NAME = ".bibcc-venues.yaml"
-USER_LIBRARY_DISPLAY = "~/.config/bibcc/venues.yaml"
+LIBRARY_ENV_VAR = VENUES.env_var
+PROJECT_LIBRARY_NAME = VENUES.project_name
+USER_LIBRARY_DISPLAY = VENUES.user_display
 
 _LIBRARY_HEADER = """\
 # BibCC venue library.
@@ -130,23 +126,12 @@ class LibraryNotFound(LookupError):
 
 def user_library_path() -> Path:
     """``$BIBCC_VENUES`` if set, else ``$XDG_CONFIG_HOME/bibcc/venues.yaml`` (``~/.config`` by default)."""
-    env = os.environ.get(LIBRARY_ENV_VAR)
-    if env:
-        return Path(env).expanduser()
-    config_home = os.environ.get("XDG_CONFIG_HOME") or "~/.config"
-    return Path(config_home).expanduser() / "bibcc" / "venues.yaml"
+    return VENUES.user_path()
 
 
 def find_project_library(start: Optional[str | Path] = None) -> Optional[Path]:
     """The nearest ``.bibcc-venues.yaml`` in *start* (a file or folder; default: cwd) or its parents."""
-    here = Path(start or Path.cwd()).expanduser().resolve()
-    if not here.is_dir():
-        here = here.parent
-    for folder in (here, *here.parents):
-        candidate = folder / PROJECT_LIBRARY_NAME
-        if candidate.is_file():
-            return candidate
-    return None
+    return VENUES.find_project(start)
 
 
 def normalize_venue(text: Optional[str]) -> str:
@@ -1008,8 +993,8 @@ def open_library(
     *venues* names it directly.  Otherwise *scope* picks the user library or
     the nearest project library above *start*.  When there is no project
     library, :class:`LibraryNotFound` is raised, unless *create*: then the
-    library is ``.bibcc-venues.yaml`` in the current directory (written on
-    the first save).
+    library is a new ``.bibcc-venues.yaml`` next to the project's other
+    BibCC files, or in the current directory (written on the first save).
     """
     if venues:
         return VenueLibrary.load(venues)
@@ -1025,5 +1010,5 @@ def open_library(
                 f"no {PROJECT_LIBRARY_NAME} in {where} or its parent directories; create one in your "
                 "project root with: bibcc venues init --scope project"
             )
-        path = Path.cwd() / PROJECT_LIBRARY_NAME
+        path = VENUES.new_project_path(start)
     return VenueLibrary.load(path, scope=PROJECT_SCOPE)

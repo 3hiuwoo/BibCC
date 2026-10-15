@@ -18,14 +18,11 @@ from __future__ import annotations
 
 import argparse
 import os
-import re
 import sys
 import textwrap
 from pathlib import Path
 from typing import Any, Callable, List, Optional, Tuple
 
-import bibcc
-from bibcc import sources
 from bibcc.adder import FIELD_ORDER
 from bibcc.config import (
     CONFIG_ENV_VAR,
@@ -41,6 +38,7 @@ from bibcc.config import (
     USER_SCOPE,
     ConfigError,
     ConfigFile,
+    ConfigNotFound,
     config_path,
     field_order_yaml,
     find_project_config,
@@ -50,57 +48,15 @@ from bibcc.config import (
     parse_yaml,
     user_config_path,
 )
-from bibcc.helptext import ENV_CONFIG, REPO, HelpFormatter, epilog
+from bibcc.helptext import ENV_CONFIG, HelpFormatter, epilog
 from bibcc.logging_utils import Logger
-
-EXAMPLES_BRANCH = "main"
-EXAMPLE_RAW_URL = f"https://raw.githubusercontent.com/{REPO}/{EXAMPLES_BRANCH}/examples/config/{{name}}.yaml"
-EXAMPLES_API_URL = f"https://api.github.com/repos/{REPO}/contents/examples/config?ref={EXAMPLES_BRANCH}"
-EXAMPLES_PAGE_URL = f"https://github.com/{REPO}/tree/{EXAMPLES_BRANCH}/examples/config"
-
-_EXAMPLE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*")
+from bibcc.scopes import CONFIG, EXAMPLES_PAGE_URL, KINDS, TERMS, VENUES, example_name, example_names, read_source
 
 SCOPE_HELP = (
     f"Config file to write to: 'user' (default; ${CONFIG_ENV_VAR} or {USER_CONFIG_DISPLAY}) or "
-    f"'project' (the nearest {PROJECT_CONFIG_NAME} in the current directory or a parent directory, "
-    "or a new one in the current directory)."
+    f"'project' (the nearest {PROJECT_CONFIG_NAME} in the current directory or a parent directory; "
+    "a new one goes next to the project's other BibCC files, or in the current directory)."
 )
-
-
-# ---------------------------------------------------------------- sources
-
-
-def local_examples_dir() -> Optional[Path]:
-    """``examples/config/`` of the checkout BibCC runs from, if it runs from one (editable install)."""
-    folder = Path(bibcc.__file__).resolve().parents[2] / "examples" / "config"
-    return folder if folder.is_dir() else None
-
-
-def read_source(source: str) -> Tuple[str, str]:
-    """``(yaml text, where it came from)`` for a config file, URL, or example name."""
-    path = Path(source).expanduser()
-    if path.is_file():
-        return path.read_text(encoding="utf-8"), str(path)
-    if re.match(r"https?://", source):
-        content, error = sources.fetch_url(source)
-        if error:
-            raise ConfigError(f"could not download {source}: {error}")
-        return content or "", source
-    name = re.sub(r"\.ya?ml$", "", source)
-    if not _EXAMPLE_NAME.fullmatch(name):
-        raise ConfigError(f"{source}: no such file, URL, or example config name")
-    local = local_examples_dir()
-    if local is not None and (local / f"{name}.yaml").is_file():
-        example = local / f"{name}.yaml"
-        return example.read_text(encoding="utf-8"), str(example)
-    url = EXAMPLE_RAW_URL.format(name=name)
-    content, error = sources.fetch_url(url)
-    if error:
-        raise ConfigError(
-            f"{source}: no such file, and no example config of that name ({url}: {error}). "
-            "List them with: bibcc config examples"
-        )
-    return content or "", url
 
 
 def _summary(data: dict) -> str:
@@ -110,23 +66,15 @@ def _summary(data: dict) -> str:
 
 def list_examples() -> Tuple[List[Tuple[str, str]], str]:
     """``([(name, details)], where)`` for the example configs, local checkout first."""
-    local = local_examples_dir()
-    if local is not None:
-        rows = []
-        for path in sorted(local.glob("*.yaml")):
-            try:
-                details = _summary(parse_yaml(path.read_text(encoding="utf-8"), str(path)))
-            except ConfigError as e:
-                details = f"unreadable: {e}"
-            rows.append((path.stem, details))
-        return rows, str(local)
-    data, error = sources.fetch_json(EXAMPLES_API_URL)
-    if error or not isinstance(data, list):
-        raise ConfigError(f"could not list the example configs ({error or 'unexpected answer'}); "
-                          f"see {EXAMPLES_PAGE_URL}")
-    rows = [(item["name"][: -len(".yaml")], "") for item in data
-            if isinstance(item, dict) and str(item.get("name", "")).endswith(".yaml")]
-    return sorted(rows), EXAMPLES_PAGE_URL
+    paths, names, origin = example_names(CONFIG)
+    rows = []
+    for path in paths:
+        try:
+            details = _summary(parse_yaml(path.read_text(encoding="utf-8"), str(path)))
+        except ConfigError as e:
+            details = f"unreadable: {e}"
+        rows.append((path.stem, details))
+    return rows + [(name, "") for name in names], origin
 
 
 # ------------------------------------------------------------- rendering
@@ -190,6 +138,7 @@ def where(start: Optional[str], log: Callable[[str], None]) -> int:
             log(f"  {key:<{width}}  {show_value(key, value)}  [{config.origin(name, key)}]")
     for warning in config.warnings:
         log(f"⚠️  {warning}")
+    _other_files(target, log)
     log(f"\n✏️  init and import write to the user config. To write to "
         f"{project or PROJECT_CONFIG_NAME} instead, pass --scope project.")
     if not config.present:
@@ -197,9 +146,87 @@ def where(start: Optional[str], log: Callable[[str], None]) -> int:
     return 0
 
 
+def _other_files(target: Path, log: Callable[[str], None]) -> None:
+    """The venue libraries, terms files, and provider table that apply to *target*."""
+    import yaml
+
+    from bibcc.terms import load_terms
+    from bibcc.utils.venuelib import provider_rows
+    from bibcc.venues import VenueLibrary, load_library
+
+    log("\n📂 Other files that apply:")
+    rows: List[Tuple[str, str, str]] = []
+    for scope, path in ((USER_SCOPE, VENUES.user_path()), (PROJECT_SCOPE, VENUES.find_project(target))):
+        if path is None:
+            rows.append((VENUES.label, scope, f"(none: no {VENUES.project_name} here or in a parent directory)"))
+            continue
+        try:
+            rows.append((VENUES.label, scope, VenueLibrary.load(path, scope=scope).sources[0].describe(
+                with_scope=False)))
+        except (OSError, ValueError, yaml.YAMLError) as e:
+            rows.append((VENUES.label, scope, f"{path} (unreadable: {e})"))
+    sources = load_terms(target)
+    for source in sources:
+        state = f"{len(source.terms)} terms" if source.exists else "not created yet"
+        rows.append((TERMS.label, source.scope, f"{source.path} ({state})"))
+    if len(sources) == 1:
+        rows.append((TERMS.label, PROJECT_SCOPE, f"(none: no {TERMS.project_name} here or in a parent directory)"))
+    try:
+        table = provider_rows(load_library(start=target))
+    except (OSError, ValueError, yaml.YAMLError) as e:
+        rows.append(("provider table", "", f"(unreadable: {e})"))
+    else:
+        changed = sum(row["source"] != "built-in" for row in table)
+        rows.append(("provider table", "", f"{len(table)} conferences, {changed} set by your family records "
+                                           "(bibcc venues providers)"))
+    width = max(len(kind) for kind, _, _ in rows)
+    previous = ""
+    for kind, scope, text in rows:
+        label = kind if kind != previous else ""
+        previous = kind
+        log(f"  {label:<{width}}  {scope:<8} {text}".rstrip())
+
+
+_PROFILE_ICONS = {"config": "⚙️ ", "venues": "📦", "terms": "🔤"}
+
+
+def profile(name: str, scope: str, overwrite: bool, dry_run: bool, log: Callable[[str], None]) -> int:
+    """Import the shared config, venue library, and terms file named *name*; returns the exit status."""
+    from bibcc.utils.termlib import import_terms
+    from bibcc.utils.venuelib import import_library
+
+    importers = {
+        CONFIG: lambda: import_config(name, scope, None, overwrite, dry_run, log),
+        VENUES: lambda: import_library(name, scope, None, overwrite, dry_run, log),
+        TERMS: lambda: import_terms(name, scope, None, dry_run, log),
+    }
+    status, found = 0, 0
+    for kind in KINDS:
+        try:
+            paths, names, _ = example_names(kind)
+        except ValueError as e:
+            log(f"❌ {e}")
+            status = 1
+            continue
+        if example_name(kind, name) not in {p.stem for p in paths} | set(names):
+            log(f"ℹ️  No shared {kind.label} named {name}; skipped.")
+            continue
+        found += 1
+        log(f"\n{_PROFILE_ICONS[kind.name]} {kind.label.capitalize()}")
+        status = importers[kind]() or status
+    if not found and not status:
+        log(f"❌ No shared config, venue library, or terms file is named {name}. "
+            "List them with: bibcc config examples, bibcc venues examples, and bibcc terms examples")
+        return 1
+    return status
+
+
 def init(scope: str, log: Callable[[str], None]) -> int:
     """Create a config file in *scope*, with every setting commented out; returns the exit status."""
-    path = config_path(scope, create=True)
+    try:
+        path = config_path(scope)
+    except ConfigNotFound:
+        path = Path.cwd() / PROJECT_CONFIG_NAME
     if path.exists():
         log(f"ℹ️  The {scope} config already exists: {path}. Left unchanged.")
         return 0
@@ -224,12 +251,12 @@ def import_config(
 ) -> int:
     """Merge the settings of *source* into one config file; returns the exit status."""
     try:
-        text, origin = read_source(source)
+        text, origin = read_source(source, CONFIG)
         incoming = parse_yaml(text, origin)
         checked = merge([ConfigFile(FILE_SCOPE, Path(origin), incoming)])
         target_path = Path(config).expanduser() if config else config_path(scope, create=True)
         target = ConfigFile.load(target_path, FILE_SCOPE if config else scope)
-    except (OSError, ConfigError) as e:
+    except (OSError, ValueError) as e:
         log(f"❌ {e}")
         return 1
     if not any(incoming.values()):
@@ -274,7 +301,7 @@ def examples(log: Callable[[str], None]) -> int:
     """List the shared example configs; returns the exit status."""
     try:
         rows, origin = list_examples()
-    except ConfigError as e:
+    except ValueError as e:
         log(f"❌ {e}")
         return 1
     log(f"📚 Example configs ({origin}):")
@@ -285,7 +312,9 @@ def examples(log: Callable[[str], None]) -> int:
         log(f"  {name:<{width}}  {details}".rstrip())
     log("\nTo import one into your user config, run 'bibcc config import NAME'.")
     log("To import it into the project config instead, add --scope project.")
-    log(f"What each one sets: {EXAMPLES_PAGE_URL}")
+    log("To import it with the venue library and terms file of the same name, run "
+        "'bibcc config profile NAME'.")
+    log(f"What each one sets: {EXAMPLES_PAGE_URL.format(kind=CONFIG.name)}")
     return 0
 
 
@@ -347,6 +376,8 @@ def build_parser() -> argparse.ArgumentParser:
                 ("Start a project config in the current directory", "bibcc config init --scope project"),
                 ("List the shared configs", "bibcc config examples"),
                 ("Give the project the MIAA lab's format settings", "bibcc config import miaa --scope project"),
+                ("Give the project the MIAA lab's settings, venues, and terms",
+                 "bibcc config profile miaa --scope project"),
             ],
             env=[ENV_CONFIG],
         ),
@@ -356,10 +387,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_where = subparsers.add_parser(
         "where",
-        help="Show the user and project config files that apply, and the settings they give.",
+        help="Show every BibCC file that applies, and the settings the configs give.",
         description=f"Show the user config, the project config that applies to PATH (the nearest\n"
         f"{PROJECT_CONFIG_NAME} in its directory or a parent directory), and the value of every\n"
-        "setting with where it comes from: default, user, or project.",
+        "setting with where it comes from: default, user, or project. It then lists the other\n"
+        "files that apply to PATH: the venue libraries, the terms files, and the provider table.",
         epilog=epilog(
             examples=[
                 ("Show the settings for the current directory", "bibcc config where"),
@@ -396,12 +428,12 @@ def build_parser() -> argparse.ArgumentParser:
         "import",
         help="Merge a shared config (file, URL, or example name) into yours.",
         description="Merge the settings of SOURCE into the user config (default), the project\n"
-        "config (--scope project; created in the current directory if there's none), or\n"
-        "the file that --config names. The command adds the settings that the file\n"
-        "lacks. For a setting that differs, it keeps and reports your value, unless you\n"
-        "pass --overwrite. It checks SOURCE first and imports nothing from a file with\n"
-        "an invalid value. The file is rewritten, so comments other than the header\n"
-        "aren't kept.\n\n"
+        "config (--scope project; if there's none, a new one goes next to the project's\n"
+        "other BibCC files, or in the current directory), or the file that --config\n"
+        "names. The command adds the settings that the file lacks. For a setting that\n"
+        "differs, it keeps and reports your value, unless you pass --overwrite. It\n"
+        "checks SOURCE first and imports nothing from a file with an invalid value.\n"
+        "The file is rewritten, so comments other than the header aren't kept.\n\n"
         "SOURCE is a config file, an http(s) URL, or the name of a config in\n"
         "examples/config/ of the BibCC repository (see 'bibcc config examples'). The\n"
         "command reads an example config from your checkout when BibCC runs from one,\n"
@@ -431,6 +463,39 @@ def build_parser() -> argparse.ArgumentParser:
     p_import.add_argument("--dry-run", action="store_true",
                           help="Report what would change without writing anything.")
 
+    p_profile = subparsers.add_parser(
+        "profile",
+        help="Import a shared profile: the config, venue library, and terms file of one name.",
+        description="Import everything that BibCC's examples hold under NAME: the config\n"
+        "(examples/config/), the venue library (examples/venues/), and the terms file\n"
+        "(examples/terms/), each into its user file (default) or its project file\n"
+        "(--scope project). Each import works like 'bibcc config import', 'bibcc venues\n"
+        "import', and 'bibcc terms import': it adds what your files lack and, where a\n"
+        "value differs, keeps yours unless you pass --overwrite. A kind with no shared\n"
+        "file of that name is skipped. New project files go next to the project's other\n"
+        "BibCC files, or in the current directory.",
+        epilog=epilog(
+            examples=[
+                ("Set up a survey with the MIAA lab's settings, venues, and terms",
+                 "bibcc config profile miaa --scope project"),
+                ("Preview what the profile would change in your user files", "bibcc config profile miaa --dry-run"),
+            ],
+            outputs=[(f"{PROJECT_CONFIG_NAME}, {VENUES.project_name}, and {TERMS.project_name} "
+                      "(or the user files)", "The files that the command writes")],
+            exit_status="0 on success, 1 if no shared file has that name or an import fails,\n"
+            "2 on usage errors.",
+            env=[ENV_CONFIG],
+        ),
+        formatter_class=HelpFormatter,
+    )
+    p_profile.add_argument("name", metavar="NAME", help="Name of a shared profile (for example, miaa).")
+    p_profile.add_argument("--scope", choices=SCOPES, default=USER_SCOPE,
+                           help="Files to write to: 'user' (default) or 'project'.")
+    p_profile.add_argument("--overwrite", action="store_true",
+                           help="Where a value differs, take the shared one (default: keep yours).")
+    p_profile.add_argument("--dry-run", action="store_true",
+                           help="Report what would change without writing anything.")
+
     subparsers.add_parser(
         "examples",
         help="List the shared example configs.",
@@ -454,6 +519,8 @@ def main() -> None:
         elif args.command == "import":
             status = import_config(args.source, args.scope or USER_SCOPE, args.config or None,
                                    args.overwrite, args.dry_run, logger.log)
+        elif args.command == "profile":
+            status = profile(args.name, args.scope, args.overwrite, args.dry_run, logger.log)
         else:
             status = examples(logger.log)
     sys.exit(status)

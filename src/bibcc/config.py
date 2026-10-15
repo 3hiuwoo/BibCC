@@ -18,20 +18,17 @@ Usage:
 
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple
 
 import yaml
 
-from bibcc.venues import PROJECT_SCOPE, USER_SCOPE
+from bibcc.scopes import CONFIG, FILE_SCOPE, PROJECT_SCOPE, SCOPES, USER_SCOPE
 
-CONFIG_ENV_VAR = "BIBCC_CONFIG"
-PROJECT_CONFIG_NAME = ".bibcc.yaml"
-USER_CONFIG_DISPLAY = "~/.config/bibcc/config.yaml"
-FILE_SCOPE = "file"  # a config named with --config FILE
-SCOPES = (USER_SCOPE, PROJECT_SCOPE)
+CONFIG_ENV_VAR = CONFIG.env_var
+PROJECT_CONFIG_NAME = CONFIG.project_name
+USER_CONFIG_DISPLAY = CONFIG.user_display
 
 FORMAT_SECTION = "format"
 # In a field order, the place of every field that the order doesn't list.
@@ -60,23 +57,12 @@ class ConfigNotFound(LookupError):
 
 def user_config_path() -> Path:
     """``$BIBCC_CONFIG`` if set, else ``$XDG_CONFIG_HOME/bibcc/config.yaml`` (``~/.config`` by default)."""
-    env = os.environ.get(CONFIG_ENV_VAR)
-    if env:
-        return Path(env).expanduser()
-    config_home = os.environ.get("XDG_CONFIG_HOME") or "~/.config"
-    return Path(config_home).expanduser() / "bibcc" / "config.yaml"
+    return CONFIG.user_path()
 
 
 def find_project_config(start: Optional[str | Path] = None) -> Optional[Path]:
     """The nearest ``.bibcc.yaml`` in *start* (a file or folder; default: cwd) or its parents."""
-    here = Path(start or Path.cwd()).expanduser().resolve()
-    if not here.is_dir():
-        here = here.parent
-    for folder in (here, *here.parents):
-        candidate = folder / PROJECT_CONFIG_NAME
-        if candidate.is_file():
-            return candidate
-    return None
+    return CONFIG.find_project(start)
 
 
 def config_path(scope: str = USER_SCOPE, start: Optional[str | Path] = None, create: bool = False) -> Path:
@@ -84,7 +70,8 @@ def config_path(scope: str = USER_SCOPE, start: Optional[str | Path] = None, cre
 
     For the project scope, the nearest ``.bibcc.yaml`` above *start*.
     Without one, :class:`ConfigNotFound` is raised, unless *create*: then
-    it is ``.bibcc.yaml`` in the current directory.
+    it is a new ``.bibcc.yaml`` next to the project's other BibCC files, or
+    in the current directory.
     """
     if scope == USER_SCOPE:
         return user_config_path()
@@ -99,7 +86,7 @@ def config_path(scope: str = USER_SCOPE, start: Optional[str | Path] = None, cre
             f"no {PROJECT_CONFIG_NAME} in {where} or its parent directories; create one in your "
             "project root with: bibcc config init --scope project"
         )
-    return Path.cwd() / PROJECT_CONFIG_NAME
+    return CONFIG.new_project_path(start)
 
 
 def parse_yaml(text: str, where: str) -> Dict[str, Any]:

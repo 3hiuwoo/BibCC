@@ -26,10 +26,10 @@ from typing import Optional, Sequence, Tuple
 from bibcc.cache import CACHE_DISPLAY, CACHE_ENV_VAR
 from bibcc.cache import OFF as CACHE_OFF
 from bibcc.config import CONFIG_ENV_VAR, USER_CONFIG_DISPLAY
+from bibcc.scopes import REPO
 from bibcc.terms import TERMS_ENV_VAR, USER_TERMS_DISPLAY
 from bibcc.venues import LIBRARY_ENV_VAR, PROJECT_LIBRARY_NAME, USER_LIBRARY_DISPLAY
 
-REPO = "3hiuwoo/BibCC"
 DOCS_URL = f"https://github.com/{REPO}#readme"
 
 ENV_VENUES: Tuple[str, str] = (

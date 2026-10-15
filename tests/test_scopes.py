@@ -359,3 +359,46 @@ def test_missing_venues_yaml_documents_the_library_schema():
     # The fill-in YAML uses the library schema; the example in the repo must stay loadable.
     data = yaml.safe_load((Path(__file__).parent.parent / "missing_venues.example.yaml").read_text())
     assert set(data) <= {"journals", "proceedings"}
+
+
+# ------------------------------------------------- shared file kinds (bibcc.scopes)
+
+
+def test_file_kinds_share_one_layout(tmp_path: Path, monkeypatch):
+    from bibcc.scopes import CONFIG, KINDS, TERMS, VENUES
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "xdg"))
+    monkeypatch.delenv("BIBCC_TERMS", raising=False)
+    assert [k.user_path() for k in KINDS] == [tmp_path / "xdg" / "bibcc" / n
+                                              for n in ("config.yaml", "venues.yaml", "terms.txt")]
+    monkeypatch.setenv("BIBCC_TERMS", str(tmp_path / "mine.txt"))
+    assert TERMS.user_path() == tmp_path / "mine.txt"
+
+    project = tmp_path / "survey"
+    (project / "bib" / "sub").mkdir(parents=True)
+    (project / ".bibcc.yaml").write_text("format: {}\n")
+    monkeypatch.chdir(project / "bib" / "sub")
+    assert CONFIG.find_project(project / "bib" / "sub") == (project / ".bibcc.yaml").resolve()
+    assert VENUES.find_project() is None
+    # A new project file goes next to the project's other files, not into the cwd.
+    assert VENUES.new_project_path() == (project / ".bibcc-venues.yaml").resolve()
+    assert CONFIG.new_project_path(tmp_path) == Path.cwd() / ".bibcc.yaml"
+
+
+def test_new_project_library_goes_to_the_project_root(tmp_path: Path, monkeypatch):
+    (tmp_path / ".bibcc-terms.txt").write_text("CLIP\n")
+    (tmp_path / "bib").mkdir()
+    monkeypatch.chdir(tmp_path / "bib")
+    assert _run_main(["venues", "import", str(MIAA_VENUES), "--scope", "project"]) == 0
+    assert (tmp_path / PROJECT_LIBRARY_NAME).is_file()
+    assert not (tmp_path / "bib" / PROJECT_LIBRARY_NAME).exists()
+    # init still creates the library where you run it.
+    (tmp_path / PROJECT_LIBRARY_NAME).unlink()
+    assert _run_main(["venues", "init", "--scope", "project"]) == 0
+    assert (tmp_path / "bib" / PROJECT_LIBRARY_NAME).is_file()
+
+
+def _run_main(argv) -> int:
+    with pytest.raises(SystemExit) as exc:
+        main(argv)
+    return exc.value.code or 0

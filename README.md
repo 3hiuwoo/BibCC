@@ -1083,13 +1083,28 @@ BibCC checks every file it reads. An invalid value, such as `indent: wide`, stop
 To manage config files, use `bibcc config`:
 
 ```bash
-bibcc config where bib/refs.bib          # the files that apply, and each setting with where it comes from
-bibcc config init --scope project        # a .bibcc.yaml that lists every setting, commented out
-bibcc config examples                    # list the shared configs
-bibcc config import miaa --scope project # merge a shared config into the project's .bibcc.yaml
+bibcc config where bib/refs.bib           # every file that applies, and each setting with where it comes from
+bibcc config init --scope project         # a .bibcc.yaml that lists every setting, commented out
+bibcc config examples                     # list the shared configs
+bibcc config import miaa --scope project  # merge a shared config into the project's .bibcc.yaml
+bibcc config profile miaa --scope project # import the shared config, venue library, and terms file named miaa
 ```
 
+`where` is the one place to see what BibCC reads for a path. After the settings, it lists the venue libraries, the terms files, and the provider table that apply, each with its scope and size.
+
 [`examples/config/`](examples/config/) holds shared configs, such as the MIAA lab's [`miaa`](examples/config/miaa.yaml), which sets the title-first field order of the lab's surveys with `citation` last. `import` adds the settings that your file lacks. Where a setting differs, it keeps your value and lists the difference, unless you pass `--overwrite`. `import` rewrites the file, so comments other than the header aren't kept. To share a config, see [Contributing a config](examples/config/README.md#contributing-a-config).
+
+### Set up a project from a lab profile <a id="config-profile"></a>
+
+A lab profile is the config, venue library, and terms file that share one name in `examples/`, such as `miaa`. To give a survey all three, run the following in its directory:
+
+```bash
+bibcc config profile miaa --scope project
+```
+
+`profile` runs `config import`, `venues import`, and `terms import` for that name, each into the project file of its kind (or, without `--scope project`, into your user files). It skips a kind that has no shared file of that name. To preview the changes, pass `--dry-run`.
+
+When a command creates a project file, such as `.bibcc-venues.yaml`, it puts the file next to the project's other BibCC files (`.bibcc.yaml`, `.bibcc-venues.yaml`, or `.bibcc-terms.txt`), so that all three stay in the project's root directory. If the project has none yet, the file goes in the current directory. `init --scope project` always writes to the current directory.
 
 ## Development <a id="development"></a>
 
@@ -1112,6 +1127,7 @@ The code lives in `src/bibcc/`. Each command is one module, registered in `cli.p
 - `families.py` and `data/families.yaml`: the provider table, which says where each conference's official BibTeX comes from.
 - `cache.py`: the disk cache of downloaded official BibTeX.
 - `schemas.py`: learning venue schemas.
+- `scopes.py`: the user and project scopes, file names, and shared examples that the venue libraries, terms files, and configs have in common.
 - `venues.py`: the venue libraries and their scopes.
 - `terms.py`: the protected-terms files and their scopes.
 - `config.py`: the config files, their scopes, and the settings of each section.

@@ -22,18 +22,16 @@ from __future__ import annotations
 import argparse
 import json
 import os
-import re
 import sys
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Tuple
 
 import yaml
 
-import bibcc
-from bibcc import sources
 from bibcc.families import PROVIDERS, builtin_families, registry
-from bibcc.helptext import ENV_VENUES, REPO, SCOPE_HELP, HelpFormatter, epilog
+from bibcc.helptext import ENV_VENUES, SCOPE_HELP, HelpFormatter, epilog
 from bibcc.logging_utils import Logger
+from bibcc.scopes import EXAMPLES_PAGE_URL, VENUES, example_names, read_source
 from bibcc.venues import (
     LIBRARY_ENV_VAR,
     PROJECT_LIBRARY_NAME,
@@ -50,67 +48,10 @@ from bibcc.venues import (
     user_library_path,
 )
 
-EXAMPLES_BRANCH = "main"
-EXAMPLE_RAW_URL = f"https://raw.githubusercontent.com/{REPO}/{EXAMPLES_BRANCH}/examples/{{kind}}/{{name}}{{suffix}}"
-EXAMPLES_API_URL = f"https://api.github.com/repos/{REPO}/contents/examples/{{kind}}?ref={EXAMPLES_BRANCH}"
-EXAMPLES_PAGE_URL = f"https://github.com/{REPO}/tree/{EXAMPLES_BRANCH}/examples/{{kind}}"
-
-_EXAMPLE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*")
-
-
-def local_examples_dir(kind: str = "venues") -> Optional[Path]:
-    """``examples/KIND/`` of the checkout BibCC runs from, if it runs from one (editable install)."""
-    folder = Path(bibcc.__file__).resolve().parents[2] / "examples" / kind
-    return folder if folder.is_dir() else None
-
-
-def read_source(source: str, kind: str = "venues", suffix: str = ".yaml") -> Tuple[str, str]:
-    """``(text, where it came from)`` for a file, URL, or the name of a file in ``examples/KIND/``."""
-    path = Path(source).expanduser()
-    if path.is_file():
-        return path.read_text(encoding="utf-8"), str(path)
-    if re.match(r"https?://", source):
-        content, error = sources.fetch_url(source)
-        if error:
-            raise ValueError(f"could not download {source}: {error}")
-        return content or "", source
-    name = source[: -len(suffix)] if source.endswith(suffix) else source
-    if kind == "venues":
-        name = re.sub(r"\.ya?ml$", "", source)
-    what = "example library" if kind == "venues" else f"example {kind} file"
-    if not _EXAMPLE_NAME.fullmatch(name):
-        raise ValueError(f"{source}: no such file, URL, or {what} name")
-    local = local_examples_dir(kind)
-    if local is not None and (local / f"{name}{suffix}").is_file():
-        example = local / f"{name}{suffix}"
-        return example.read_text(encoding="utf-8"), str(example)
-    url = EXAMPLE_RAW_URL.format(kind=kind, name=name, suffix=suffix)
-    content, error = sources.fetch_url(url)
-    if error:
-        raise ValueError(
-            f"{source}: no such file, and no {what} of that name ({url}: {error}). "
-            f"List them with: bibcc {kind} examples"
-        )
-    return content or "", url
-
-
-def example_names(kind: str, suffix: str) -> Tuple[List[Path], List[str], str]:
-    """``(local files, remote names, where)`` of the files in ``examples/KIND/``, local checkout first."""
-    local = local_examples_dir(kind)
-    if local is not None:
-        return sorted(local.glob(f"*{suffix}")), [], str(local)
-    page = EXAMPLES_PAGE_URL.format(kind=kind)
-    data, error = sources.fetch_json(EXAMPLES_API_URL.format(kind=kind))
-    if error or not isinstance(data, list):
-        raise ValueError(f"could not list the examples ({error or 'unexpected answer'}); see {page}")
-    names = [item["name"][: -len(suffix)] for item in data
-             if isinstance(item, dict) and str(item.get("name", "")).endswith(suffix)]
-    return [], sorted(names), page
-
 
 def list_examples() -> Tuple[List[Tuple[str, str]], str]:
     """``([(name, details)], where)`` for the example libraries, local checkout first."""
-    paths, names, origin = example_names("venues", ".yaml")
+    paths, names, origin = example_names(VENUES)
     rows = []
     for path in paths:
         lib = VenueLibrary.load(path)
@@ -217,7 +158,11 @@ def providers(start: Optional[str], venues: Optional[str], fmt: str, log: Callab
 
 def init(scope: str, log: Callable[[str], None]) -> int:
     """Create an empty library in *scope*; returns the exit status."""
-    library = open_library(scope, create=True)
+    found = find_project_library() if scope == PROJECT_SCOPE else None
+    if scope == PROJECT_SCOPE and found is None:
+        library = VenueLibrary.load(Path.cwd() / PROJECT_LIBRARY_NAME, scope=PROJECT_SCOPE)
+    else:
+        library = open_library(scope)
     if library.path.exists():
         log(f"ℹ️  The {scope} library already exists: {library.sources[0].describe(with_scope=False)}. "
             "Left unchanged.")
@@ -242,7 +187,7 @@ def import_library(
 ) -> int:
     """Merge the records of *source* into one library; returns the exit status."""
     try:
-        text, origin = read_source(source)
+        text, origin = read_source(source, VENUES)
         incoming = VenueLibrary.loads(text, where=origin)
     except (OSError, ValueError, yaml.YAMLError) as e:
         log(f"❌ {e}")
@@ -388,11 +333,12 @@ def build_parser() -> argparse.ArgumentParser:
         "import",
         help="Merge a shared library (file, URL, or example name) into yours.",
         description="Merge the records of SOURCE into the user library (default), the project\n"
-        "library (--scope project; created in the current directory if there's none), or\n"
-        "the file that --venues names. The command adds records that are new to the\n"
-        "library. For a venue that the library already has, it adds missing fields,\n"
-        "aliases, and interim booktitles; for fields that differ, it keeps and reports\n"
-        "your value, unless you pass --overwrite.\n\n"
+        "library (--scope project; if there's none, a new one goes next to the project's\n"
+        "other BibCC files, or in the current directory), or the file that --venues\n"
+        "names. The command adds records that are new to the library. For a venue that\n"
+        "the library already has, it adds missing fields, aliases, and interim\n"
+        "booktitles; for fields that differ, it keeps and reports your value, unless\n"
+        "you pass --overwrite.\n\n"
         "SOURCE is a library file, an http(s) URL, or the name of a library in\n"
         "examples/venues/ of the BibCC repository (see 'bibcc venues examples'). The\n"
         "command reads an example library from your checkout when BibCC runs from one,\n"
