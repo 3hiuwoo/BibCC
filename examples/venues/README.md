@@ -8,7 +8,7 @@ The following table lists the libraries in this directory:
 
 | Library | Maintained by | Covers |
 | --- | --- | --- |
-| [`miaa`](miaa.yaml) | MIAA lab ([@3hiuwoo](https://github.com/3hiuwoo)) | Machine learning, computer vision, and multimedia: 33 journals (including IEEE TPAMI, TIP, TNNLS, TCSVT, IJCV, Pattern Recognition, Neurocomputing, and TMLR) and 77 proceedings from 2016 to 2026 (including CVPR, ICCV, ECCV, WACV and their workshops, NeurIPS, ICML, ICLR, AAAI, IJCAI, ACM MM, ACL, NAACL, KDD, WSDM, MICCAI, and BMVC), with the CVF and OpenReview interim booktitles linked, and 22 family records with the fields that every edition shares. Every family and 22 journals have a venue schema: those of AAAI, ACM MM, Pattern Recognition, Neurocomputing, Neural Networks, and Expert Systems with Applications come from the entries alone, because their publishers block BibTeX downloads, and the others come from official BibTeX |
+| [`miaa`](miaa.yaml) | MIAA lab ([@3hiuwoo](https://github.com/3hiuwoo)) | Machine learning, computer vision, and multimedia: 33 journals (including IEEE TPAMI, TIP, TNNLS, TCSVT, IJCV, Pattern Recognition, Neurocomputing, and TMLR) and 79 proceedings from 2016 to 2026 (including CVPR, ICCV, ECCV, WACV and their workshops, NeurIPS, ICML, ICLR, AAAI, IJCAI, ACM MM, ACL, NAACL, KDD, WSDM, MICCAI, and BMVC), with the CVF and OpenReview interim booktitles linked, and 22 family records with the fields that every edition shares. Every family and 22 journals have a venue schema: those of AAAI, ACM MM, Pattern Recognition, Neurocomputing, Neural Networks, and Expert Systems with Applications come from the entries alone, because their publishers block BibTeX downloads, and the others come from official BibTeX |
 
 ## Using a library
 

@@ -451,6 +451,8 @@ families:
   learned_from: peer comparison of 11 entries (2025), 2026-10-15
 - name: 'Proceedings of the Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers)'
   acronym: ACL
+  fields:
+    publisher: Association for Computational Linguistics
   entry_fields:
   - doi
   - pages
@@ -483,6 +485,8 @@ families:
   learned_from: official BibTeX of 23 entries (2026), 2026-10-15
 - name: Proceedings of the International Joint Conference on Artificial Intelligence
   acronym: IJCAI
+  fields:
+    publisher: International Joint Conferences on Artificial Intelligence Organization
   entry_fields:
   - doi
   - note
@@ -507,6 +511,61 @@ proceedings:
     editor: Favaro, Paolo and Kukelova, Zuzana and Maki, Atsuto and Rohrbach, Anna and Schindler, Konrad and Tombari, Federico
     series: Lecture Notes in Computer Science
     address: Cham
+  books:
+    978-3-032-36987-1:
+      part: IV
+      volume: '17004'
+    978-3-032-37013-6:
+      part: LXX
+      volume: '17070'
+    978-3-032-37023-5:
+      part: LXIX
+      volume: '17069'
+    978-3-032-37026-6:
+      part: VIII
+      volume: '17008'
+    978-3-032-37029-7:
+      part: LXXIV
+      volume: '17074'
+    978-3-032-37041-9:
+      part: LXXVII
+      volume: '17077'
+    978-3-032-37092-1:
+      part: LX
+      volume: '17060'
+    978-3-032-37138-6:
+      part: LXXIII
+      volume: '17073'
+    978-3-032-37152-2:
+      part: LXVIII
+      volume: '17068'
+    978-3-032-37196-6:
+      part: LXIV
+      volume: '17064'
+    978-3-032-37235-2:
+      part: LII
+      volume: '17052'
+    978-3-032-37258-1:
+      part: LIV
+      volume: '17054'
+    978-3-032-37362-5:
+      part: XLIX
+      volume: '17049'
+    978-3-032-37450-9:
+      part: XXXIV
+      volume: '17034'
+    978-3-032-37461-5:
+      part: XXV
+      volume: '17025'
+    978-3-032-37574-2:
+      part: XXI
+      volume: '17021'
+    978-3-032-37577-3:
+      part: XLIV
+      volume: '17044'
+    978-3-032-37627-5:
+      part: XXIX
+      volume: '17029'
 - name: International Conference on Learning Representations
   year: '2026'
   interim:
@@ -514,6 +573,7 @@ proceedings:
   fields:
     month: April
     venue: Rio de Janeiro, Brazil
+    editor: C. Vondrick and B. Hariharan and C. Raffel and L. Pinto and D. Yang and A. Faust
 - name: Proceedings of the 43rd International Conference on Machine Learning
   year: '2026'
   interim:
@@ -571,6 +631,46 @@ proceedings:
     venue: Milan, Italy
     editor: Leonardis, Ale{\v{s}} and Ricci, Elisa and Roth, Stefan and Russakovsky, Olga and Sattler, Torsten and Varol, G{\"u}l
     publisher: Springer Nature Switzerland
+  books:
+    978-3-031-72624-8:
+      part: XIII
+      volume: '15071'
+    978-3-031-72667-5:
+      part: VII
+      volume: '15065'
+    978-3-031-72764-1:
+      part: XXXVI
+      volume: '15094'
+    978-3-031-72943-0:
+      part: LII
+      volume: '15110'
+    978-3-031-72949-2:
+      part: LIV
+      volume: '15112'
+    978-3-031-72967-6:
+      part: XLIX
+      volume: '15107'
+    978-3-031-72970-6:
+      part: XLVII
+      volume: '15105'
+    978-3-031-73004-7:
+      part: LXXXI
+      volume: '15139'
+    978-3-031-73013-9:
+      part: LXXXV
+      volume: '15143'
+    978-3-031-73021-4:
+      part: LXXXVII
+      volume: '15145'
+    978-3-031-73030-6:
+      part: LXI
+      volume: '15119'
+    978-3-031-73390-1:
+      part: XXVIII
+      volume: '15086'
+    978-3-031-73650-6:
+      part: LXV
+      volume: '15123'
 - name: 'Findings of the Association for Computational Linguistics: ACL 2025'
   year: '2025'
   fields:
@@ -645,7 +745,6 @@ proceedings:
     venue: Montreal, Canada
     editor: James Kwok
     isbn: 978-1-956792-06-5
-    publisher: International Joint Conferences on Artificial Intelligence Organization
     month: August
 - name: 2024 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)
   year: '2024'
@@ -673,6 +772,11 @@ proceedings:
     editor: Huang, De-Shuang and Zhang, Xiankun and Zhang, Chuanlei
     isbn: 978-981-97-5675-9
     publisher: Springer Nature Singapore
+    series: Lecture Notes in Computer Science
+  books:
+    978-981-97-5675-9:
+      part: V
+      volume: '14879'
 - name: Advances in Neural Information Processing Systems
   year: '2024'
   interim:
@@ -691,6 +795,7 @@ proceedings:
   fields:
     month: May
     venue: Vienna, Austria
+    editor: B. Kim and Y. Yue and S. Chaudhuri and K. Fragkiadaki and M. Khan and Y. Sun
 - name: Medical Image Computing and Computer Assisted Intervention -- MICCAI 2024
   year: '2024'
   fields:
@@ -700,6 +805,11 @@ proceedings:
     isbn: 978-3-031-72117-5
     address: Cham
     publisher: Springer Nature Switzerland
+    series: Lecture Notes in Computer Science
+  books:
+    978-3-031-72117-5:
+      part: X
+      volume: '15010'
 - name: Proceedings of the 21st ACM Conference on Embedded Networked Sensor Systems
   year: '2024'
   fields:
@@ -738,7 +848,6 @@ proceedings:
     venue: Jeju, Korea
     isbn: 978-1-939133-37-9
     editor: Kate Larson
-    publisher: International Joint Conferences on Artificial Intelligence Organization
     month: August
 - name: 2023 IEEE International Conference on Systems, Man, and Cybernetics (SMC)
   year: '2023'
@@ -821,7 +930,6 @@ proceedings:
   fields:
     venue: Toronto, ON, Canada
     editor: Rogers, Anna and Boyd-Graber, Jordan and Okazaki, Naoaki
-    publisher: Association for Computational Linguistics
     month: July
 - name: The Eleventh International Conference on Learning Representations
   year: '2023'
@@ -876,6 +984,13 @@ proceedings:
     editor: Avidan, Shai and Brostow, Gabriel and Ciss{\'e}, Moustapha and Farinella, Giovanni Maria and Hassner, Tal
     publisher: Springer Nature Switzerland
     month: October
+  books:
+    978-3-031-19809-0:
+      part: XXVI
+      volume: '13686'
+    978-3-031-20050-2:
+      part: XXIII
+      volume: '13683'
 - name: Proceedings of the AAAI Conference on Artificial Intelligence
   year: '2022'
   fields:
@@ -929,6 +1044,11 @@ proceedings:
     isbn: 978-3-030-86340-1
     address: Cham
     publisher: Springer International Publishing
+    series: Lecture Notes in Computer Science
+  books:
+    978-3-030-86340-1:
+      part: II
+      volume: '12892'
 - name: International Conference on Learning Representations
   year: '2021'
   fields:
@@ -939,7 +1059,6 @@ proceedings:
   fields:
     venue: Online
     editor: Toutanova, Kristina and Rumshisky, Anna and Zettlemoyer, Luke and Hakkani-Tur, Dilek and Beltagy, Iz and Bethard, Steven and Cotterell, Ryan and Chakraborty, Tanmoy and Zhou, Yichao
-    publisher: Association for Computational Linguistics
     month: June
 - name: Proceedings of the AAAI Conference on Artificial Intelligence
   year: '2021'
@@ -972,6 +1091,18 @@ proceedings:
     venue: Seattle, WA, USA
     isbn: 978-1-7281-9360-1
     month: June
+- name: Advances in Neural Information Processing Systems
+  year: '2020'
+  fields:
+    venue: Online
+    publisher: Curran Associates, Inc.
+    month: December
+    editor: H. Larochelle and M. Ranzato and R. Hadsell and M.F. Balcan and H. Lin
+  entry_fields:
+  - pages
+  - url
+  - volume
+  learned_from: official BibTeX of 1 entry (2020), 2026-10-20
 - name: Computer Vision -- ECCV 2020
   year: '2020'
   fields:
@@ -979,6 +1110,13 @@ proceedings:
     publisher: Springer International Publishing
     month: August
     editor: Vedaldi, Andrea and Bischof, Horst and Brox, Thomas and Frahm, Jan-Michael
+  books:
+    978-3-030-58529-7:
+      part: XIX
+      volume: '12364'
+    978-3-030-58565-5:
+      part: XX
+      volume: '12365'
 - name: 2019 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)
   year: '2019'
   interim:
@@ -996,6 +1134,17 @@ proceedings:
     issn: 2380-7504
     isbn: 978-1-7281-4803-8
     month: none
+- name: Advances in Neural Information Processing Systems
+  year: '2019'
+  fields:
+    venue: Vancouver, BC, Canada
+    publisher: Curran Associates, Inc.
+    month: December
+    editor: H. Wallach and H. Larochelle and A. Beygelzimer and F. d\textquotesingle Alch\'{e}-Buc and E. Fox and R. Garnett
+  entry_fields:
+  - url
+  - volume
+  learned_from: official BibTeX of 1 entry (2019), 2026-10-20
 - name: International Conference on Learning Representations
   year: '2019'
   fields:
@@ -1057,6 +1206,13 @@ proceedings:
     editor: Ferrari, Vittorio and Hebert, Martial and Sminchisescu, Cristian and Weiss, Yair
     publisher: Springer International Publishing
     month: September
+  books:
+    978-3-030-01219-9:
+      part: III
+      volume: '11207'
+    978-3-030-01252-6:
+      part: XI
+      volume: '11215'
 - name: International Conference on Learning Representations
   year: '2018'
   fields:
@@ -1114,3 +1270,7 @@ proceedings:
     editor: Leibe, Bastian and Matas, Jiri and Sebe, Nicu and Welling, Max
     publisher: Springer International Publishing
     month: October
+  books:
+    978-3-319-46493-0:
+      part: IV
+      volume: '9908'

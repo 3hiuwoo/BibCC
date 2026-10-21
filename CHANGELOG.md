@@ -4,6 +4,10 @@ This file lists notable changes to BibCC. The format follows [Keep a Changelog](
 
 ## [0.9.0] - Unreleased
 
+### Changed
+
+- **The `miaa` venue library gains NeurIPS 2019 and 2020 and the books of its LNCS proceedings**: It now has 79 proceedings, with records for NeurIPS 2019 and 2020 and their schemas, and the volume and part of 41 books in the `books` tables of ECCV 2016 to 2026, MICCAI 2024, ICIC 2024, and ICANN 2021. Those three records gain their `series`, ICLR 2024 and 2026 gain their `editor`, and the `publisher` of ACL and IJCAI moves into their family records.
+
 ## [0.8.0] - 2026-10-16
 
 ### Added
