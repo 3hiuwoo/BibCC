@@ -256,7 +256,7 @@ The check needs network access. The report, `.bibcc/INPUT/official_fields.txt`, 
 | Issue type | Meaning |
 | --- | --- |
 | `upstream_only` | The official BibTeX has a field that the entry lacks. |
-| `differs` | Both have the field, with different values. Braces, case, whitespace, accents, and month spellings don't count. |
+| `differs` | Both have the field, with different values. Braces, case, whitespace, accents, month spellings, and the form of a name (`First Last` or `Last, First`) don't count. |
 | `local_only` | The entry has a field that the official BibTeX lacks, other than `citation` and the fields that the venue library supplies. |
 | `type` | The entry types differ. |
 

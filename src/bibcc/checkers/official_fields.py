@@ -8,7 +8,8 @@ fetched yourself, and compares the two:
 
 * ``upstream_only``: the official BibTeX has a field the entry lacks.
 * ``differs``: both have the field, with different values (braces, case,
-  whitespace, accents, and month spellings don't count).
+  whitespace, accents, month spellings, and the form of a name, ``First
+  Last`` or ``Last, First``, don't count).
 * ``local_only``: the entry has a field the official BibTeX lacks, other
   than BibCC's ``citation`` and the fields the venue library supplies
   (including the fields of the entry's book, see below).
@@ -43,6 +44,7 @@ Usage:
 
 from __future__ import annotations
 
+import re
 import time
 from collections import defaultdict
 from dataclasses import dataclass, field
@@ -231,7 +233,35 @@ def _same_value(name: str, ours: str, theirs: str) -> bool:
     if same_field_value(name, ours, theirs):
         return True
     a, b = _comparable(name, ours), _comparable(name, theirs)
-    return isinstance(a, str) and isinstance(b, str) and "".join(a.split()) == "".join(b.split())
+    if isinstance(a, str) and isinstance(b, str) and "".join(a.split()) == "".join(b.split()):
+        return True
+    if name in _NAME_FIELDS:
+        names_a, names_b = _names(ours), _names(theirs)
+        return names_a is not None and names_a == names_b
+    return False
+
+
+_NAME_FIELDS = ("author", "editor")
+
+
+def _names(value: str) -> Optional[List[Tuple[str, ...]]]:
+    """The names of a name list as comparable ``(first, von, last, jr)`` parts, or None if one doesn't parse.
+
+    ``Huiping Zhuang`` and ``Zhuang, Huiping`` are the same name in BibTeX.
+    """
+    from bibtexparser.customization import InvalidName, splitname
+
+    from bibcc.completer import _comparable
+
+    parts: List[Tuple[str, ...]] = []
+    for name in re.split(r"\s+and\s+", " ".join(value.split())):
+        try:
+            split = splitname(name)
+        except InvalidName:
+            return None
+        parts.append(tuple("".join(_comparable("author", " ".join(split[k])).split())
+                           for k in ("first", "von", "last", "jr")))
+    return parts
 
 
 def _same_title(ours: str, theirs: str) -> bool:
@@ -289,7 +319,10 @@ def _venue_rows(checked: List[_Checked], library: VenueLibrary) -> List[VenueRow
         for name in sorted(_LIBRARY_FIELDS):
             if name == "month" and record.kind == JOURNAL:
                 continue  # each issue has its own month
-            values = [i.upstream[name] for i in items if name in i.upstream]
+            # A chapter's ISBN is its book's, not the proceedings', when there are several books (LNCS).
+            several = bool(record.books) or len({i.book for i in items if i.book}) > 1
+            values = [i.upstream[name] for i in items
+                      if name in i.upstream and not (name == "isbn" and i.book and several)]
             if not values or any(not same_field_value(name, v, values[0]) for v in values[1:]):
                 continue
             ours = fields.get(name, "")

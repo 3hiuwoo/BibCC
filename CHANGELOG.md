@@ -8,6 +8,16 @@ This file lists notable changes to BibCC. The format follows [Keep a Changelog](
 
 - **The `miaa` venue library gains NeurIPS 2019 and 2020 and the books of its LNCS proceedings**: It now has 79 proceedings, with records for NeurIPS 2019 and 2020 and their schemas, and the volume and part of 41 books in the `books` tables of ECCV 2016 to 2026, MICCAI 2024, ICIC 2024, and ICANN 2021. Those three records gain their `series`, ICLR 2024 and 2026 gain their `editor`, and the `publisher` of ACL and IJCAI moves into their family records.
 
+### Fixed
+
+- **`check official` compares names in either form**: An `author` or `editor` written `First Last` in the entry and `Last, First` in the official BibTeX no longer counts as `differs`. A name whose parts differ, such as a different last name, still does.
+- **`check official` no longer proposes a book's ISBN for a proceedings in several books**: For a proceedings whose record has a `books` table, or whose checked chapters belong to more than one book, the ISBN of a chapter is its book's, so the venue summary no longer reports it as `library_lacks` or `library_differs`.
+- **A paper missing from an older year's proceedings isn't `wait`**: When the NeurIPS or ICLR proceedings of a year before last don't list a paper, the reason is "not found in the proceedings", and `next` is `by hand`, because those proceedings are complete. This year's and last year's are still `wait`.
+- **PMLR papers are found by their own page**: When an entry's `url` is its PMLR paper page, `check official` reads the BibTeX there, so a paper whose `year` is the publication year rather than the conference's, such as CoLLAs 2024 in PMLR volume 274, is no longer looked up in the wrong volume.
+- **An OpenReview paper that isn't found names the entry's forum page**: When the OpenReview search finds no accepted paper, the `url` column of `official_unchecked.txt` gives the entry's own OpenReview `url`, where you can get the BibTeX, instead of staying empty.
+- **`check editions` groups the venues without a schema regardless of case**: Spellings that differ only in case, such as "Psychological Review" and "Psychological review", count as one venue, as the venue library matches them.
+- **The `--learn` summary of `check official` counts schemas and book fields apart**: It says, for example, "Wrote 0 venue schemas and 2 book fields", instead of adding both into one count of venue schemas.
+
 ## [0.8.0] - 2026-10-16
 
 ### Added

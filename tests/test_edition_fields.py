@@ -199,6 +199,18 @@ def test_check_edition_fields_proposes_schemas_from_peers_and_learns_them(tmp_pa
     assert [(r[0], r[3]) for r in result.fields] == [("C_Doe_ICML2025", "pages"), ("D_Doe_ICML2026", "day")]
 
 
+def test_venues_without_a_schema_are_grouped_regardless_of_case(tmp_path: Path):
+    bib = tmp_path / "refs.bib"
+    bib.write_text(
+        "@article{A_Doe_PR1990,\n  title = {A},\n  author = {Doe, Jane},\n  journal = {Psychological Review},\n"
+        "  year = {1990},\n  volume = {97}\n}\n\n"
+        "@article{B_Doe_PR1991,\n  title = {B},\n  author = {Doe, Jane},\n  journal = {Psychological review},\n"
+        "  year = {1991},\n  volume = {98}\n}\n",
+        encoding="utf-8",
+    )
+    result = check_edition_fields(str(bib), VenueLibrary(), log=lambda _: None)
+    assert result.unschematized == {"Psychological Review": ["A_Doe_PR1990", "B_Doe_PR1991"]}
+
 def test_check_edition_fields_skips_issue_fields_of_articles_not_in_an_issue(tmp_path: Path):
     library = VenueLibrary.loads("""\
 journals:

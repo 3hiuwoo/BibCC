@@ -48,6 +48,7 @@ Usage:
 
 from __future__ import annotations
 
+import datetime
 import html
 import json
 import re
@@ -432,7 +433,15 @@ def _proceedings_site(title: str, family: str, year: str, download: bool, site: 
     for m in re.finditer(r'<a title="paper title" href="([^"]+-Abstract[^"]*\.html)">(.*?)</a>', content or "", re.S):
         if titles_match(title, clean_text(m.group(2))):
             return _proceedings_paper(provider, urllib.parse.urljoin(site, m.group(1)), download)
+    if not _recent(year):
+        # The proceedings of an older year are complete: a paper missing from them won't be added.
+        return OfficialLookup(reason=f"not found in the {family} {year} proceedings", manual_url=listing)
     return OfficialLookup(reason=f"not in the {family} {year} proceedings yet", manual_url=listing, waiting=True)
+
+
+def _recent(year: str) -> bool:
+    """Whether the proceedings of *year* may still be growing: this year's or last year's."""
+    return not year.isdigit() or int(year) >= datetime.date.today().year - 1
 
 
 def _proceedings_paper(provider: str, page: str, download: bool) -> OfficialLookup:
@@ -452,6 +461,8 @@ def _proceedings_paper(provider: str, page: str, download: bool) -> OfficialLook
 def _openreview(record: Record, title: str, year: str, spec: Optional[Spec]) -> OfficialLookup:
     bibtex = record.extra.get("bibtex", "")
     url = record.extra.get("openreview_url", "")
+    if not url and "openreview.net/" in record.fields.get("url", ""):
+        url = record.fields["url"]  # the entry's own forum page, where a person can get the BibTeX
     if not bibtex:
         found, error = openreview_search(title, VenueLibrary())
         if error:
@@ -579,6 +590,14 @@ def find_official(record: Record, download: bool = True, interim: bool = True,
 
     if provider == PMLR:
         steps = [lambda: _pmlr(title, family, year, download)]
+        page = record.fields.get("url", "")
+        if re.search(r"proceedings\.mlr\.press/v\d+/[^/]+\.html", page):
+            # The entry's own PMLR page: its year can be the publication year, not the edition's (CoLLAs).
+            # If the page fails, the volume listing decides.
+            def from_page() -> OfficialLookup:
+                found = _pmlr_paper(page, download)
+                return found if found.official else OfficialLookup()
+            steps.insert(0, from_page)
         if openreview_interim and interim:
             steps.append(lambda: _openreview(record, title, year, spec))
         return _first(*steps)

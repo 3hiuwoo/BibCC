@@ -270,6 +270,52 @@ def test_pmlr_volume_not_out_yet(web):
     assert next_step(found) == "wait"
 
 
+def test_pmlr_entry_page_wins_over_a_publication_year_volume(web):
+    # CoLLAs 2024 came out in 2025 as PMLR v274, so the entry's year names the wrong volume.
+    page = _fixture("pmlr_abad-rocamora24a.html").replace("v235", "v274")
+    web.routes["proceedings.mlr.press/v274/thede25a.html"] = (page, None)
+    web.routes["proceedings.mlr.press/"] = (_fixture("pmlr_index.html"), None)
+    record = _record(title="Revisiting Character-level Adversarial Attacks for Language Models", year="2025",
+                     booktitle="Proceedings of The 3rd Conference on Lifelong Learning Agents",
+                     url="https://proceedings.mlr.press/v274/thede25a.html")
+    found = find_official(record, interim=False)
+    assert found.official.provider == "PMLR"
+    assert found.official.url == "https://proceedings.mlr.press/v274/thede25a.html"
+    assert not any(c.endswith("proceedings.mlr.press/") for c in web.calls)
+
+
+def test_pmlr_entry_page_that_fails_falls_back_to_the_volume(web):
+    web.routes["proceedings.mlr.press/v235/abad-rocamora24a.html"] = (_fixture("pmlr_abad-rocamora24a.html"), None)
+    web.routes["proceedings.mlr.press/v235/"] = (_fixture("pmlr_v235.html"), None)
+    web.routes["proceedings.mlr.press/"] = (_fixture("pmlr_index.html"), None)
+    record = _record(title="Revisiting Character-level Adversarial Attacks for Language Models", year="2024",
+                     booktitle="ICML 2024", url="https://proceedings.mlr.press/v235/gone24a.html")
+    found = find_official(record, interim=False)
+    assert found.official.url == "https://proceedings.mlr.press/v235/abad-rocamora24a.html"
+    assert not found.error
+
+
+@pytest.mark.parametrize("years_ago,next_", [(0, "wait"), (1, "wait"), (10, "by hand")])
+def test_paper_missing_from_the_proceedings_waits_only_for_a_recent_year(web, years_ago, next_):
+    import datetime
+
+    year = str(datetime.date.today().year - years_ago)
+    web.routes[f"proceedings.neurips.cc/paper_files/paper/{year}"] = (_fixture("neurips_2024_listing.html"), None)
+    found = find_official(_record(title="A Paper the Listing Lacks", year=year,
+                                  booktitle="Advances in Neural Information Processing Systems"), interim=False)
+    assert found.official is None and next_step(found) == next_
+    assert found.manual_url.endswith(f"/paper/{year}")
+    assert ("yet" in found.reason) is (next_ == "wait")
+
+
+def test_openreview_not_found_points_to_the_entry_forum(web):
+    web.routes["api2.openreview.net"] = (json.dumps({"notes": []}), None)
+    url = "https://openreview.net/forum?id=YicbFdNTTy"
+    found = find_official(_record(title="An Image is Worth 16x16 Words", year="2021", booktitle="ICLR 2021", url=url))
+    assert found.official is None and "no accepted paper" in found.reason
+    assert found.manual_url == url and next_step(found) == "by hand"
+
+
 def test_acl_and_ijcai_dois(web):
     web.routes["aclanthology.org/2023.acl-long.1.bib"] = (_fixture("acl_2023.acl-long.1.bib"), None)
     web.routes["ijcai.org/proceedings/2025/bibtex/0001"] = (_fixture("ijcai_2025_0001.bib"), None)

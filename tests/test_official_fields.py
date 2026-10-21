@@ -430,6 +430,77 @@ def test_check_official_learns_the_volume_and_part_of_each_book(tmp_path: Path, 
     assert complete_entry(other, library).patch == {"venue": "Milan, Italy"}
 
 
+def test_check_official_learn_counts_schemas_and_book_fields_apart(tmp_path: Path, web, capsys):
+    bib = tmp_path / "refs.bib"
+    bib.write_text(_eccv_entry("A_Doe_ECCV2024", "978-3-031-72649-1_1", "15059", "XXVI"))
+    exports = tmp_path / "exports"
+    exports.mkdir()
+    (exports / "A_Doe_ECCV2024.bib").write_text(_eccv_export("A_Doe_ECCV2024"))
+    venues = tmp_path / "venues.yaml"
+    venues.write_text(f"proceedings:\n- name: {ECCV}\n  year: '2025'\n  fields: {{venue: 'Milan, Italy'}}\n")
+    main(["check", "official", str(bib), "--local", str(exports), "--offline", "--venues", str(venues), "--learn"])
+    out = capsys.readouterr().out
+    # One family schema (doi, pages) and the book's volume and part, not "3 venue schemas".
+    assert "Wrote 1 venue schemas and 2 book fields into" in out
+
+
+def _isbn_entry(key: str, chapter: str) -> str:
+    return (f"@inproceedings{{{key},\n  title = {{Paper {key}}},\n  author = {{Doe, Jane}},\n"
+            f"  booktitle = {{{ECCV}}},\n  year = {{2025}},\n  doi = {{10.1007/{chapter}}}\n}}\n\n")
+
+
+def _isbn_export(key: str, isbn: str) -> str:
+    return (f"@InProceedings{{{key},\n  title = {{Paper {key}}},\n  author = {{Doe, Jane}},\n"
+            f"  booktitle = {{{ECCV}}},\n  year = {{2025}},\n  isbn = {{{isbn}}}\n}}\n")
+
+
+@pytest.mark.parametrize("books,expected", [
+    # The record lists its books: the chapter's ISBN is one book's, not the edition's.
+    ("  books:\n    978-3-031-72649-1: {volume: '15059'}\n", False),
+    # A proceedings in one book (no books table): its ISBN is the edition's.
+    ("", True),
+])
+def test_check_official_proposes_no_book_isbn_for_a_proceedings_in_several_books(tmp_path: Path, web, books,
+                                                                                 expected):
+    bib = tmp_path / "refs.bib"
+    bib.write_text(_isbn_entry("A_Doe_ECCV2024", "978-3-031-72649-1_1"))
+    exports = tmp_path / "exports"
+    exports.mkdir()
+    (exports / "A_Doe_ECCV2024.bib").write_text(_isbn_export("A_Doe_ECCV2024", "978-3-031-72649-1"))
+    library = VenueLibrary.loads(f"proceedings:\n- name: {ECCV}\n  year: '2025'\n"
+                                 f"  fields: {{venue: 'Milan, Italy'}}\n{books}")
+    result = check_official_fields(str(bib), library, local=[exports], offline=True, log=lambda _: None)
+    assert any(r[2] == "isbn" and r[3] == "library_lacks" for r in result.venues) is expected
+
+
+def test_check_official_proposes_no_isbn_for_chapters_of_several_books(tmp_path: Path, web):
+    bib = tmp_path / "refs.bib"
+    bib.write_text(_isbn_entry("A_Doe_ECCV2024", "978-3-031-72649-1_1")
+                   + _isbn_entry("B_Doe_ECCV2024", "978-3-031-73000-0_2"))
+    exports = tmp_path / "exports"
+    exports.mkdir()
+    (exports / "A_Doe_ECCV2024.bib").write_text(_isbn_export("A_Doe_ECCV2024", "978-3-031-72649-1"))
+    (exports / "B_Doe_ECCV2024.bib").write_text(_isbn_export("B_Doe_ECCV2024", "978-3-031-73000-0"))
+    library = VenueLibrary.loads(f"proceedings:\n- name: {ECCV}\n  year: '2025'\n  fields: {{venue: 'Milan, Italy'}}\n")
+    result = check_official_fields(str(bib), library, local=[exports], offline=True, log=lambda _: None)
+    assert not [r for r in result.venues if r[2] == "isbn" and r[3] in ("library_lacks", "library_differs")]
+
+
+@pytest.mark.parametrize("ours,theirs,same", [
+    ("Huiping Zhuang and Yizhu Chen", "Zhuang, Huiping and Chen, Yizhu", True),
+    ("Gido M. van de Ven", "van de Ven, Gido M.", True),
+    ("Gido M. van de Ven", "Ven, Gido M. van de", False),
+    ("Nor Ashidi Mat Isa", "Mat Isa, Nor Ashidi", False),  # a different last name
+    ("Philip H.S. Torr", "Torr, Philip", False),
+    ("Huiping Zhuang and Yizhu Chen", "Chen, Yizhu and Zhuang, Huiping", False),  # the order counts
+])
+def test_names_in_either_bibtex_form_agree(ours, theirs, same):
+    from bibcc.checkers.official_fields import _same_value
+
+    assert _same_value("author", ours, theirs) is same
+    assert _same_value("editor", ours, theirs) is same
+
+
 def test_book_of_reads_the_isbn_of_a_chapter_doi():
     from bibcc.venues import book_of
 

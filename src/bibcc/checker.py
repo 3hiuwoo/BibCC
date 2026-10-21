@@ -536,7 +536,8 @@ The check reports four kinds of findings for each entry:
 
   upstream_only  The official BibTeX has a field that the entry lacks.
   differs        Both have the field, with different values (braces, case,
-                 whitespace, accents, and month spellings don't count).
+                 whitespace, accents, month spellings, and the form of a
+                 name, First Last or Last, First, don't count).
   local_only     The entry has a field that the official BibTeX lacks, other
                  than citation and the fields that the venue library supplies.
   type           The entry types differ.
@@ -764,8 +765,13 @@ def _learn_official(result: OfficialCheck, target: Optional[VenueLibrary], log: 
             "run with --learn.")
         return
     log(f"\n🧠 Writing the venue schemas and book fields into {target.path}...")
-    changed = apply_proposals(target, result.proposals, log) + apply_books(target, result.books, log)
-    _save_learned(target, changed, log, "venue schemas and book fields")
+    schemas = apply_proposals(target, result.proposals, log)
+    books = apply_books(target, result.books, log)
+    if schemas or books:
+        target.save()
+        log(f"✅ Wrote {schemas} venue schemas and {books} book fields into {target.path}.")
+    else:
+        log(f"ℹ️  No new venue schemas and book fields to write into {target.path}.")
 
 
 def _write_schema_records(args: argparse.Namespace, proposals: List[Proposal], label: str,

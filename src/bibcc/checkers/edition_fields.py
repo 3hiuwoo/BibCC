@@ -63,7 +63,7 @@ from bibcc.schemas import (
     propose,
     publisher_defaults,
 )
-from bibcc.venues import PROCEEDINGS, VenueLibrary, family_label, has_no_month, venue_kind
+from bibcc.venues import PROCEEDINGS, VenueLibrary, family_label, has_no_month, normalize_venue, venue_kind
 
 DEFAULT_IGNORED_FIELDS: Tuple[str, ...] = IGNORED_FIELDS
 
@@ -291,6 +291,7 @@ def check_edition_fields(
         apply_proposals(library, result.proposals, lambda _: None)
 
     unschematized: Dict[str, List[str]] = defaultdict(list)
+    labels: Dict[str, str] = {}  # normalized venue name -> its first spelling, as the library matches names
     defaults = publisher_defaults(library)
     for item in items:
         if not item.in_input:
@@ -298,6 +299,7 @@ def check_edition_fields(
         rows, label = _missing_rows(item, library, ignored)
         if rows is None:
             if str(item.entry.get("ENTRYTYPE", "")).lower() in VENUE_TYPES:
+                label = labels.setdefault(normalize_venue(label), label)
                 unschematized[label].append(item.entry["ID"])
                 guessed = _default_rows(item, library, ignored, defaults)
                 result.fields.extend(guessed)
