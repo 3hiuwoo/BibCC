@@ -18,4 +18,3 @@ dist/
 .bibcc/
 .vscode/
 .ruff_cache/
-*.qoder.site

@@ -56,7 +56,7 @@ To keep a user file somewhere else, for example in a synced directory, set `BIBC
 
 The `web/` directory holds BibCC Workbench, a static page that runs the offline commands in your browser through [Pyodide](https://pyodide.org). You paste a `.bib` file, run `format`, `complete`, or a `check` on it, and then copy or download the result. The file stays in the browser tab. To use the venue library, terms, and config of the `miaa` profile, click **Load the miaa profile**.
 
-To try it on your computer, run the following commands from a checkout:
+The latest release runs at [3hiuwoo.github.io/BibCC](https://3hiuwoo.github.io/BibCC/). To try it on your computer, run the following commands from a checkout:
 
 ```bash
 uv run python scripts/build_web_bundle.py   # refresh web/vendor/bibcc-bundle.zip and web/data/

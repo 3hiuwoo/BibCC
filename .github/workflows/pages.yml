@@ -1,0 +1,51 @@
+name: Pages
+
+# Publish BibCC Workbench (web/) to GitHub Pages from main, after CI passes there.
+# main holds only releases, so the site always shows the latest release.
+# One-time setup: Settings > Pages > Source: GitHub Actions.
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # A manual run publishes the current main; a CI run publishes the commit it tested.
+          ref: ${{ github.event.workflow_run.head_sha || 'main' }}
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync --locked
+      # Rebuild the bundle so the page runs exactly this commit's code, even if the
+      # committed web/vendor/bibcc-bundle.zip is stale.
+      - run: uv run python scripts/build_web_bundle.py
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: web/
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
