@@ -150,11 +150,13 @@ async function runArgv(argv) {
       printDiffInto(el.console, result.diff);
     }
     printExit(result.code, result.changed);
+    stampRun(1);
     applyResult(result);
     return result;
   } catch (error) {
     printLine(String(error.message || error), "err");
     printExit(-1, false);
+    stampRun(1);
     return null;
   } finally {
     setBusy(false);
@@ -211,11 +213,15 @@ async function refreshTotalDiff() {
   renderResult();
 }
 
+function stampRun(count) {
+  el.consoleMeta.textContent = `${count} command${count === 1 ? "" : "s"} · ${new Date().toLocaleTimeString()}`;
+}
+
 async function runSequence(argvLists) {
   if (state.busy) return;
   el.console.textContent = "";
   for (const argv of argvLists) await runArgv(argv);
-  el.consoleMeta.textContent = `${argvLists.length} commands · ${new Date().toLocaleTimeString()}`;
+  stampRun(argvLists.length);
 }
 
 // ---------------------------------------------------------------- options UI
