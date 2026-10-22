@@ -2,11 +2,11 @@
 
 This file lists notable changes to BibCC. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/). The version number lives only in [`src/bibcc/__init__.py`](src/bibcc/__init__.py).
 
-## [0.9.0] - Unreleased
+## [0.9.0] - 2026-10-22
 
 ### Added
 
-- **BibCC Workbench, a browser version**: The static page in `web/` runs `format`, `complete`, and the offline checks on a `.bib` file that you paste, through Pyodide, and you copy or download the result. It shows each command's output, a diff from what you pasted, and the reports that BibCC writes. It can load the `miaa` profile, and when a command changes the venue library, terms, or config, the page shows the new file. Commands that go online point you to the terminal. `scripts/build_web_bundle.py` builds the Python bundle that the page loads.
+- **BibCC Workbench, a browser version**: The static page in `web/` runs `format`, `complete`, and the offline checks on a `.bib` file that you paste, through Pyodide, and you copy or download the result. It shows each command's output, a diff from what you pasted, and the reports that BibCC writes. It can load the `miaa` profile, and when a command changes the venue library, terms, or config, the page shows the new file. Commands that go online point you to the terminal. `scripts/build_web_bundle.py` builds the Python bundle that the page loads. The latest release runs at [3hiuwoo.github.io/BibCC](https://3hiuwoo.github.io/BibCC/), which the new Pages workflow publishes from `main`.
 
 ### Changed
 
@@ -245,7 +245,7 @@ This is the first packaged version. BibCC becomes an installable `bibcc` command
 
 Before version 0.2.0, BibCC was a set of unversioned scripts that you ran with `python bibcc.py`: `check` (missing fields, title case, term protection, citation keys, and template fields), `complete` with Python templates, `librarian`, `scholar`, and `compose`.
 
-[0.9.0]: https://github.com/3hiuwoo/BibCC/compare/v0.8.0...dev
+[0.9.0]: https://github.com/3hiuwoo/BibCC/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/3hiuwoo/BibCC/compare/v0.7.1...v0.8.0
 [0.7.1]: https://github.com/3hiuwoo/BibCC/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/3hiuwoo/BibCC/compare/v0.6.0...v0.7.0
