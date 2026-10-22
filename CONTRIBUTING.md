@@ -34,6 +34,7 @@ Tests never use your own venue library: `tests/conftest.py` points the user libr
 - **Provider table**: Where each conference's official BibTeX comes from (the provider, the interim source, DOI prefixes, and blocked publishers) lives in `src/bibcc/data/families.yaml`, read through `bibcc.families.registry(library)`, which also applies the routing keys of the library's family records. To support a new conference on a known provider, add a row to the table, not a branch in `official.py`; `official.py` holds only the code for each provider. The table holds no venue fields, so it isn't a venue library.
 - **Network access**: Go through `bibcc.sources.fetch_url` or `fetch_json`, so that tests can replace one function. Tests never use the network. Canned API responses live in `tests/fixtures/sources/`. A paper's own official BibTeX export goes through the disk cache (`bibcc.cache`, through `official._get(url, keep=...)`); never cache listing pages, errors, or bot-check pages there. `tests/conftest.py` gives each test its own cache directory.
 - **Tests**: Add tests under `tests/` for new behavior.
+- **Web workbench**: `web/commands.js` lists the commands and options that the browser page offers. When you add, rename, or remove an option of one of those commands, update the file; `tests/test_web.py` fails on a flag that the CLI doesn't have. Before you commit a change to `src/bibcc/`, run `uv run python scripts/build_web_bundle.py` so that `web/vendor/bibcc-bundle.zip` and the profiles in `web/data/` match it.
 
 ## Branches
 

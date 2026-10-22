@@ -4,6 +4,10 @@ This file lists notable changes to BibCC. The format follows [Keep a Changelog](
 
 ## [0.9.0] - Unreleased
 
+### Added
+
+- **BibCC Workbench, a browser version**: The static page in `web/` runs `format`, `complete`, and the offline checks on a `.bib` file that you paste, through Pyodide, and you copy or download the result. It shows each command's output, a diff from what you pasted, and the reports that BibCC writes. It can load the `miaa` profile, and when a command changes the venue library, terms, or config, the page shows the new file. Commands that go online point you to the terminal. `scripts/build_web_bundle.py` builds the Python bundle that the page loads.
+
 ### Changed
 
 - **The `miaa` venue library gains NeurIPS 2019 and 2020 and the books of its LNCS proceedings**: It now has 79 proceedings, with records for NeurIPS 2019 and 2020 and their schemas, and the volume and part of 41 books in the `books` tables of ECCV 2016 to 2026, MICCAI 2024, ICIC 2024, and ICANN 2021. Those three records gain their `series`, ICLR 2024 and 2026 gain their `editor`, and the `publisher` of ACL and IJCAI moves into their family records.

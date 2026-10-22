@@ -52,6 +52,19 @@ To keep a user file somewhere else, for example in a synced directory, set `BIBC
 
 `add` and `upgrade` locate papers through CrossRef, arXiv, OpenReview, and Semantic Scholar, and then download official BibTeX from publisher and proceedings sites: IEEE Xplore, Springer, PMLR, NeurIPS, ICLR, ACL Anthology, IJCAI, OpenReview, and arXiv. `scholar titles` and `complete --online` also go online. The other commands work offline.
 
+### Run BibCC in your browser <a id="web"></a>
+
+The `web/` directory holds BibCC Workbench, a static page that runs the offline commands in your browser through [Pyodide](https://pyodide.org). You paste a `.bib` file, run `format`, `complete`, or a `check` on it, and then copy or download the result. The file stays in the browser tab. To use the venue library, terms, and config of the `miaa` profile, click **Load the miaa profile**.
+
+To try it on your computer, run the following commands from a checkout:
+
+```bash
+uv run python scripts/build_web_bundle.py   # refresh web/vendor/bibcc-bundle.zip and web/data/
+python3 -m http.server -d web 8000          # then open http://localhost:8000
+```
+
+The page loads Pyodide from jsDelivr, so the first visit needs network access. The commands that go online, and `librarian` and `compose`, which read a directory, only work in the terminal.
+
 ## Commands
 
 BibCC provides the following commands through a single entry point, `bibcc`:
@@ -1197,6 +1210,8 @@ The code lives in `src/bibcc/`. Each command is one module, registered in `cli.p
 - `missing_venues.py`: the fill-in YAML file.
 - `crosscheck.py`: the CrossRef check of `complete --online`.
 - `logging_utils.py`: reports and logs.
+
+The browser version lives in `web/`, and `scripts/build_web_bundle.py` packs `src/bibcc/` and bibtexparser into `web/vendor/bibcc-bundle.zip` for it. For details, see [Run BibCC in your browser](#web).
 
 For code conventions, branches, versioning, and releases, see [`CONTRIBUTING.md`](CONTRIBUTING.md). For the changes in each version, see [`CHANGELOG.md`](CHANGELOG.md). BibCC is released under the [MIT License](LICENSE).
 

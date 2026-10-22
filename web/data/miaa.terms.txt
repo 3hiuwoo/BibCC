@@ -1,0 +1,43 @@
+# MIAA lab protected terms for 'bibcc check quote'.
+#
+# To use them, run 'bibcc terms import miaa' (or add --scope project), or
+# 'bibcc config profile miaa' to import the lab's config and venues too.
+# One term per line, with the case that titles use. Blank lines and lines
+# that start with # are ignored. The terms add to BibCC's built-in
+# vocabulary of names. Protect a term only if a BibTeX style would
+# otherwise lowercase it: acronyms, mixed-case names, proper nouns, and
+# method names. List a hyphenated method name braced whole, such as
+# {CODA-Prompt}, as the whole compound, or 'check quote' reports it as
+# over-braced and '--apply' splits it.
+
+# Acronyms and mixed-case domain terms
+CLIP
+BERT
+GPT
+LLM
+VLM
+VLA
+3D
+2D
+ImageNet
+ResNet
+ViT
+LoRA
+arXiv
+
+# Publisher and venue tokens in booktitles and journal names
+IEEE
+CVF
+CVPR
+ICCV
+ECCV
+WACV
+AAAI
+NeurIPS
+ICLR
+ICML
+
+# Method and system names that the lab's surveys often cite
+# TODO(xiaoyu): list the method names whose casing must survive title-casing, one per
+#   line. Candidates: CODA-Prompt, HiDe-PET, PASS++, GKEAL, RanPAC, ACIL, DS-AL,
+#   DualPrompt, L2P, REP, OVOR

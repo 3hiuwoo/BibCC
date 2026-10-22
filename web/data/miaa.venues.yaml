@@ -1,0 +1,1276 @@
+# BibCC venue library.
+#
+# journals:    matched by name, any alias, or ISSN (year-agnostic).
+# proceedings: matched by name or alias AND the entry's publication year.
+#              name is the published proceedings' booktitle; interim maps a
+#              source (cvf, openreview) to the booktitle it uses before or
+#              instead of the proceedings; books maps the ISBN of each book
+#              (an LNCS volume, as in its chapters' DOIs) to its volume and part.
+# families:    a conference across its editions: fields every edition shares,
+#              and entry_fields, the fields the official BibTeX of each paper has.
+#
+# This file is rewritten by `bibcc complete --update-venues`,
+# `bibcc venues import`, `bibcc check venues --apply`, and `--learn` of
+# `bibcc check official` and `bibcc check editions`; comments other than this
+# header are not preserved.
+
+journals:
+- name: ACM Transactions on Knowledge Discovery from Data
+  fields:
+    issn: 1556-472X
+    address: New York, NY, USA
+    publisher: Association for Computing Machinery
+- name: ACM Transactions on Multimedia Computing, Communications, and Applications
+  fields:
+    issn: 1551-6857
+    address: New York, NY, USA
+    publisher: Association for Computing Machinery
+- name: Applied Soft Computing
+  fields:
+    publisher: Elsevier
+    issn: 1568-4946
+- name: Artificial Intelligence Review
+  fields:
+    publisher: Springer
+    issn: 1573-7462
+  entry_fields:
+  - abstract
+  - day
+  - doi
+  - month
+  - number
+  - pages
+  - url
+  - volume
+  learned_from: official BibTeX of 1 entry (2024), 2026-10-15
+- name: Computer Vision and Image Understanding
+  fields:
+    publisher: Elsevier
+    issn: 1077-3142
+- name: Expert Systems with Applications
+  fields:
+    publisher: Elsevier
+    issn: 0957-4174
+  entry_fields:
+  - doi
+  - month
+  - pages
+  - url
+  - volume
+  learned_from: peer comparison of 6 entries (2024, 2025, 2026), 2026-10-15
+- name: IEEE Access
+  fields:
+    issn: 2169-3536
+    publisher: IEEE
+  entry_fields:
+  - doi
+  - keywords
+  - pages
+  - volume
+  learned_from: official BibTeX of 1 entry (2025), 2026-10-15
+- name: IEEE Internet of Things Journal
+  fields:
+    issn: 2327-4662
+    publisher: IEEE
+  entry_fields:
+  - doi
+  - keywords
+  - number
+  - pages
+  - volume
+  learned_from: official BibTeX of 1 entry (2025), 2026-10-15
+- name: IEEE Robotics and Automation Letters
+  fields:
+    publisher: IEEE
+    issn: 2377-3766
+  entry_fields:
+  - doi
+  - keywords
+  - number
+  - pages
+  - volume
+  learned_from: official BibTeX of 1 entry (2026), 2026-10-15
+- name: IEEE Transactions on Circuits and Systems for Video Technology
+  fields:
+    issn: 1558-2205
+    publisher: IEEE
+  entry_fields:
+  - doi
+  - keywords
+  - number
+  - pages
+  - volume
+  learned_from: official BibTeX of 4 entries (2025), 2026-10-15
+- name: IEEE Transactions on Cognitive Communications and Networking
+  fields:
+    issn: 2332-7731
+    publisher: IEEE
+  entry_fields:
+  - doi
+  - keywords
+  - pages
+  - volume
+  learned_from: official BibTeX of 1 entry (2026), 2026-10-15
+- name: IEEE Transactions on Cybernetics
+  fields:
+    issn: 2168-2267
+    publisher: IEEE
+  entry_fields:
+  - doi
+  - keywords
+  - number
+  - pages
+  - volume
+  learned_from: official BibTeX of 1 entry (2025), 2026-10-15
+- name: IEEE Transactions on Geoscience and Remote Sensing
+  fields:
+    issn: 1558-0644
+    publisher: IEEE
+  entry_fields:
+  - doi
+  - keywords
+  - pages
+  - volume
+  learned_from: official BibTeX of 1 entry (2026), 2026-10-15
+- name: IEEE Transactions on Image Processing
+  fields:
+    issn: 1941-0042
+    publisher: IEEE
+  entry_fields:
+  - doi
+  - keywords
+  - pages
+  - volume
+  learned_from: official BibTeX of 2 entries (2024), 2026-10-15
+- name: IEEE Transactions on Instrumentation and Measurement
+  fields:
+    issn: 1557-9662
+    publisher: IEEE
+  entry_fields:
+  - doi
+  - keywords
+  - pages
+  - volume
+  learned_from: official BibTeX of 1 entry (2025), 2026-10-15
+- name: IEEE Transactions on Knowledge and Data Engineering
+  fields:
+    publisher: IEEE
+    issn: 1558-2191
+  entry_fields:
+  - doi
+  - keywords
+  - number
+  - pages
+  - volume
+  learned_from: official BibTeX of 1 entry (2025), 2026-10-15
+- name: IEEE Transactions on Multimedia
+  fields:
+    issn: 1941-0077
+    publisher: IEEE
+  entry_fields:
+  - doi
+  - keywords
+  - pages
+  - volume
+  learned_from: official BibTeX of 1 entry (2025), 2026-10-15
+- name: IEEE Transactions on Neural Networks and Learning Systems
+  fields:
+    issn: 2162-2388
+    publisher: IEEE
+  entry_fields:
+  - doi
+  - keywords
+  - number
+  - pages
+  - volume
+  learned_from: official BibTeX of 1 entry (2025), 2026-10-15
+- name: IEEE Transactions on Pattern Analysis and Machine Intelligence
+  fields:
+    issn: 1939-3539
+    publisher: IEEE
+  entry_fields:
+  - doi
+  - keywords
+  - number
+  - pages
+  - volume
+  learned_from: official BibTeX of 2 entries (2013, 2023), 2026-10-15
+- name: IEEE Transactions on Vehicular Technology
+  fields:
+    issn: 1939-9359
+    publisher: IEEE
+  entry_fields:
+  - doi
+  - keywords
+  - number
+  - pages
+  - volume
+  learned_from: official BibTeX of 2 entries (2025), 2026-10-15
+- name: Image and Vision Computing
+  fields:
+    publisher: Elsevier
+    issn: 0262-8856
+- name: Information Processing \& Management
+  fields:
+    publisher: Elsevier
+    issn: 0306-4573
+- name: Information Sciences
+  fields:
+    publisher: Elsevier
+    issn: 0020-0255
+- name: International Journal of Computer Vision
+  fields:
+    issn: 1573-1405
+  entry_fields:
+  - abstract
+  - day
+  - doi
+  - month
+  - number
+  - pages
+  - url
+  - volume
+  learned_from: official BibTeX of 1 entry (2026), 2026-10-15
+- name: International Journal of Fuzzy Systems
+  fields:
+    issn: 2199-3211
+- name: Knowledge-Based Systems
+  fields:
+    publisher: Elsevier
+    issn: 0950-7051
+- name: Nature Communications
+  fields:
+    issn: 2041-1723
+  entry_fields:
+  - abstract
+  - day
+  - doi
+  - month
+  - number
+  - pages
+  - url
+  - volume
+  learned_from: official BibTeX of 1 entry (2020), 2026-10-15
+- name: Nature Machine Intelligence
+  fields:
+    publisher: Springer Nature
+    issn: 2522-5839
+  entry_fields:
+  - abstract
+  - day
+  - doi
+  - month
+  - number
+  - pages
+  - url
+  - volume
+  learned_from: official BibTeX of 1 entry (2022), 2026-10-15
+- name: Neural Networks
+  fields:
+    publisher: Elsevier
+    issn: 0893-6080
+  entry_fields:
+  - doi
+  - month
+  - pages
+  - url
+  - volume
+  learned_from: peer comparison of 4 entries (2024, 2025, 2026), 2026-10-15
+- name: Neurocomputing
+  fields:
+    publisher: Elsevier
+    issn: 0925-2312
+  entry_fields:
+  - doi
+  - month
+  - pages
+  - url
+  - volume
+  learned_from: peer comparison of 7 entries (2021, 2024, 2025, 2026), 2026-10-15
+- name: Pattern Recognition
+  fields:
+    publisher: Elsevier
+    issn: 0031-3203
+  entry_fields:
+  - doi
+  - month
+  - pages
+  - url
+  - volume
+  learned_from: peer comparison of 8 entries (2023, 2024, 2025, 2026), 2026-10-15
+- name: Proceedings of the National Academy of Sciences
+  fields:
+    issn: 1091-6490
+    publisher: National Academy of Sciences
+- name: Transactions on Machine Learning Research
+  fields:
+    month: none
+    issn: 2835-8856
+families:
+- name: Advanced Intelligent Computing Technology and Applications
+  entry_fields:
+  - abstract
+  - doi
+  - pages
+  learned_from: official BibTeX of 1 entry (2024), 2026-10-15
+- name: Advances in Neural Information Processing Systems
+  acronym: NeurIPS
+  entry_fields:
+  - doi
+  - pages
+  - url
+  - volume
+  learned_from: official BibTeX of 5 entries (2024), 2026-10-15
+- name: Artificial Neural Networks and Machine Learning -- ICANN
+  entry_fields:
+  - abstract
+  - doi
+  - pages
+  learned_from: official BibTeX of 1 entry (2021), 2026-10-15
+- name: Computer Vision -- ECCV
+  acronym: ECCV
+  fields:
+    address: Cham
+    issn: 1611-3349
+    series: Lecture Notes in Computer Science
+  entry_fields:
+  - abstract
+  - doi
+  - pages
+  learned_from: official BibTeX of 20 entries (2026), 2026-10-15
+- name: 'Findings of the Association for Computational Linguistics: ACL'
+  acronym: Findings
+  entry_fields:
+  - doi
+  - pages
+  - url
+  learned_from: official BibTeX of 1 entry (2025), 2026-10-15
+- name: IEEE International Conference on Image Processing (ICIP)
+  entry_fields:
+  - doi
+  - keywords
+  - pages
+  learned_from: official BibTeX of 1 entry (2022), 2026-10-15
+- name: IEEE International Conference on Systems, Man, and Cybernetics (SMC)
+  entry_fields:
+  - doi
+  - keywords
+  - pages
+  learned_from: official BibTeX of 1 entry (2023), 2026-10-15
+- name: IEEE/CVF Conference on Computer Vision and Pattern Recognition
+  acronym: CVPR
+  fields:
+    issn: 2575-7075
+    publisher: IEEE
+  entry_fields:
+  - doi
+  - keywords
+  - pages
+  learned_from: official BibTeX of 2 entries (2025), 2026-10-15
+- name: IEEE/CVF Conference on Computer Vision and Pattern Recognition Workshops
+  acronym: CVPRW
+  fields:
+    issn: 2160-7516
+    publisher: IEEE
+  entry_fields:
+  - doi
+  - keywords
+  - pages
+  learned_from: official BibTeX of 1 entry (2021), 2026-10-15
+- name: IEEE/CVF International Conference on Computer Vision
+  acronym: ICCV
+  fields:
+    issn: 2380-7504
+    publisher: IEEE
+  entry_fields:
+  - doi
+  - keywords
+  - pages
+  learned_from: official BibTeX of 1 entry (2025), 2026-10-15
+- name: IEEE/CVF International Conference on Computer Vision Workshops (ICCVW)
+  acronym: ICCVW
+  entry_fields:
+  - doi
+  - keywords
+  - pages
+  learned_from: official BibTeX of 1 entry (2023), 2026-10-15
+- name: IEEE/CVF Winter Conference on Applications of Computer Vision
+  acronym: WACV
+  fields:
+    publisher: IEEE
+  entry_fields:
+  - doi
+  - keywords
+  - pages
+  learned_from: official BibTeX of 1 entry (2024), 2026-10-15
+- name: International Conference on Learning Representations
+  acronym: ICLR
+  entry_fields:
+  - pages
+  - url
+  - volume
+  learned_from: official BibTeX of 21 entries (2026), 2026-10-15
+- name: International Joint Conference on Neural Networks (IJCNN)
+  entry_fields:
+  - doi
+  - keywords
+  - pages
+  learned_from: official BibTeX of 1 entry (2022), 2026-10-15
+- name: Interspeech
+  entry_fields:
+  - doi
+  - pages
+  learned_from: official BibTeX of 1 entry (2025), 2026-10-15
+- name: Medical Image Computing and Computer Assisted Intervention -- MICCAI
+  entry_fields:
+  - abstract
+  - doi
+  - pages
+  learned_from: official BibTeX of 1 entry (2024), 2026-10-15
+- name: Proceedings of the AAAI Conference on Artificial Intelligence
+  acronym: AAAI
+  fields:
+    issn: 2374-3468
+    publisher: AAAI Press
+  entry_fields:
+  - doi
+  - number
+  - pages
+  - url
+  - volume
+  learned_from: peer comparison of 22 entries (2025), 2026-10-15
+- name: Proceedings of the ACM International Conference on Multimedia
+  fields:
+    address: New York, NY, USA
+    publisher: Association for Computing Machinery
+  entry_fields:
+  - doi
+  - numpages
+  - pages
+  - url
+  learned_from: peer comparison of 11 entries (2025), 2026-10-15
+- name: 'Proceedings of the Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers)'
+  acronym: ACL
+  fields:
+    publisher: Association for Computational Linguistics
+  entry_fields:
+  - doi
+  - pages
+  - url
+  learned_from: official BibTeX of 1 entry (2024), 2026-10-15
+- name: Proceedings of The Conference on Lifelong Learning Agents
+  acronym: CoLLAs
+  fields:
+    publisher: PMLR
+    series: Proceedings of Machine Learning Research
+  entry_fields:
+  - abstract
+  - day
+  - pages
+  - pdf
+  - url
+  - volume
+  learned_from: official BibTeX of 1 entry (2023), 2026-10-15
+- name: Proceedings of the International Conference on Machine Learning
+  acronym: ICML
+  fields:
+    publisher: PMLR
+    series: Proceedings of Machine Learning Research
+  entry_fields:
+  - abstract
+  - pages
+  - pdf
+  - url
+  - volume
+  learned_from: official BibTeX of 23 entries (2026), 2026-10-15
+- name: Proceedings of the International Joint Conference on Artificial Intelligence
+  acronym: IJCAI
+  fields:
+    publisher: International Joint Conferences on Artificial Intelligence Organization
+  entry_fields:
+  - doi
+  - note
+  - pages
+  - url
+  learned_from: official BibTeX of 1 entry (2024), 2026-10-15
+proceedings:
+- name: 2026 IEEE/CVF Winter Conference on Applications of Computer Vision (WACV)
+  year: '2026'
+  interim:
+    cvf: Proceedings of the IEEE/CVF Winter Conference on Applications of Computer Vision (WACV)
+  fields:
+    venue: Tucson, AZ, USA
+    month: March
+- name: Computer Vision -- ECCV 2026
+  year: '2026'
+  fields:
+    venue: Malmö, Sweden
+    publisher: Springer Nature Switzerland
+    month: September
+    issn: 1611-3349
+    editor: Favaro, Paolo and Kukelova, Zuzana and Maki, Atsuto and Rohrbach, Anna and Schindler, Konrad and Tombari, Federico
+    series: Lecture Notes in Computer Science
+    address: Cham
+  books:
+    978-3-032-36987-1:
+      part: IV
+      volume: '17004'
+    978-3-032-37013-6:
+      part: LXX
+      volume: '17070'
+    978-3-032-37023-5:
+      part: LXIX
+      volume: '17069'
+    978-3-032-37026-6:
+      part: VIII
+      volume: '17008'
+    978-3-032-37029-7:
+      part: LXXIV
+      volume: '17074'
+    978-3-032-37041-9:
+      part: LXXVII
+      volume: '17077'
+    978-3-032-37092-1:
+      part: LX
+      volume: '17060'
+    978-3-032-37138-6:
+      part: LXXIII
+      volume: '17073'
+    978-3-032-37152-2:
+      part: LXVIII
+      volume: '17068'
+    978-3-032-37196-6:
+      part: LXIV
+      volume: '17064'
+    978-3-032-37235-2:
+      part: LII
+      volume: '17052'
+    978-3-032-37258-1:
+      part: LIV
+      volume: '17054'
+    978-3-032-37362-5:
+      part: XLIX
+      volume: '17049'
+    978-3-032-37450-9:
+      part: XXXIV
+      volume: '17034'
+    978-3-032-37461-5:
+      part: XXV
+      volume: '17025'
+    978-3-032-37574-2:
+      part: XXI
+      volume: '17021'
+    978-3-032-37577-3:
+      part: XLIV
+      volume: '17044'
+    978-3-032-37627-5:
+      part: XXIX
+      volume: '17029'
+- name: International Conference on Learning Representations
+  year: '2026'
+  interim:
+    openreview: The Fourteenth International Conference on Learning Representations
+  fields:
+    month: April
+    venue: Rio de Janeiro, Brazil
+    editor: C. Vondrick and B. Hariharan and C. Raffel and L. Pinto and D. Yang and A. Faust
+- name: Proceedings of the 43rd International Conference on Machine Learning
+  year: '2026'
+  interim:
+    openreview: Forty-third International Conference on Machine Learning
+  fields:
+    editor: Zhang, Tong and Dudik, Miroslav and Jaggi, Martin and Agarwal, Alekh and Li, Sharon and Schuurmans, Dale and Zhu, Jerry and Berkenkamp, Felix and Dong, Hanze and Bietti, Alberto
+    month: July
+    day: 06--11
+    venue: Seoul, South Korea
+- name: Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)
+  year: '2026'
+  fields:
+    month: June
+    venue: Denver, CO, USA
+- name: 2025 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)
+  year: '2025'
+  interim:
+    cvf:
+    - Proceedings of the Computer Vision and Pattern Recognition Conference (CVPR)
+    - Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)
+  fields:
+    venue: Nashville, TN, USA
+    isbn: 979-8-3315-4364-8
+    month: June
+- name: 2025 IEEE/CVF International Conference on Computer Vision (ICCV)
+  year: '2025'
+  interim:
+    cvf: Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV)
+  fields:
+    venue: Honolulu, HI, USA
+    month: October
+    isbn: 979-8-3315-8775-8
+- name: 2025 IEEE/CVF Winter Conference on Applications of Computer Vision (WACV)
+  year: '2025'
+  interim:
+    cvf: Proceedings of the Winter Conference on Applications of Computer Vision (WACV)
+  fields:
+    venue: Tucson, AZ, USA
+    issn: 2642-9381
+    isbn: 979-8-3315-1083-1
+    month: none
+- name: Advances in Neural Information Processing Systems
+  year: '2025'
+  interim:
+    openreview: The Thirty-ninth Annual Conference on Neural Information Processing Systems
+  fields:
+    venue: San Diego, CA, USA; Mexico City, Mexico
+    publisher: Curran Associates, Inc.
+    month: December
+    editor: D. Belgrave and C. Zhang and H. Lin and R. Pascanu and P. Koniusz and M. Ghassemi and N. Chen
+- name: Computer Vision -- ECCV 2024
+  year: '2025'
+  fields:
+    month: none
+    venue: Milan, Italy
+    editor: Leonardis, Ale{\v{s}} and Ricci, Elisa and Roth, Stefan and Russakovsky, Olga and Sattler, Torsten and Varol, G{\"u}l
+    publisher: Springer Nature Switzerland
+  books:
+    978-3-031-72624-8:
+      part: XIII
+      volume: '15071'
+    978-3-031-72667-5:
+      part: VII
+      volume: '15065'
+    978-3-031-72764-1:
+      part: XXXVI
+      volume: '15094'
+    978-3-031-72943-0:
+      part: LII
+      volume: '15110'
+    978-3-031-72949-2:
+      part: LIV
+      volume: '15112'
+    978-3-031-72967-6:
+      part: XLIX
+      volume: '15107'
+    978-3-031-72970-6:
+      part: XLVII
+      volume: '15105'
+    978-3-031-73004-7:
+      part: LXXXI
+      volume: '15139'
+    978-3-031-73013-9:
+      part: LXXXV
+      volume: '15143'
+    978-3-031-73021-4:
+      part: LXXXVII
+      volume: '15145'
+    978-3-031-73030-6:
+      part: LXI
+      volume: '15119'
+    978-3-031-73390-1:
+      part: XXVIII
+      volume: '15086'
+    978-3-031-73650-6:
+      part: LXV
+      volume: '15123'
+- name: 'Findings of the Association for Computational Linguistics: ACL 2025'
+  year: '2025'
+  fields:
+    venue: Vienna, Austria
+    publisher: Association for Computational Linguistics
+    month: July
+    isbn: 979-8-89176-256-5
+    editor: Che, Wanxiang and Nabende, Joyce and Shutova, Ekaterina and Pilehvar, Mohammad Taher
+- name: International Conference on Learning Representations
+  year: '2025'
+  interim:
+    openreview: The Thirteenth International Conference on Learning Representations
+  fields:
+    month: April
+    venue: Singapore
+- name: Interspeech 2025
+  year: '2025'
+  fields:
+    month: August
+    venue: Rotterdam, The Netherlands
+    issn: 2958-1796
+- name: Proceedings of the 33rd ACM International Conference on Multimedia
+  year: '2025'
+  fields:
+    isbn: '9798400720352'
+    series: MM '25
+    venue: Dublin, Ireland
+    month: October
+- name: Proceedings of The 3rd Conference on Lifelong Learning Agents
+  year: '2025'
+  fields:
+    venue: Pisa, Italy
+    editor: Lomonaco, Vincenzo and Melacci, Stefano and Tuytelaars, Tinne and Chandar, Sarath and Pascanu, Razvan
+    month: none
+- name: Proceedings of the 42nd International Conference on Machine Learning
+  year: '2025'
+  interim:
+    openreview: Forty-second International Conference on Machine Learning
+  fields:
+    venue: Vancouver, BC, Canada
+    editor: Singh, Aarti and Fazel, Maryam and Hsu, Daniel and Lacoste-Julien, Simon and Berkenkamp, Felix and Maharaj, Tegan and Wagstaff, Kiri and Zhu, Jerry
+    month: July
+    day: 13--19
+- name: Proceedings of the AAAI Conference on Artificial Intelligence
+  year: '2025'
+  fields:
+    isbn: 978-1-57735-897-8
+    venue: Philadelphia, Pennsylvania, USA
+    address: Washington, DC, USA
+    month: April
+- name: Proceedings of the ACM on Web Conference 2025
+  year: '2025'
+  fields:
+    month: none
+    venue: Sydney, NSW, Australia
+    publisher: Association for Computing Machinery
+    isbn: '9798400712746'
+    series: WWW '25
+    address: New York, NY, USA
+- name: Proceedings of the Eighteenth ACM International Conference on Web Search and Data Mining
+  year: '2025'
+  fields:
+    isbn: 979-8-4007-1329-3
+    series: WSDM '25
+    address: New York, NY, USA
+    publisher: Association for Computing Machinery
+    venue: Hannover, Germany
+    month: March
+- name: Proceedings of the Thirty-Fourth International Joint Conference on Artificial Intelligence, {IJCAI-25}
+  year: '2025'
+  fields:
+    venue: Montreal, Canada
+    editor: James Kwok
+    isbn: 978-1-956792-06-5
+    month: August
+- name: 2024 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)
+  year: '2024'
+  interim:
+    cvf: Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)
+  fields:
+    venue: Seattle, WA, USA
+    isbn: 979-8-3503-5300-6
+    month: June
+- name: 2024 IEEE/CVF Winter Conference on Applications of Computer Vision (WACV)
+  year: '2024'
+  interim:
+    cvf: Proceedings of the IEEE/CVF Winter Conference on Applications of Computer Vision (WACV)
+  fields:
+    venue: Waikoloa, HI, USA
+    issn: 2642-9381
+    isbn: 979-8-3503-1892-0
+    month: January
+- name: Advanced Intelligent Computing Technology and Applications
+  year: '2024'
+  fields:
+    month: August
+    venue: Tianjin, China
+    address: Singapore
+    editor: Huang, De-Shuang and Zhang, Xiankun and Zhang, Chuanlei
+    isbn: 978-981-97-5675-9
+    publisher: Springer Nature Singapore
+    series: Lecture Notes in Computer Science
+  books:
+    978-981-97-5675-9:
+      part: V
+      volume: '14879'
+- name: Advances in Neural Information Processing Systems
+  year: '2024'
+  interim:
+    openreview: The Thirty-eighth Annual Conference on Neural Information Processing Systems
+  fields:
+    venue: Vancouver, BC, Canada
+    editor: A. Globerson and L. Mackey and D. Belgrave and A. Fan and U. Paquet and J. Tomczak and C. Zhang
+    isbn: 979-8-3313-1438-5
+    address: Red Hook, NY, USA
+    publisher: Curran Associates, Inc.
+    month: December
+- name: International Conference on Learning Representations
+  year: '2024'
+  interim:
+    openreview: The Twelfth International Conference on Learning Representations
+  fields:
+    month: May
+    venue: Vienna, Austria
+    editor: B. Kim and Y. Yue and S. Chaudhuri and K. Fragkiadaki and M. Khan and Y. Sun
+- name: Medical Image Computing and Computer Assisted Intervention -- MICCAI 2024
+  year: '2024'
+  fields:
+    month: October
+    venue: Marrakesh, Morocco
+    editor: Linguraru, Marius George and Dou, Qi and Feragen, Aasa and Giannarou, Stamatia and Glocker, Ben and Lekadir, Karim and Schnabel, Julia A.
+    isbn: 978-3-031-72117-5
+    address: Cham
+    publisher: Springer Nature Switzerland
+    series: Lecture Notes in Computer Science
+  books:
+    978-3-031-72117-5:
+      part: X
+      volume: '15010'
+- name: Proceedings of the 21st ACM Conference on Embedded Networked Sensor Systems
+  year: '2024'
+  fields:
+    month: November
+    venue: Istanbul, Turkiye
+    isbn: 979-8-4007-0414-7
+    series: SenSys '23
+    address: New York, NY, USA
+    publisher: Association for Computing Machinery
+- name: Proceedings of the 32nd ACM International Conference on Multimedia
+  year: '2024'
+  fields:
+    month: none
+    venue: Melbourne, VIC, Australia
+    isbn: '9798400706868'
+    series: MM '24
+- name: Proceedings of the 41st International Conference on Machine Learning
+  year: '2024'
+  interim:
+    openreview: Forty-first International Conference on Machine Learning
+  fields:
+    venue: Vienna, Austria
+    editor: Salakhutdinov, Ruslan and Kolter, Zico and Heller, Katherine and Weller, Adrian and Oliver, Nuria and Scarlett, Jonathan and Berkenkamp, Felix
+    month: July
+    day: 21--27
+- name: Proceedings of the AAAI Conference on Artificial Intelligence
+  year: '2024'
+  fields:
+    venue: Vancouver, BC, Canada
+    isbn: 978-1-57735-887-9
+    address: Washington, DC, USA
+    month: March
+- name: Proceedings of the Thirty-Third International Joint Conference on Artificial Intelligence, {IJCAI-24}
+  year: '2024'
+  fields:
+    venue: Jeju, Korea
+    isbn: 978-1-939133-37-9
+    editor: Kate Larson
+    month: August
+- name: 2023 IEEE International Conference on Systems, Man, and Cybernetics (SMC)
+  year: '2023'
+  fields:
+    venue: Honolulu, Oahu, HI, USA
+    issn: 2577-1655
+    isbn: 979-8-3503-3702-0
+    publisher: IEEE
+    month: October
+- name: 2023 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)
+  year: '2023'
+  interim:
+    cvf: Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)
+  fields:
+    venue: Vancouver, BC, Canada
+    isbn: 979-8-3503-0129-8
+    month: June
+- name: 2023 IEEE/CVF Conference on Computer Vision and Pattern Recognition Workshops (CVPRW)
+  year: '2023'
+  interim:
+    cvf: Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) Workshops
+  fields:
+    venue: Vancouver, BC, Canada
+    isbn: 979-8-3503-0249-3
+    month: June
+- name: 2023 IEEE/CVF International Conference on Computer Vision (ICCV)
+  year: '2023'
+  interim:
+    cvf: Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV)
+  fields:
+    venue: Paris, France
+    issn: 2380-7504
+    isbn: 979-8-3503-0718-4
+    month: October
+- name: 2023 IEEE/CVF International Conference on Computer Vision Workshops (ICCVW)
+  year: '2023'
+  interim:
+    cvf: Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV) Workshops
+  fields:
+    venue: Paris, France
+    issn: 2473-9944
+    isbn: 979-8-3503-0744-3
+    publisher: IEEE
+    month: October
+- name: 2023 IEEE/CVF Winter Conference on Applications of Computer Vision (WACV)
+  year: '2023'
+  interim:
+    cvf: Proceedings of the IEEE/CVF Winter Conference on Applications of Computer Vision (WACV)
+  fields:
+    venue: Waikoloa, HI, USA
+    issn: 2642-9381
+    isbn: 978-1-6654-9346-8
+    month: January
+- name: Advances in Neural Information Processing Systems
+  year: '2023'
+  interim:
+    openreview: Thirty-seventh Conference on Neural Information Processing Systems
+  fields:
+    isbn: 978-1-7138-9992-1
+    venue: New Orleans, LA, USA
+    editor: A. Oh and T. Naumann and A. Globerson and K. Saenko and M. Hardt and S. Levine
+    address: Red Hook, NY, USA
+    publisher: Curran Associates, Inc.
+    month: December
+- name: Proceedings of The 2nd Conference on Lifelong Learning Agents
+  year: '2023'
+  fields:
+    venue: Montreal, QC, Canada
+    editor: Chandar, Sarath and Pascanu, Razvan and Sedghi, Hanie and Precup, Doina
+    month: August
+- name: Proceedings of the 40th International Conference on Machine Learning
+  year: '2023'
+  fields:
+    venue: Honolulu, HI, USA
+    editor: Krause, Andreas and Brunskill, Emma and Cho, Kyunghyun and Engelhardt, Barbara and Sabato, Sivan and Scarlett, Jonathan
+    day: 23--29
+    month: July
+- name: 'Proceedings of the 61st Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers)'
+  year: '2023'
+  fields:
+    venue: Toronto, ON, Canada
+    editor: Rogers, Anna and Boyd-Graber, Jordan and Okazaki, Naoaki
+    month: July
+- name: The Eleventh International Conference on Learning Representations
+  year: '2023'
+  fields:
+    venue: Kigali, Rwanda
+    month: May
+- name: 2022 IEEE International Conference on Image Processing (ICIP)
+  year: '2022'
+  fields:
+    venue: Bordeaux, France
+    issn: 2381-8549
+    isbn: 978-1-6654-9620-9
+    publisher: IEEE
+    month: October
+- name: 2022 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)
+  year: '2022'
+  interim:
+    cvf: Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)
+  fields:
+    venue: New Orleans, LA, USA
+    isbn: 978-1-6654-6946-3
+    month: June
+- name: 2022 IEEE/CVF Conference on Computer Vision and Pattern Recognition Workshops (CVPRW)
+  year: '2022'
+  interim:
+    cvf: Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) Workshops
+  fields:
+    venue: New Orleans, LA, USA
+    isbn: 978-1-6654-8739-9
+    month: June
+- name: 2022 International Joint Conference on Neural Networks (IJCNN)
+  year: '2022'
+  fields:
+    venue: Padua, Italy
+    issn: 2161-4407
+    isbn: 978-1-7281-8671-9
+    publisher: IEEE
+    month: July
+- name: Advances in Neural Information Processing Systems
+  year: '2022'
+  fields:
+    month: none
+    isbn: 978-1-7138-7108-8
+    venue: New Orleans, LA, USA
+    editor: S. Koyejo and S. Mohamed and A. Agarwal and D. Belgrave and K. Cho and A. Oh
+    address: Red Hook, NY, USA
+    publisher: Curran Associates, Inc.
+- name: Computer Vision -- ECCV 2022
+  year: '2022'
+  fields:
+    venue: Tel Aviv, Israel
+    editor: Avidan, Shai and Brostow, Gabriel and Ciss{\'e}, Moustapha and Farinella, Giovanni Maria and Hassner, Tal
+    publisher: Springer Nature Switzerland
+    month: October
+  books:
+    978-3-031-19809-0:
+      part: XXVI
+      volume: '13686'
+    978-3-031-20050-2:
+      part: XXIII
+      volume: '13683'
+- name: Proceedings of the AAAI Conference on Artificial Intelligence
+  year: '2022'
+  fields:
+    month: June
+    isbn: 978-1-57735-876-3
+    address: Palo Alto, California, USA
+- name: 2021 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)
+  year: '2021'
+  interim:
+    cvf: Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)
+  fields:
+    venue: Nashville, TN, USA
+    isbn: 978-1-6654-4509-2
+    month: June
+- name: 2021 IEEE/CVF Conference on Computer Vision and Pattern Recognition Workshops (CVPRW)
+  year: '2021'
+  interim:
+    cvf: Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR) Workshops
+  fields:
+    venue: Nashville, TN, USA
+    isbn: 978-1-6654-4899-4
+    month: June
+- name: 2021 IEEE/CVF International Conference on Computer Vision (ICCV)
+  year: '2021'
+  interim:
+    cvf: Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV)
+  fields:
+    venue: Montreal, QC, Canada
+    month: October
+    isbn: 978-1-6654-2812-5
+    issn: 2380-7504
+- name: Advances in Neural Information Processing Systems
+  year: '2021'
+  fields:
+    editor: M. Ranzato and A. Beygelzimer and Y. Dauphin and P.S. Liang and J. Wortman Vaughan
+    isbn: 978-1-7138-4539-3
+    address: Red Hook, NY, USA
+    publisher: Curran Associates, Inc.
+    month: December
+  entry_fields:
+  - pages
+  - url
+  - volume
+  learned_from: official BibTeX of 1 entry (2021), 2026-10-15
+- name: Artificial Neural Networks and Machine Learning -- ICANN 2021
+  year: '2021'
+  fields:
+    month: September
+    venue: Bratislava, Slovakia
+    editor: Farka{\v{s}}, Igor and Masulli, Paolo and Otte, Sebastian and Wermter, Stefan
+    isbn: 978-3-030-86340-1
+    address: Cham
+    publisher: Springer International Publishing
+    series: Lecture Notes in Computer Science
+  books:
+    978-3-030-86340-1:
+      part: II
+      volume: '12892'
+- name: International Conference on Learning Representations
+  year: '2021'
+  fields:
+    month: May
+    venue: Vienna, Austria
+- name: 'Proceedings of the 2021 Conference of the North American Chapter of the Association for Computational Linguistics: Human Language Technologies'
+  year: '2021'
+  fields:
+    venue: Online
+    editor: Toutanova, Kristina and Rumshisky, Anna and Zettlemoyer, Luke and Hakkani-Tur, Dilek and Beltagy, Iz and Bethard, Steven and Cotterell, Ryan and Chakraborty, Tanmoy and Zhou, Yichao
+    month: June
+- name: Proceedings of the AAAI Conference on Artificial Intelligence
+  year: '2021'
+  fields:
+    venue: Online
+    month: May
+    isbn: 978-1-57735-866-4
+    address: Palo Alto, California, USA
+- name: 2020 IEEE Winter Conference on Applications of Computer Vision (WACV)
+  year: '2020'
+  interim:
+    cvf: Proceedings of the IEEE/CVF Winter Conference on Applications of Computer Vision (WACV)
+  fields:
+    venue: Snowmass, CO, USA
+    publisher: IEEE
+    month: March
+    isbn: 978-1-7281-6553-0
+    issn: 2642-9381
+- name: 2020 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)
+  year: '2020'
+  interim:
+    cvf: Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)
+  fields:
+    venue: Seattle, WA, USA
+    month: June
+    isbn: 978-1-7281-7168-5
+- name: 2020 IEEE/CVF Conference on Computer Vision and Pattern Recognition Workshops (CVPRW)
+  year: '2020'
+  fields:
+    venue: Seattle, WA, USA
+    isbn: 978-1-7281-9360-1
+    month: June
+- name: Advances in Neural Information Processing Systems
+  year: '2020'
+  fields:
+    venue: Online
+    publisher: Curran Associates, Inc.
+    month: December
+    editor: H. Larochelle and M. Ranzato and R. Hadsell and M.F. Balcan and H. Lin
+  entry_fields:
+  - pages
+  - url
+  - volume
+  learned_from: official BibTeX of 1 entry (2020), 2026-10-20
+- name: Computer Vision -- ECCV 2020
+  year: '2020'
+  fields:
+    venue: Glasgow, UK
+    publisher: Springer International Publishing
+    month: August
+    editor: Vedaldi, Andrea and Bischof, Horst and Brox, Thomas and Frahm, Jan-Michael
+  books:
+    978-3-030-58529-7:
+      part: XIX
+      volume: '12364'
+    978-3-030-58565-5:
+      part: XX
+      volume: '12365'
+- name: 2019 IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)
+  year: '2019'
+  interim:
+    cvf: Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)
+  fields:
+    venue: Long Beach, CA, USA
+    isbn: 978-1-7281-3293-8
+    month: June
+- name: 2019 IEEE/CVF International Conference on Computer Vision (ICCV)
+  year: '2019'
+  interim:
+    cvf: Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV)
+  fields:
+    venue: Seoul, Korea (South)
+    issn: 2380-7504
+    isbn: 978-1-7281-4803-8
+    month: none
+- name: Advances in Neural Information Processing Systems
+  year: '2019'
+  fields:
+    venue: Vancouver, BC, Canada
+    publisher: Curran Associates, Inc.
+    month: December
+    editor: H. Wallach and H. Larochelle and A. Beygelzimer and F. d\textquotesingle Alch\'{e}-Buc and E. Fox and R. Garnett
+  entry_fields:
+  - url
+  - volume
+  learned_from: official BibTeX of 1 entry (2019), 2026-10-20
+- name: International Conference on Learning Representations
+  year: '2019'
+  fields:
+    venue: New Orleans, LA, USA
+    month: May
+- name: Proceedings of the 25th ACM SIGKDD International Conference on Knowledge Discovery \& Data Mining
+  year: '2019'
+  fields:
+    venue: Anchorage, AK, USA
+    publisher: Association for Computing Machinery
+    month: August
+    isbn: 978-1-4503-6201-6
+    series: KDD '19
+    address: New York, NY, USA
+- name: Proceedings of the 36th International Conference on Machine Learning
+  year: '2019'
+  fields:
+    venue: Long Beach, CA, USA
+    month: June
+    editor: Chaudhuri, Kamalika and Salakhutdinov, Ruslan
+  entry_fields:
+  - abstract
+  - day
+  - pages
+  - pdf
+  - url
+  - volume
+  learned_from: official BibTeX of 1 entry (2019), 2026-10-15
+- name: 2018 IEEE/CVF Conference on Computer Vision and Pattern Recognition
+  year: '2018'
+  fields:
+    venue: Salt Lake City, UT, USA
+    issn: 2575-7075
+    isbn: 978-1-5386-6420-9
+    publisher: IEEE
+    month: June
+- name: Advances in Neural Information Processing Systems
+  year: '2018'
+  fields:
+    venue: Montreal, QC, Canada
+    publisher: Curran Associates, Inc.
+    month: December
+    isbn: 978-1-5108-8447-2
+    editor: S. Bengio and H. Wallach and H. Larochelle and K. Grauman and N. Cesa-Bianchi and R. Garnett
+    address: Red Hook, NY, USA
+  entry_fields:
+  - url
+  - volume
+  learned_from: official BibTeX of 1 entry (2018), 2026-10-15
+- name: British Machine Vision Conference (BMVC)
+  year: '2018'
+  fields:
+    month: September
+    venue: Northumbria University, Newcastle, UK
+- name: Computer Vision -- ECCV 2018
+  year: '2018'
+  fields:
+    venue: Munich, Germany
+    editor: Ferrari, Vittorio and Hebert, Martial and Sminchisescu, Cristian and Weiss, Yair
+    publisher: Springer International Publishing
+    month: September
+  books:
+    978-3-030-01219-9:
+      part: III
+      volume: '11207'
+    978-3-030-01252-6:
+      part: XI
+      volume: '11215'
+- name: International Conference on Learning Representations
+  year: '2018'
+  fields:
+    month: none
+    venue: Vancouver, BC, Canada
+- name: Proceedings of the 35th International Conference on Machine Learning
+  year: '2018'
+  fields:
+    venue: Stockholmsmässan, Stockholm Sweden
+    month: July
+    editor: Dy, Jennifer and Krause, Andreas
+  entry_fields:
+  - abstract
+  - day
+  - pages
+  - pdf
+  - url
+  - volume
+  learned_from: official BibTeX of 1 entry (2018), 2026-10-15
+- name: 2017 IEEE International Conference on Computer Vision (ICCV)
+  year: '2017'
+  fields:
+    venue: Venice, Italy
+    publisher: IEEE
+    month: October
+- name: Advances in Neural Information Processing Systems
+  year: '2017'
+  fields:
+    isbn: 978-1-5108-6096-4
+    venue: Long Beach, CA, USA
+    editor: I. Guyon and U. Von Luxburg and S. Bengio and H. Wallach and R. Fergus and S. Vishwanathan and R. Garnett
+    address: Red Hook, NY, USA
+    publisher: Curran Associates, Inc.
+    month: December
+  entry_fields:
+  - url
+  - volume
+  learned_from: official BibTeX of 1 entry (2017), 2026-10-15
+- name: Proceedings of the 34th International Conference on Machine Learning
+  year: '2017'
+  fields:
+    venue: Sydney, Australia
+    editor: Precup, Doina and Teh, Yee Whye
+    day: 06--11
+    month: August
+- name: Advances in Neural Information Processing Systems
+  year: '2016'
+  fields:
+    venue: Barcelona, Spain
+    month: December
+- name: Computer Vision -- ECCV 2016
+  year: '2016'
+  fields:
+    venue: Amsterdam, Netherlands
+    editor: Leibe, Bastian and Matas, Jiri and Sebe, Nicu and Welling, Max
+    publisher: Springer International Publishing
+    month: October
+  books:
+    978-3-319-46493-0:
+      part: IV
+      volume: '9908'

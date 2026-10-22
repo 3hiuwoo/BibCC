@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BibCC Workbench: run bibcc on a pasted .bib file</title>
+<meta name="description" content="Paste a BibTeX file, run bibcc's offline checks, completion, and formatting on it in your browser, and copy the result back. Nothing is uploaded.">
+<meta name="color-scheme" content="light">
+<link rel="stylesheet" href="styles.css">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%238c2f39'/%3E%3Ctext x='16' y='23' font-family='ui-monospace,monospace' font-size='18' font-weight='700' fill='%23f7f5f0' text-anchor='middle'%3E%7B%7D%3C/text%3E%3C/svg%3E">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="mark" aria-hidden="true">{}</span>
+    <div class="brand-text">
+      <h1>BibCC Workbench</h1>
+      <p>Paste a <code>.bib</code> file, run <code>bibcc</code> on it, copy the result back.</p>
+    </div>
+  </div>
+  <p class="status" id="status" role="status" aria-live="polite">
+    <span class="dot" data-state="booting"></span>
+    <span id="statusText">Starting the Python runtime…</span>
+  </p>
+</header>
+
+<main class="workbench">
+
+  <section class="pane" aria-labelledby="inputHeading">
+    <div class="pane-head">
+      <h2 id="inputHeading">Your bibliography</h2>
+      <p class="pane-note" id="stats">No entries yet</p>
+    </div>
+
+    <div class="toolbar">
+      <button type="button" class="btn" id="loadSample">Load a sample</button>
+      <button type="button" class="btn" id="openFile">Open a file…</button>
+      <input type="file" id="filePicker" accept=".bib,.txt,text/plain" hidden>
+      <button type="button" class="btn" id="revert" disabled>Revert to pasted</button>
+      <button type="button" class="btn" id="clearInput">Clear</button>
+    </div>
+
+    <label class="sr-only" for="bib">BibTeX contents</label>
+    <textarea id="bib" class="editor" spellcheck="false" autocomplete="off"
+      placeholder="Paste your BibTeX here…"></textarea>
+
+    <details class="support" id="support">
+      <summary>
+        <span class="summary-title">Supporting files</span>
+        <span class="summary-note">venue library, protected terms, format config</span>
+      </summary>
+      <div class="support-body">
+        <p class="support-lede">
+          <code>complete</code> and <code>check editions</code> read a venue library; <code>check quote</code>
+          reads protected terms; <code>format</code> reads a config. Paste your own, or load the
+          <code>miaa</code> profile that ships with bibcc. Commands that write the library, such as
+          <code>complete --update-venues</code>, update these boxes.
+        </p>
+        <div class="support-actions">
+          <button type="button" class="btn" id="loadProfile">Load the miaa profile</button>
+          <button type="button" class="btn" id="clearProfile">Clear all three</button>
+          <span class="support-hint" id="profileHint"></span>
+        </div>
+
+        <div class="field">
+          <label for="venues"><code>venues.yaml</code> <span>the venue library</span></label>
+          <textarea id="venues" class="editor small" spellcheck="false" placeholder="journals:&#10;- name: …"></textarea>
+        </div>
+        <div class="field">
+          <label for="terms"><code>terms.txt</code> <span>protected terms</span></label>
+          <textarea id="terms" class="editor small" spellcheck="false" placeholder="One term per line"></textarea>
+        </div>
+        <div class="field">
+          <label for="config"><code>config.yaml</code> <span>format settings</span></label>
+          <textarea id="config" class="editor small" spellcheck="false" placeholder="format:&#10;  align: true"></textarea>
+        </div>
+      </div>
+    </details>
+  </section>
+
+  <section class="pane" aria-labelledby="runHeading">
+    <div class="pane-head">
+      <h2 id="runHeading">Run bibcc</h2>
+      <p class="pane-note" id="runNote">Commands run against the file in Your bibliography.</p>
+    </div>
+
+    <div class="runbar">
+      <label class="sr-only" for="command">Command</label>
+      <select id="command"></select>
+      <button type="button" class="btn primary" id="run" disabled>Run</button>
+    </div>
+    <p class="command-summary" id="commandSummary"></p>
+
+    <div class="options" id="options"></div>
+
+    <details class="advanced" id="advancedBox">
+      <summary>Custom command line</summary>
+      <div class="advanced-body">
+        <p class="support-lede">
+          Anything the bundled bibcc accepts. The working file is <code>input.bib</code>; the runtime's
+          home directory is <code>/home/user</code>. An interactive run quits at its first prompt.
+        </p>
+        <div class="runbar">
+          <label class="sr-only" for="custom">Arguments</label>
+          <input type="text" id="custom" class="editor inline" spellcheck="false"
+            placeholder="check title input.bib --apply">
+          <button type="button" class="btn" id="runCustom">Run</button>
+        </div>
+        <div class="cli-only">
+          <p class="cli-only-title">These stay in the terminal</p>
+          <ul id="cliOnly"></ul>
+        </div>
+      </div>
+    </details>
+
+    <div class="quickbar">
+      <span class="quickbar-label">Shortcuts</span>
+      <button type="button" class="btn small" id="runAllChecks">Run every check</button>
+      <button type="button" class="btn small" id="runFormat">Format</button>
+      <button type="button" class="btn small" id="runPipeline">Format, fix titles, and clean fields</button>
+      <button type="button" class="btn small ghost" id="resetRuntime" title="Delete the reports bibcc wrote">Reset reports</button>
+    </div>
+
+    <nav class="tabs" role="tablist" aria-label="Results">
+      <button type="button" role="tab" id="tab-btn-console" aria-controls="tab-console" aria-selected="true" data-tab="console">Console</button>
+      <button type="button" role="tab" id="tab-btn-result" aria-controls="tab-result" aria-selected="false" data-tab="result" tabindex="-1">Result <span class="badge" id="resultBadge" hidden>changed</span></button>
+      <button type="button" role="tab" id="tab-btn-reports" aria-controls="tab-reports" aria-selected="false" data-tab="reports" tabindex="-1">Reports <span class="badge" id="reportsBadge" hidden>0</span></button>
+    </nav>
+
+    <div class="tabpanel" id="tab-console" role="tabpanel" aria-labelledby="tab-btn-console">
+      <div class="console-toolbar">
+        <span id="consoleMeta" class="console-meta">Nothing has run yet.</span>
+        <button type="button" class="btn small ghost" id="copyConsole">Copy output</button>
+        <button type="button" class="btn small ghost" id="clearConsole">Clear</button>
+      </div>
+      <pre class="console" id="console" tabindex="0" aria-live="polite">Pick a command and press Run.</pre>
+    </div>
+
+    <div class="tabpanel" id="tab-result" role="tabpanel" aria-labelledby="tab-btn-result" hidden>
+      <div class="console-toolbar">
+        <div class="segmented" role="group" aria-label="Result view">
+          <button type="button" class="seg active" data-view="bib" aria-pressed="true">Current file</button>
+          <button type="button" class="seg" data-view="diff" aria-pressed="false">Diff from pasted</button>
+        </div>
+        <button type="button" class="btn small" id="copyResult">Copy result</button>
+        <button type="button" class="btn small ghost" id="downloadResult">Download .bib</button>
+      </div>
+      <pre class="console result" id="result" tabindex="0"></pre>
+    </div>
+
+    <div class="tabpanel" id="tab-reports" role="tabpanel" aria-labelledby="tab-btn-reports" hidden>
+      <div class="reports">
+        <ul class="report-list" id="reportList"></ul>
+        <div class="report-view">
+          <div class="console-toolbar">
+            <span class="console-meta" id="reportMeta">No report selected.</span>
+            <button type="button" class="btn small ghost" id="copyReport">Copy</button>
+          </div>
+          <pre class="console" id="reportBody" tabindex="0"></pre>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="site-foot">
+  <p>
+    bibcc <span id="footVersion">—</span> runs entirely in this tab, on
+    <a href="https://pyodide.org" rel="noopener">Pyodide</a>. Your bibliography never leaves your
+    machine: there is no server, no upload, and no analytics.
+  </p>
+  <p>
+    Commands that reach CrossRef, arXiv, publisher sites, or Google Scholar, and the ones that walk a
+    PDF library or a directory tree, need the
+    <a href="https://github.com/3hiuwoo/BibCC" rel="noopener">command-line bibcc</a>.
+  </p>
+</footer>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>

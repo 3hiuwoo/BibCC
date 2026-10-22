@@ -2,11 +2,13 @@
 !tests/fixtures/**/*.bib
 *.txt
 !examples/**/*.txt
+!web/data/*.txt
 *.bak
 *.yaml
 !missing_venues.example.yaml
 !examples/**/*.yaml
 !src/bibcc/data/*.yaml
+!web/data/*.yaml
 logs/
 *.local.*
 __pycache__/
@@ -16,3 +18,4 @@ dist/
 .bibcc/
 .vscode/
 .ruff_cache/
+*.qoder.site
